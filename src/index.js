@@ -75,73 +75,106 @@ const str = (v, max) => {
 };
 
 /* ------------------------------------------------------------------ */
-/* Cloudflare Access verification                                      */
+/* Admin authentication                                                */
+/*                                                                     */
+/* A single passphrase, stored as an encrypted Worker secret and never  */
+/* present in the source. A successful login returns a signed, expiring */
+/* cookie; every admin request verifies that signature. The cookie is   */
+/* HttpOnly so page scripts cannot read it, Secure so it never travels  */
+/* unencrypted, and SameSite=Strict so another site cannot ride on it.  */
 /* ------------------------------------------------------------------ */
 
-let keyCache = { keys: null, at: 0 };
+const SESSION_COOKIE = "agm_session";
+const SESSION_HOURS = 12;
 
-async function accessPublicKeys(teamDomain) {
-  const fresh = Date.now() - keyCache.at < 60 * 60 * 1000;
-  if (keyCache.keys && fresh) return keyCache.keys;
-  const res = await fetch(`https://${teamDomain}/cdn-cgi/access/certs`);
-  if (!res.ok) throw new Error("could not fetch Access certificates");
-  const { keys } = await res.json();
-  keyCache = { keys, at: Date.now() };
-  return keys;
+const enc = new TextEncoder();
+
+/** Comparison that takes the same time whether or not the strings match,
+ *  so timing cannot be used to guess the passphrase character by character. */
+function constantTimeEqual(a, b) {
+  const A = enc.encode(a), B = enc.encode(b);
+  if (A.length !== B.length) return false;
+  let diff = 0;
+  for (let i = 0; i < A.length; i++) diff |= A[i] ^ B[i];
+  return diff === 0;
 }
 
-const b64url = s => {
-  const pad = "=".repeat((4 - (s.length % 4)) % 4);
-  const bin = atob((s + pad).replace(/-/g, "+").replace(/_/g, "/"));
-  return Uint8Array.from(bin, c => c.charCodeAt(0));
-};
+async function hmac(message, key) {
+  const k = await crypto.subtle.importKey(
+    "raw", enc.encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", k, enc.encode(message));
+  return [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
 
-/**
- * Verifies the Cf-Access-Jwt-Assertion header: real signature from our own
- * Access team, correct audience, not expired. Returns the reviewer's email
- * or null. Defence in depth — Access already gates the route, but a
- * misconfigured rule should not hand out admin rights.
- */
-async function verifyAccess(request, env) {
-  const token =
-    request.headers.get("Cf-Access-Jwt-Assertion") ||
-    (request.headers.get("cookie") || "").match(/CF_Authorization=([^;]+)/)?.[1];
-  if (!token) return null;
+async function makeSession(env) {
+  const expires = Date.now() + SESSION_HOURS * 3600_000;
+  return `${expires}.${await hmac(String(expires), env.ADMIN_PASSWORD)}`;
+}
 
-  const [h, p, s] = token.split(".");
-  if (!h || !p || !s) return null;
+async function validSession(token, env) {
+  if (!token) return false;
+  const [expires, sig] = token.split(".");
+  if (!expires || !sig) return false;
+  if (Number(expires) < Date.now()) return false;
+  return constantTimeEqual(sig, await hmac(expires, env.ADMIN_PASSWORD));
+}
 
-  let header, payload;
-  try {
-    header = JSON.parse(new TextDecoder().decode(b64url(h)));
-    payload = JSON.parse(new TextDecoder().decode(b64url(p)));
-  } catch { return null; }
+const readCookie = (request, name) =>
+  (request.headers.get("cookie") || "").match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`))?.[1] || null;
 
-  const now = Math.floor(Date.now() / 1000);
-  if (payload.exp && payload.exp < now) return null;
-  if (payload.nbf && payload.nbf > now) return null;
-  if (env.ACCESS_AUD && payload.aud) {
-    const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-    if (!aud.includes(env.ACCESS_AUD)) return null;
+/** Records failed attempts so a stolen URL cannot be brute-forced.
+ *  Ten failures from one address in fifteen minutes locks it out. */
+async function loginBlocked(env, ipHash) {
+  if (!ipHash) return false;
+  const since = new Date(Date.now() - 15 * 60_000).toISOString();
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM admin_logins WHERE ip_hash = ? AND ts > ?"
+  ).bind(ipHash, since).first();
+  return (row?.n || 0) >= 10;
+}
+
+async function recordFailure(env, ipHash) {
+  if (!ipHash) return;
+  await env.DB.prepare("INSERT INTO admin_logins (ip_hash, ts) VALUES (?, ?)")
+    .bind(ipHash, new Date().toISOString()).run();
+}
+
+async function handleLogin(request, env) {
+  if (!env.ADMIN_PASSWORD) return fail("Admin access is not configured yet.", 503);
+
+  const ip = request.headers.get("CF-Connecting-IP");
+  const ipHash = await hashIp(ip, env.IP_SALT || "airgunmatches");
+
+  if (await loginBlocked(env, ipHash))
+    return fail("Too many failed attempts. Try again in fifteen minutes.", 429);
+
+  let body;
+  try { body = await request.json(); } catch { return fail("Malformed request."); }
+
+  if (!constantTimeEqual(String(body.password || ""), env.ADMIN_PASSWORD)) {
+    await recordFailure(env, ipHash);
+    // Slow down automated guessing without inconveniencing a real typo.
+    await new Promise(r => setTimeout(r, 800));
+    return fail("Incorrect password.", 401);
   }
 
-  const keys = await accessPublicKeys(env.ACCESS_TEAM_DOMAIN);
-  const jwk = keys.find(k => k.kid === header.kid);
-  if (!jwk) return null;
+  const token = await makeSession(env);
+  return json({ ok: true }, 200, {
+    "set-cookie": `${SESSION_COOKIE}=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${SESSION_HOURS * 3600}`
+  });
+}
 
-  const key = await crypto.subtle.importKey(
-    "jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]
-  );
-  const ok = await crypto.subtle.verify(
-    "RSASSA-PKCS1-v1_5", key, b64url(s), new TextEncoder().encode(`${h}.${p}`)
-  );
-  return ok ? (payload.email || "unknown") : null;
+function handleLogout() {
+  return json({ ok: true }, 200, {
+    "set-cookie": `${SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`
+  });
 }
 
 async function requireAdmin(request, env) {
-  const email = await verifyAccess(request, env);
-  if (!email) return { error: fail("Not authorised", 403) };
-  return { email };
+  const okSession = await validSession(readCookie(request, SESSION_COOKIE), env);
+  if (!okSession) return { error: fail("Not authorised", 403) };
+  return { email: "admin" };
 }
 
 /* ------------------------------------------------------------------ */
@@ -399,6 +432,10 @@ export default {
         if (path === "/api/events" && method === "GET")  return await getPublicEvents(env);
         if (path === "/api/events" && method === "POST") return await createSubmission(request, env);
 
+        // ---- admin session ----
+        if (path === "/api/admin/login"  && method === "POST") return await handleLogin(request, env);
+        if (path === "/api/admin/logout" && method === "POST") return handleLogout();
+
         // ---- admin ----
         if (path.startsWith("/api/admin/")) {
           const auth = await requireAdmin(request, env);
@@ -417,11 +454,15 @@ export default {
       // ---- static assets ----
       // The admin page is additionally gated by Cloudflare Access at the edge;
       // this check means a misconfigured Access policy still cannot serve it.
+      // The admin page is served to anyone, but it is an empty shell: every
+      // /api/admin/* call behind it requires a valid session, so an
+      // unauthenticated visitor sees a login form and nothing else.
       if (path === ADMIN_PATH) {
-        const auth = await requireAdmin(request, env);
-        if (auth.error) {
-          return new Response("Not authorised.", { status: 403, headers: securityHeaders() });
-        }
+        const headers = { ...securityHeaders(), "cache-control": "no-store" };
+        const res = await env.ASSETS.fetch(request);
+        const h = new Headers(res.headers);
+        for (const [k, v] of Object.entries(headers)) h.set(k, v);
+        return new Response(res.body, { status: res.status, headers: h });
       }
 
       const res = await env.ASSETS.fetch(request);
