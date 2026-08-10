@@ -1,16 +1,13 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
   "name": "airgunmatches",
   "main": "src/index.js",
   "compatibility_date": "2026-08-01",
-
-  // Static site + API in one Worker: one deploy, one rollback.
+  "workers_dev": true,
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "not_found_handling": "404-page"
+    "not_found_handling": "none"
   },
-
   "d1_databases": [
     {
       "binding": "DB",
@@ -18,15 +15,9 @@
       "database_id": "986bbc6c-b6de-4798-8305-1ee55e2df957"
     }
   ],
-
   "vars": {
-    // Public, non-secret. Filled in once Cloudflare Access is configured.
     "ACCESS_TEAM_DOMAIN": "",
     "ACCESS_AUD": ""
   },
-
-  "observability": { "enabled": true },
-
-  // Keeps a runaway loop or attack from burning through the free tier.
-  "limits": { "cpu_ms": 50 }
+  "observability": { "enabled": true }
 }
