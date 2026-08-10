@@ -1,4 +1,0 @@
-# Copy to .dev.vars for local development. Never commit the real file.
-# Real values are set in production with: wrangler secret put <NAME>
-TURNSTILE_SECRET_KEY=
-IP_SALT=
