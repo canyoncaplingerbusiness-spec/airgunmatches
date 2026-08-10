@@ -48,6 +48,23 @@
   .msg.err{background:var(--red-bg);border:1px solid var(--red-line);color:#8f2419}
   .msg.info{background:#eef2f7;border:1px solid #dde4ee;color:var(--navy-2)}
 
+  /* ---------- Login ---------- */
+  .loginwrap{max-width:380px;margin:80px auto;background:var(--card);border:1px solid var(--line);
+    border-radius:var(--radius);box-shadow:var(--shadow);padding:30px}
+  .loginwrap h2{margin:0 0 5px;font-size:20px}
+  .loginwrap p.sub{margin:0 0 20px;color:var(--muted);font-size:14px}
+  .loginwrap label{display:block;font-size:12.5px;font-weight:700;margin-bottom:5px}
+  .loginwrap input{width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:8px;
+    font-size:15px;margin-bottom:14px;font-family:inherit}
+  .loginwrap input:focus{outline:2px solid var(--navy-2);outline-offset:-1px}
+  .loginwrap .btn{width:100%;background:var(--amber);color:#241503;font-weight:700;font-size:15px;
+    border:0;padding:11px 20px;border-radius:var(--radius);cursor:pointer}
+  .loginwrap .btn:hover{background:var(--amber-dk);color:#fff}
+  .loginwrap .btn:disabled{opacity:.6;cursor:default}
+  .msg{border-radius:8px;padding:10px 12px;font-size:13.5px;margin-bottom:14px}
+  .msg.err{background:var(--red-bg);border:1px solid var(--red-line);color:#8f2419}
+  .msg.info{background:#eef2f7;border:1px solid #dde4ee;color:var(--navy-2)}
+
   /* ---------- Tabs & toolbar ---------- */
   .tabs{display:flex;gap:6px;margin:22px 0 16px;flex-wrap:wrap}
   .tab{background:var(--card);border:1px solid var(--line);color:var(--muted);font-size:14px;
@@ -143,8 +160,22 @@
 </head>
 <body>
 
+<!-- ---------- Login ---------- -->
+<div id="loginview" hidden>
+  <div class="loginwrap">
+    <h2>Event Review</h2>
+    <p class="sub">Enter the admin password to review submissions.</p>
+    <div id="loginmsg"></div>
+    <form id="loginform">
+      <label for="password">Password</label>
+      <input type="password" id="password" required autocomplete="current-password" autofocus>
+      <button class="btn" type="submit" id="loginbtn">Sign In</button>
+    </form>
+  </div>
+</div>
+
 <!-- ---------- Dashboard ---------- -->
-<div id="appview">
+<div id="appview" hidden>
   <header class="site">
     <div class="wrap hrow">
       <div>
@@ -155,7 +186,7 @@
         <button class="linkbtn" id="viewsite">View calendar</button>
         <button class="linkbtn" id="exportjson">Backup JSON</button>
         <button class="linkbtn" id="exportcsv">Backup CSV</button>
-        <a class="linkbtn" href="/cdn-cgi/access/logout" style="text-decoration:none">Sign out</a>
+        <button class="linkbtn" id="signout">Sign out</button>
       </div>
     </div>
   </header>
@@ -272,6 +303,49 @@ function cell(label, value, opts = {}){
 /* ---------- Session ---------- */
 const show = (id, on) => document.getElementById(id).hidden = !on;
 
+function loginMsg(text, kind = "err"){
+  document.getElementById("loginmsg").innerHTML =
+    text ? `<div class="msg ${kind}">${esc(text)}</div>` : "";
+}
+
+document.getElementById("loginform").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = document.getElementById("loginbtn");
+  btn.disabled = true; btn.textContent = "Signing in…";
+  loginMsg("");
+
+  const res = await fetch(`${API}/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ password: document.getElementById("password").value })
+  });
+  const out = await res.json().catch(() => ({}));
+
+  btn.disabled = false; btn.textContent = "Sign In";
+  document.getElementById("password").value = "";
+
+  if(!res.ok){ loginMsg(out.error || "Sign in failed."); return; }
+  show("loginview", false); show("appview", true);
+  load();
+});
+
+document.getElementById("signout").addEventListener("click", async () => {
+  await fetch(`${API}/logout`, { method: "POST" });
+  ROWS = [];
+  show("appview", false); show("loginview", true);
+  loginMsg("You've been signed out.", "info");
+});
+
+/* Probe the API once. A 403 means no valid session, so show the login form. */
+async function boot(){
+  const res = await fetch(`${API}/events`, { headers: { accept: "application/json" } });
+  if(res.status === 403){ show("loginview", true); show("appview", false); return; }
+  show("loginview", false); show("appview", true);
+  const { events } = await res.json().catch(() => ({ events: [] }));
+  ROWS = events || [];
+  render();
+}
+
 document.getElementById("viewsite").addEventListener("click", () => window.open(CALENDAR_URL, "_blank"));
 document.getElementById("exportjson").addEventListener("click", () => location.href = API + "/export?format=json");
 document.getElementById("exportcsv").addEventListener("click", () => location.href = API + "/export?format=csv");
@@ -280,10 +354,13 @@ document.getElementById("exportcsv").addEventListener("click", () => location.hr
 async function load(){
   document.getElementById("rows").innerHTML = '<div class="spinner"></div>';
   const res = await fetch(`${API}/events`, { headers: { accept: "application/json" } });
+  if(res.status === 403){
+    show("appview", false); show("loginview", true);
+    loginMsg("Your session expired. Please sign in again.", "info");
+    return;
+  }
   if(!res.ok){
-    const msg = res.status === 403
-      ? "Your session has expired. Reload the page to sign in again."
-      : `The server responded ${res.status}.`;
+    const msg = `The server responded ${res.status}.`;
     document.getElementById("rows").innerHTML =
       `<div class="empty"><strong>Couldn't load submissions.</strong>${esc(msg)}</div>`;
     return;
@@ -516,7 +593,7 @@ document.getElementById("tabs").addEventListener("click", e => {
 document.getElementById("search").addEventListener("input", render);
 document.getElementById("refresh").addEventListener("click", load);
 
-load();
+boot();
 </script>
 </body>
 </html>
