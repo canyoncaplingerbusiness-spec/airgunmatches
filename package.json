@@ -1,0 +1,15 @@
+{
+  "name": "airgunmatches",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute airgunmatches-db --remote --file=./schema.sql",
+    "db:init:local": "wrangler d1 execute airgunmatches-db --local --file=./schema.sql",
+    "db:import": "wrangler d1 execute airgunmatches-db --remote --file=./migrations/001_import_events.sql",
+    "db:backup": "wrangler d1 export airgunmatches-db --remote --output=./backups/backup.sql",
+    "rollback": "wrangler rollback"
+  },
+  "devDependencies": { "wrangler": "^4.0.0" }
+}

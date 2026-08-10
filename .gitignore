@@ -1,0 +1,8 @@
+# Never commit secrets or local state
+.dev.vars
+.env
+.env.*
+node_modules/
+.wrangler/
+backups/*.json
+backups/*.csv
