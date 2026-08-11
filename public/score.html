@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#12263f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Score a Squad — Airgun Matches</title>
+
+<!--
+  SQUAD SCORING — built for a phone on a range with no signal.
+
+  The whole design assumes the network is absent, not present. Every tap is
+  written to this device first and answered instantly; sending is a separate,
+  background concern that catches up whenever there is a bar of signal. A
+  scorer never waits for a spinner and never loses a tap.
+
+  Storage is localStorage rather than IndexedDB. A squad is a handful of
+  competitors and a dozen stages — a few kilobytes — and localStorage is
+  synchronous, which means a tap is durable before the finger lifts. There is
+  no await between the tap and the write, so nothing can be lost to a page
+  being backgrounded mid-save.
+
+  Two numbers make the sync safe:
+    - each card has an id generated here, so a request that is sent twice
+      because the connection flapped is recognised by the server as the same
+      write rather than a second one;
+    - each card carries the version it was edited from, so if someone else has
+      touched it in the meantime the server refuses and hands back both copies
+      instead of overwriting anyone's work.
+-->
+
+<style>
+  :root{
+    --navy:#12263f; --navy-2:#1c3557; --steel:#5a6b82;
+    --amber:#e08c1b; --amber-dk:#b86f0e;
+    --bg:#f5f6f8; --card:#fff; --line:#e2e6ec;
+    --text:#1d2733; --muted:#6b7684;
+    --green:#1f7a4d; --green-bg:#eaf6ef; --green-line:#b9dfc9;
+    --red:#b3261e; --red-bg:#fdecea; --red-line:#f5c2bd;
+    --radius:10px; --shadow:0 1px 2px rgba(18,38,63,.06), 0 4px 12px rgba(18,38,63,.05);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{overscroll-behavior-y:contain}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:env(safe-area-inset-bottom)}
+  button,input{font-family:inherit}
+  .wrap{max-width:640px;margin:0 auto;padding:0 14px}
+
+  /* ---------- header ---------- */
+  header.site{background:linear-gradient(160deg,var(--navy),var(--navy-2));color:#fff;
+    padding:14px 0 13px;position:sticky;top:0;z-index:30;
+    padding-top:calc(14px + env(safe-area-inset-top))}
+  header.site .row{display:flex;align-items:center;gap:10px}
+  header.site h1{margin:0;font-size:16px;font-weight:700;letter-spacing:-.2px;flex:1;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  header.site .sub{margin:2px 0 0;color:#a8b8cd;font-size:12.5px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* The sync pill is the one thing a scorer must be able to trust at a glance. */
+  .pill{font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:999px;
+    white-space:nowrap;border:1px solid transparent;letter-spacing:.2px}
+  .pill.ok{background:rgba(255,255,255,.14);color:#cfe6d8;border-color:rgba(185,223,201,.35)}
+  .pill.wait{background:rgba(224,140,27,.2);color:#ffd79a;border-color:rgba(224,140,27,.5)}
+  .pill.off{background:rgba(179,38,30,.22);color:#ffc4bf;border-color:rgba(245,194,189,.4)}
+  .pill.busy{background:rgba(255,255,255,.14);color:#cddcee;border-color:rgba(255,255,255,.25)}
+
+  /* ---------- generic ---------- */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:20px;margin:16px 0}
+  .card h2{margin:0 0 6px;font-size:18px}
+  .card p.sub{margin:0 0 16px;color:var(--muted);font-size:14px}
+  label{display:block;font-size:12.5px;font-weight:700;margin-bottom:5px}
+  input[type=text],input[type=number]{width:100%;padding:12px;border:1px solid var(--line);
+    border-radius:8px;font-size:16px;background:#fff;color:var(--text)}
+  input:focus{outline:2px solid var(--navy-2);outline-offset:-1px}
+  .codebox{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:19px;
+    letter-spacing:2px;text-transform:uppercase;text-align:center}
+  .btn{background:var(--amber);color:#241503;font-weight:700;font-size:15.5px;border:0;
+    padding:13px 20px;border-radius:var(--radius);cursor:pointer}
+  .btn:active{background:var(--amber-dk);color:#fff}
+  .btn:disabled{opacity:.55}
+  .btn.wide{width:100%}
+  .btn.ghost{background:#fff;border:1px solid var(--line);color:var(--navy-2)}
+  .btn.ghost:active{background:var(--bg);color:var(--navy)}
+  .btn.sm{padding:9px 13px;font-size:13.5px;border-radius:8px}
+  .msg{border-radius:8px;padding:11px 13px;font-size:14px;margin-bottom:14px}
+  .msg.err{background:var(--red-bg);border:1px solid var(--red-line);color:#8f2419}
+  .msg.ok{background:var(--green-bg);border:1px solid var(--green-line);color:var(--green)}
+  .msg.info{background:#eef2f7;border:1px solid #dde4ee;color:var(--navy-2)}
+
+  /* ---------- stage chips ---------- */
+  .stagebar{position:sticky;top:0;z-index:20;background:var(--bg);
+    padding:12px 0 10px;margin:0 -14px;overflow:hidden}
+  .stagebar .scroll{display:flex;gap:8px;overflow-x:auto;padding:0 14px 2px;
+    -webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .stagebar .scroll::-webkit-scrollbar{display:none}
+  .chip{flex:0 0 auto;background:#fff;border:1px solid var(--line);border-radius:999px;
+    padding:9px 15px;font-size:13.5px;font-weight:600;color:var(--steel);cursor:pointer;
+    display:flex;align-items:center;gap:7px}
+  .chip[aria-selected=true]{background:var(--navy);border-color:var(--navy);color:#fff}
+  .chip .dot{width:7px;height:7px;border-radius:50%;background:var(--line)}
+  .chip .dot.part{background:var(--amber)}
+  .chip .dot.done{background:var(--green)}
+  .chip[aria-selected=true] .dot{background:rgba(255,255,255,.35)}
+  .chip[aria-selected=true] .dot.part{background:#ffc46b}
+  .chip[aria-selected=true] .dot.done{background:#6fd8a2}
+
+  /* ---------- competitor rows ---------- */
+  .who{background:#fff;border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);margin-bottom:10px;overflow:hidden}
+  .who button.open{width:100%;background:none;border:0;padding:15px 16px;text-align:left;
+    display:flex;align-items:center;gap:12px;cursor:pointer}
+  .who .nm{flex:1;min-width:0}
+  .who .nm b{display:block;font-size:16px;font-weight:600;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .who .nm span{display:block;font-size:12.5px;color:var(--muted);margin-top:1px}
+  .tally{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;
+    font-weight:700;padding:6px 10px;border-radius:8px;background:var(--bg);color:var(--steel)}
+  .tally.part{background:#fdf3e3;color:var(--amber-dk)}
+  .tally.done{background:var(--green-bg);color:var(--green)}
+  .who .chev{color:var(--muted);font-size:19px;line-height:1}
+
+  /* ---------- shot grid ---------- */
+  .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:0 14px 14px}
+  @media(min-width:430px){ .grid{grid-template-columns:repeat(6,1fr)} }
+  .shot{aspect-ratio:1;border:2px solid var(--line);background:#fff;border-radius:10px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    cursor:pointer;padding:0;position:relative;touch-action:manipulation}
+  .shot .n{position:absolute;top:3px;left:6px;font-size:10px;color:var(--muted);font-weight:700}
+  .shot .mk{font-size:24px;font-weight:800;line-height:1;color:var(--line)}
+  .shot[data-v="1"]{background:var(--green-bg);border-color:var(--green)}
+  .shot[data-v="1"] .mk{color:var(--green)}
+  .shot[data-v="1"] .n{color:var(--green)}
+  .shot[data-v="0"]{background:var(--red-bg);border-color:var(--red)}
+  .shot[data-v="0"] .mk{color:var(--red)}
+  .shot[data-v="0"] .n{color:var(--red)}
+
+  .sheetfoot{border-top:1px solid var(--line);padding:12px 14px;
+    display:flex;gap:8px;align-items:center;background:var(--bg)}
+  .sheetfoot .spread{flex:1}
+  .legend{font-size:12px;color:var(--muted);padding:0 14px 10px}
+
+  /* ---------- direct entry ---------- */
+  .relaybar{display:flex;gap:7px;padding:0 14px 12px;flex-wrap:wrap}
+  .relaybar .chip{padding:7px 13px;font-size:13px}
+  .entry{padding:0 14px 14px;display:flex;gap:10px}
+  .entry .fld{flex:1}
+  .entry .fld.x{flex:0 0 92px}
+  .entry input{font-size:22px;text-align:center;font-weight:700;padding:14px 8px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .maxnote{font-size:12px;color:var(--muted);padding:0 14px 12px;margin-top:-6px}
+
+  /* ---------- sheet ---------- */
+  .backdrop{position:fixed;inset:0;background:rgba(18,38,63,.5);z-index:40;
+    display:flex;align-items:flex-end;justify-content:center}
+  .sheet{background:var(--card);width:100%;max-width:640px;border-radius:16px 16px 0 0;
+    max-height:92vh;display:flex;flex-direction:column;
+    padding-bottom:env(safe-area-inset-bottom)}
+  .sheet .hd{padding:16px 16px 12px;border-bottom:1px solid var(--line);
+    display:flex;align-items:flex-start;gap:12px}
+  .sheet .hd h3{margin:0;font-size:17px;flex:1}
+  .sheet .hd .who2{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .sheet .body{overflow-y:auto;-webkit-overflow-scrolling:touch;padding-top:14px}
+  .x{background:none;border:0;font-size:26px;line-height:1;color:var(--muted);
+    cursor:pointer;padding:0 2px}
+
+  /* ---------- conflicts ---------- */
+  .cf{border:1px solid var(--amber);background:#fffaf1;border-radius:10px;
+    padding:14px;margin:0 14px 12px}
+  .cf h4{margin:0 0 4px;font-size:14.5px;color:var(--amber-dk)}
+  .cf p{margin:0 0 12px;font-size:13px;color:var(--muted)}
+  .cf .side{border:1px solid var(--line);background:#fff;border-radius:8px;
+    padding:11px 12px;margin-bottom:9px}
+  .cf .side b{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+  .cf .side .val{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:15px;font-weight:700;margin:4px 0 2px;word-break:break-all}
+  .cf .side .att{font-size:12px;color:var(--muted)}
+  .cf .acts{display:flex;gap:8px}
+  .cf .acts .btn{flex:1}
+
+  .empty{text-align:center;color:var(--muted);font-size:14.5px;padding:34px 20px}
+  footer.site{color:var(--muted);font-size:12.5px;text-align:center;padding:22px 0 30px}
+  .foot-actions{display:flex;gap:8px;justify-content:center;margin-bottom:12px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <div class="row">
+      <div style="min-width:0;flex:1">
+        <h1 id="hd-title">Score a Squad</h1>
+        <p class="sub" id="hd-sub">Enter your squad code to begin</p>
+      </div>
+      <span class="pill ok" id="pill" hidden>Saved</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- ---------- 1. code ---------- -->
+  <div class="card" id="codecard">
+    <h2>Enter your squad code</h2>
+    <p class="sub">Your match director gives you this. It covers your squad only, and looks like <b>ABCD-EFGH-JKMN</b>.</p>
+    <div id="codemsg"></div>
+    <form id="codeform">
+      <label for="code">Squad code</label>
+      <input type="text" id="code" class="codebox" maxlength="14" placeholder="ABCD-EFGH-JKMN"
+             autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+      <div style="height:14px"></div>
+      <button class="btn wide" type="submit" id="codebtn">Continue</button>
+    </form>
+    <p class="sub" style="margin:16px 0 0;font-size:13px">
+      Load this page once while you have signal. After that it keeps working with no
+      connection at all — everything you tap is saved on this phone and sent when
+      you're back in range.
+    </p>
+  </div>
+
+  <!-- ---------- 2. who is scoring ---------- -->
+  <div class="card" id="namecard" hidden>
+    <h2>Who's scoring?</h2>
+    <p class="sub">Every score is recorded against a name, so a question about a card can always be answered.</p>
+    <form id="nameform">
+      <label for="scorer">Your name</label>
+      <input type="text" id="scorer" maxlength="80" autocomplete="name" placeholder="e.g. Pete Sandoval" required>
+      <div style="height:14px"></div>
+      <button class="btn wide" type="submit">Start scoring</button>
+    </form>
+  </div>
+
+  <!-- ---------- 3. scoring ---------- -->
+  <div id="scorescreen" hidden>
+    <div id="topmsg"></div>
+    <div id="conflicts"></div>
+
+    <div class="stagebar" id="stagebar" hidden>
+      <div class="scroll" id="stagescroll"></div>
+    </div>
+
+    <div id="people"></div>
+
+    <footer class="site">
+      <div class="foot-actions">
+        <button class="btn ghost sm" id="syncnow">Send now</button>
+        <button class="btn ghost sm" id="refresh">Refresh from server</button>
+        <button class="btn ghost sm" id="signout">Finish</button>
+      </div>
+      <div id="footnote"></div>
+    </footer>
+  </div>
+
+</div>
+
+<div id="sheetroot"></div>
+
+<script>
+(() => {
+"use strict";
+
+/* ================================================================
+   Local store
+   ================================================================ */
+
+const LS = {
+  code:    "agm.score.code",
+  scorer:  "agm.score.scorer",
+  snap:    "agm.score.snap",     // last good server picture, per code
+  queue:   "agm.score.queue",    // writes not yet acknowledged
+  local:   "agm.score.local"     // what this phone believes, per card
+};
+
+const read = (k, dflt) => {
+  try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : dflt; }
+  catch { return dflt; }
+};
+const write = (k, v) => {
+  try { localStorage.setItem(k, JSON.stringify(v)); return true; }
+  catch (e) {
+    // A full or disabled store is the one failure a scorer must be told about
+    // immediately, because from here on taps would not survive a reload.
+    banner("This phone won't let the page save anything. Scores may be lost if you close it — tell your match director.", "err");
+    return false;
+  }
+};
+
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
+  : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0;
+      return (c === "x" ? r : (r & 3 | 8)).toString(16);
+    }));
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
+  ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+/* ================================================================
+   State
+   ================================================================ */
+
+let CODE   = localStorage.getItem(LS.code) || "";
+let SCORER = localStorage.getItem(LS.scorer) || "";
+let SNAP   = null;         // { event, squad, discipline, stages, entrants, cards, direct }
+let LOCAL  = {};           // key -> { id, hits|score,x_count, version, dirty }
+let QUEUE  = [];           // items waiting to be sent
+let CONFLICTS = [];
+let stageId = null;
+let relay = 1;
+let sending = false;
+let lastSent = null;
+
+const DEVICE = (() => {
+  let d = localStorage.getItem("agm.score.device");
+  if (!d) { d = uuid(); localStorage.setItem("agm.score.device", d); }
+  return d;
+})();
+
+/* A card's local key. Stage mode is one card per competitor per stage;
+   direct entry is one per competitor per relay. */
+const keyFor = (entrantId, second) => `${entrantId}:${second}`;
+
+const isStages = () => SNAP?.discipline?.mode === "stages";
+
+/* ================================================================
+   Loading and merging
+   ================================================================ */
+
+function loadLocal() {
+  const all = read(LS.local, {});
+  LOCAL = all[CODE] || {};
+  const q = read(LS.queue, {});
+  QUEUE = q[CODE] || [];
+  const s = read(LS.snap, {});
+  SNAP = s[CODE] || null;
+}
+
+function saveLocal() {
+  const all = read(LS.local, {}); all[CODE] = LOCAL; write(LS.local, all);
+  const q = read(LS.queue, {});   q[CODE]   = QUEUE; write(LS.queue, q);
+}
+function saveSnap() {
+  const s = read(LS.snap, {}); s[CODE] = SNAP; write(LS.snap, s);
+}
+
+/**
+ * Folds a fresh server picture into what this phone holds.
+ *
+ * Anything still queued keeps the phone's value — the scorer's most recent tap
+ * is what they expect to see, and the server hasn't been told about it yet.
+ * Everything else takes the server's value and version, which is how a card
+ * another scorer corrected shows up here.
+ */
+function mergeSnapshot(fresh) {
+  SNAP = fresh;
+  const queued = new Set(QUEUE.map(q => q.key));
+
+  if (isStages()) {
+    for (const c of fresh.cards || []) {
+      const k = keyFor(c.entrant_id, c.stage_id);
+      if (queued.has(k)) { if (LOCAL[k]) LOCAL[k].serverVersion = c.version; continue; }
+      LOCAL[k] = {
+        id: c.id, hits: JSON.parse(c.hits || "[]"), version: c.version,
+        scored_by: c.scored_by, scored_at: c.scored_at, dirty: false
+      };
+    }
+  } else {
+    for (const d of fresh.direct || []) {
+      const k = keyFor(d.entrant_id, d.relay);
+      if (queued.has(k)) { if (LOCAL[k]) LOCAL[k].serverVersion = d.version; continue; }
+      LOCAL[k] = {
+        id: d.id, score: d.score, x_count: d.x_count, version: d.version,
+        scored_by: d.scored_by, scored_at: d.scored_at, dirty: false
+      };
+    }
+  }
+  saveSnap(); saveLocal();
+}
+
+async function fetchSquad(code) {
+  const res = await fetch(`/api/scoring/squad?code=${encodeURIComponent(code)}`, {
+    credentials: "omit", cache: "no-store"
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || "That code isn't recognised.");
+  return body;
+}
+
+/* ================================================================
+   The queue
+   ================================================================ */
+
+/** Replaces any unsent write for the same card rather than stacking them, so
+ *  a scorer tapping five times sends one final value, not five. */
+function enqueue(key, payload) {
+  const at = QUEUE.findIndex(q => q.key === key);
+  const item = { key, ...payload, queued_at: Date.now() };
+  if (at >= 0) QUEUE[at] = { ...QUEUE[at], ...item };
+  else QUEUE.push(item);
+  saveLocal();
+  paintPill();
+  scheduleFlush(700);
+}
+
+let flushTimer = null;
+function scheduleFlush(ms) {
+  clearTimeout(flushTimer);
+  flushTimer = setTimeout(flush, ms);
+}
+
+async function flush(manual) {
+  if (sending || !QUEUE.length) { if (manual) paintPill(); return; }
+  if (!navigator.onLine) { paintPill(); return; }
+
+  sending = true; paintPill();
+
+  const before = QUEUE.length;
+  const batch = QUEUE.slice(0, 100);
+  const items = batch.map(q => {
+    const l = LOCAL[q.key] || {};
+    const base = { id: l.id, entrant_id: q.entrant_id, base_version: q.base_version ?? 0 };
+    return isStages()
+      ? { ...base, stage_id: q.stage_id, hits: l.hits }
+      : { ...base, relay: q.relay, score: l.score ?? null, x_count: l.x_count ?? null };
+  });
+
+  try {
+    const res = await fetch("/api/scoring/sync", {
+      method: "POST", credentials: "omit",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: CODE, scorer_name: SCORER, device_id: DEVICE, items })
+    });
+    const body = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      sending = false;
+      // 409 means the director hasn't opened the match, or has closed it. That
+      // is a real answer, not a network blip — say so and stop retrying.
+      if (res.status === 409) { banner(body.error || "This match isn't open for scoring.", "err"); paintPill(); return; }
+      if (res.status === 429) { paintPill(); scheduleFlush(20000); return; }
+      banner(body.error || "Couldn't send scores just now. They're still saved on this phone.", "err");
+      paintPill(); scheduleFlush(15000); return;
+    }
+
+    const byId = new Map(batch.map(b => [(LOCAL[b.key] || {}).id, b]));
+
+    for (const a of body.accepted || []) {
+      const q = byId.get(a.id); if (!q) continue;
+      const l = LOCAL[q.key];
+      if (l) { l.version = a.version; l.dirty = false; l.scored_by = SCORER; }
+      QUEUE = QUEUE.filter(x => x.key !== q.key);
+    }
+
+    for (const c of body.conflicts || []) {
+      const q = byId.get(c.id); if (!q) continue;
+      QUEUE = QUEUE.filter(x => x.key !== q.key);
+      CONFLICTS.push({ key: q.key, entrant_id: q.entrant_id, stage_id: q.stage_id,
+                       relay: q.relay, yours: c.yours, theirs: c.theirs });
+    }
+
+    for (const r of body.rejected || []) {
+      const q = byId.get(r.id); if (!q) continue;
+      QUEUE = QUEUE.filter(x => x.key !== q.key);
+      banner(r.reason || "One score couldn't be saved.", "err");
+    }
+
+    lastSent = Date.now();
+    saveLocal();
+    sending = false;
+    paintPill(); paintConflicts(); paint();
+
+    /* Normally every item comes back in one of the three lists and leaves the
+       queue, so there is more to send only when the batch was full. If a
+       response somehow accounts for nothing, backing off hard is essential —
+       retrying in 400ms would put a phone into a tight loop against the
+       server for the rest of the day. */
+    if (QUEUE.length) scheduleFlush(QUEUE.length < before ? 400 : 15000);
+
+  } catch {
+    // Offline, or the request never landed. Everything stays queued.
+    sending = false; paintPill(); scheduleFlush(8000);
+  }
+}
+
+/* ================================================================
+   Painting
+   ================================================================ */
+
+function paintPill() {
+  const p = document.getElementById("pill");
+  if (!SNAP) { p.hidden = true; return; }
+  p.hidden = false;
+  const n = QUEUE.length;
+  if (sending)            { p.className = "pill busy"; p.textContent = "Sending…"; }
+  else if (!navigator.onLine && n) { p.className = "pill off";  p.textContent = `Offline · ${n} waiting`; }
+  else if (!navigator.onLine)      { p.className = "pill off";  p.textContent = "Offline"; }
+  else if (n)             { p.className = "pill wait"; p.textContent = `${n} waiting`; }
+  else                    { p.className = "pill ok";   p.textContent = "Saved"; }
+}
+
+function banner(text, kind) {
+  const box = document.getElementById("topmsg");
+  box.innerHTML = `<div class="msg ${kind}">${esc(text)}</div>`;
+  if (kind === "ok") setTimeout(() => { box.innerHTML = ""; }, 3500);
+}
+
+function paintHeader() {
+  document.getElementById("hd-title").textContent = SNAP.squad.name;
+  const d = SNAP.discipline, e = SNAP.event;
+  document.getElementById("hd-sub").textContent = `${d.name} · ${e.name}`;
+}
+
+function stageProgress(st) {
+  let recorded = 0, possible = st.shot_count * SNAP.entrants.length;
+  for (const p of SNAP.entrants) {
+    const l = LOCAL[keyFor(p.id, st.id)];
+    if (l?.hits) recorded += l.hits.filter(v => v !== null).length;
+  }
+  return { recorded, possible };
+}
+
+function paintStages() {
+  const bar = document.getElementById("stagebar");
+  if (!isStages()) { bar.hidden = true; return; }
+  bar.hidden = false;
+  const wrap = document.getElementById("stagescroll");
+  wrap.innerHTML = "";
+
+  for (const st of SNAP.stages) {
+    const { recorded, possible } = stageProgress(st);
+    const cls = recorded === 0 ? "" : (recorded >= possible ? "done" : "part");
+    const b = document.createElement("button");
+    b.className = "chip";
+    b.setAttribute("aria-selected", String(st.id === stageId));
+    b.innerHTML = `<span class="dot ${cls}"></span>${esc(st.name)}`;
+    b.onclick = () => { stageId = st.id; paint(); wrap.parentElement.scrollTop = 0; };
+    wrap.appendChild(b);
+  }
+  const sel = wrap.querySelector('[aria-selected=true]');
+  if (sel) sel.scrollIntoView({ block: "nearest", inline: "center" });
+}
+
+function paintPeople() {
+  const box = document.getElementById("people");
+  box.innerHTML = "";
+
+  if (!SNAP.entrants.length) {
+    box.innerHTML = `<div class="empty">Nobody has been added to this squad yet.<br>
+      Your match director assigns competitors to squads.</div>`;
+    return;
+  }
+
+  if (isStages() && !SNAP.stages.length) {
+    box.innerHTML = `<div class="empty">This match has no stages set up yet.</div>`;
+    return;
+  }
+
+  for (const p of SNAP.entrants) {
+    const row = document.createElement("div");
+    row.className = "who";
+
+    let tally = "—", cls = "";
+    if (isStages()) {
+      const st = SNAP.stages.find(s => s.id === stageId);
+      const l = LOCAL[keyFor(p.id, stageId)];
+      const rec = l?.hits ? l.hits.filter(v => v !== null).length : 0;
+      const hits = l?.hits ? l.hits.filter(v => v === 1).length : 0;
+      tally = rec ? `${hits}/${st.shot_count}` : `–/${st.shot_count}`;
+      cls = rec === 0 ? "" : (rec >= st.shot_count ? "done" : "part");
+    } else {
+      const l = LOCAL[keyFor(p.id, relay)];
+      const dp = SNAP.discipline.decimals || 0;
+      if (l && l.score !== null && l.score !== undefined) {
+        tally = Number(l.score).toFixed(dp) + (l.x_count ? `-${l.x_count}X` : "");
+        cls = "done";
+      } else tally = "—";
+    }
+
+    const queued = QUEUE.some(q => q.entrant_id === p.id);
+    row.innerHTML = `
+      <button class="open" type="button">
+        <span class="nm">
+          <b>${esc(p.name)}</b>
+          <span>${esc(p.class || "")}${queued ? (p.class ? " · " : "") + "waiting to send" : ""}</span>
+        </span>
+        <span class="tally ${cls}">${esc(tally)}</span>
+        <span class="chev">›</span>
+      </button>`;
+    row.querySelector("button").onclick = () => openSheet(p);
+    box.appendChild(row);
+  }
+
+  const note = document.getElementById("footnote");
+  const bits = [];
+  if (lastSent) bits.push(`Last sent ${new Date(lastSent).toLocaleTimeString()}`);
+  bits.push(`Scoring as ${SCORER}`);
+  note.textContent = bits.join(" · ");
+}
+
+function paint() {
+  if (!SNAP) return;
+  // Settle on a stage before anything is drawn. This also covers a stage being
+  // renumbered or removed by the director while this phone was offline —
+  // rather than drawing against a stage that no longer exists, it falls back
+  // to the first one.
+  if (isStages() && SNAP.stages.length && !SNAP.stages.some(s => s.id === stageId))
+    stageId = SNAP.stages[0].id;
+  paintHeader(); paintStages(); paintPeople(); paintPill();
+}
+
+/* ================================================================
+   Shot sheet
+   ================================================================ */
+
+let openFor = null;
+
+function closeSheet() {
+  openFor = null;
+  document.getElementById("sheetroot").innerHTML = "";
+  document.body.style.overflow = "";
+  paint();
+}
+
+function openSheet(p) {
+  openFor = p;
+  document.body.style.overflow = "hidden";
+  const root = document.getElementById("sheetroot");
+  root.innerHTML = `<div class="backdrop"><div class="sheet"><div class="hd">
+      <div style="flex:1;min-width:0">
+        <h3>${esc(p.name)}</h3>
+        <div class="who2" id="sheet-sub"></div>
+      </div>
+      <button class="x" type="button" aria-label="Close">&times;</button>
+    </div><div class="body" id="sheet-body"></div></div></div>`;
+
+  root.querySelector(".x").onclick = closeSheet;
+  root.querySelector(".backdrop").onclick = e => { if (e.target.classList.contains("backdrop")) closeSheet(); };
+
+  isStages() ? paintShotGrid(p) : paintDirectEntry(p);
+}
+
+function paintShotGrid(p) {
+  const st = SNAP.stages.find(s => s.id === stageId);
+  const k = keyFor(p.id, st.id);
+  const l = LOCAL[k] || { id: uuid(), hits: Array(st.shot_count).fill(null), version: 0 };
+  LOCAL[k] = l;
+
+  // A stage whose length was changed after a card existed is padded rather
+  // than discarded, so nothing already recorded is thrown away.
+  while (l.hits.length < st.shot_count) l.hits.push(null);
+  if (l.hits.length > st.shot_count) l.hits = l.hits.slice(0, st.shot_count);
+
+  const sub = document.getElementById("sheet-sub");
+  sub.textContent = `${st.name} · ${st.shot_count} shots` +
+    (l.scored_by ? ` · last scored by ${l.scored_by}` : "");
+
+  const body = document.getElementById("sheet-body");
+  body.innerHTML = `
+    <div class="grid" id="grid"></div>
+    <p class="legend">Tap a shot to cycle it: blank → hit → miss → blank.</p>
+    <div class="sheetfoot">
+      <button class="btn ghost sm" id="allhit">All hits</button>
+      <button class="btn ghost sm" id="allmiss">All misses</button>
+      <span class="spread"></span>
+      <button class="btn sm" id="done">Done</button>
+    </div>`;
+
+  const grid = document.getElementById("grid");
+  const draw = () => {
+    grid.innerHTML = "";
+    l.hits.forEach((v, i) => {
+      const b = document.createElement("button");
+      b.className = "shot"; b.type = "button";
+      b.dataset.v = v === null ? "" : String(v);
+      b.innerHTML = `<span class="n">${i + 1}</span>
+        <span class="mk">${v === 1 ? "✓" : v === 0 ? "✕" : "–"}</span>`;
+      b.onclick = () => {
+        l.hits[i] = l.hits[i] === null ? 1 : l.hits[i] === 1 ? 0 : null;
+        if (navigator.vibrate) navigator.vibrate(8);
+        commitCard(p, st, l); draw(); updateSub();
+      };
+      grid.appendChild(b);
+    });
+  };
+  const updateSub = () => {
+    const hits = l.hits.filter(v => v === 1).length;
+    const rec  = l.hits.filter(v => v !== null).length;
+    sub.textContent = `${st.name} · ${hits} hits, ${rec} of ${st.shot_count} recorded`;
+  };
+  draw(); updateSub();
+
+  document.getElementById("allhit").onclick  = () => { l.hits = l.hits.map(() => 1); commitCard(p, st, l); draw(); updateSub(); };
+  document.getElementById("allmiss").onclick = () => { l.hits = l.hits.map(() => 0); commitCard(p, st, l); draw(); updateSub(); };
+  document.getElementById("done").onclick    = closeSheet;
+}
+
+/** Writes the tap to this device immediately, then queues it for sending. */
+function commitCard(p, st, l) {
+  l.dirty = true;
+  LOCAL[keyFor(p.id, st.id)] = l;
+  saveLocal();
+  enqueue(keyFor(p.id, st.id), {
+    entrant_id: p.id, stage_id: st.id, base_version: l.version || 0
+  });
+}
+
+function paintDirectEntry(p) {
+  const d = SNAP.discipline;
+  const body = document.getElementById("sheet-body");
+  const relays = d.relays || 1;
+
+  const label = d.score_type === "group" ? "Group size"
+              : d.score_type === "time"  ? "Time" : "Score";
+  const step = d.decimals ? (1 / Math.pow(10, d.decimals)).toFixed(d.decimals) : "1";
+
+  body.innerHTML = `
+    ${relays > 1 ? `<div class="relaybar" id="relaybar"></div>` : ""}
+    <div class="entry">
+      <div class="fld">
+        <label for="sc">${esc(label)}</label>
+        <input type="number" id="sc" inputmode="decimal" step="${step}" min="0"
+               ${d.max_score ? `max="${d.max_score}"` : ""} placeholder="—">
+      </div>
+      ${d.score_type === "points" ? `<div class="fld x">
+        <label for="xc">X count</label>
+        <input type="number" id="xc" inputmode="numeric" step="1" min="0"
+               ${d.shots_fired ? `max="${d.shots_fired}"` : ""} placeholder="—">
+      </div>` : ""}
+    </div>
+    ${d.max_score ? `<p class="maxnote">Highest possible score is ${d.max_score}${
+        d.shots_fired ? `, over ${d.shots_fired} shots` : ""}.</p>` : ""}
+    <div class="sheetfoot">
+      <span class="spread" id="attrib"></span>
+      <button class="btn sm" id="done">Done</button>
+    </div>`;
+
+  const sc = document.getElementById("sc");
+  const xc = document.getElementById("xc");
+  const sub = document.getElementById("sheet-sub");
+
+  const load = () => {
+    const l = LOCAL[keyFor(p.id, relay)];
+    sc.value = (l && l.score !== null && l.score !== undefined) ? l.score : "";
+    if (xc) xc.value = (l && l.x_count !== null && l.x_count !== undefined) ? l.x_count : "";
+    sub.textContent = (relays > 1 ? `Relay ${relay}` : d.name) +
+      (l?.scored_by ? ` · last scored by ${l.scored_by}` : "");
+    document.getElementById("attrib").textContent =
+      l?.scored_at ? new Date(l.scored_at).toLocaleTimeString() : "";
+  };
+
+  if (relays > 1) {
+    const bar = document.getElementById("relaybar");
+    for (let r = 1; r <= relays; r++) {
+      const b = document.createElement("button");
+      b.className = "chip"; b.type = "button";
+      b.setAttribute("aria-selected", String(r === relay));
+      const l = LOCAL[keyFor(p.id, r)];
+      const has = l && l.score !== null && l.score !== undefined;
+      b.innerHTML = `<span class="dot ${has ? "done" : ""}"></span>Relay ${r}`;
+      b.onclick = () => { relay = r; paintDirectEntry(p); };
+      bar.appendChild(b);
+    }
+  }
+
+  const commit = () => {
+    const k = keyFor(p.id, relay);
+    const l = LOCAL[k] || { id: uuid(), version: 0 };
+    const raw = sc.value.trim();
+    if (raw === "") return;                     // an empty box is not a score of zero
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    if (d.max_score && d.score_type === "points" && n > d.max_score) {
+      banner(`The highest possible score is ${d.max_score}.`, "err"); return;
+    }
+    l.score = n;
+    l.x_count = xc && xc.value.trim() !== "" ? parseInt(xc.value, 10) : null;
+    l.dirty = true;
+    LOCAL[k] = l;
+    saveLocal();
+    enqueue(k, { entrant_id: p.id, relay, base_version: l.version || 0 });
+  };
+
+  sc.addEventListener("change", commit);
+  sc.addEventListener("blur", commit);
+  if (xc) { xc.addEventListener("change", commit); xc.addEventListener("blur", commit); }
+
+  document.getElementById("done").onclick = () => { commit(); closeSheet(); };
+  load();
+}
+
+/* ================================================================
+   Conflicts
+   ================================================================ */
+
+function describe(side) {
+  if (isStages()) {
+    const hits = (side.hits || []).filter(v => v === 1).length;
+    const rec  = (side.hits || []).filter(v => v !== null).length;
+    return `${hits} hits, ${rec} recorded`;
+  }
+  const dp = SNAP.discipline.decimals || 0;
+  const s = side.score === null || side.score === undefined ? "—" : Number(side.score).toFixed(dp);
+  return s + (side.x_count ? `-${side.x_count}X` : "");
+}
+
+function paintConflicts() {
+  const box = document.getElementById("conflicts");
+  box.innerHTML = "";
+  if (!CONFLICTS.length) return;
+
+  for (const [i, c] of CONFLICTS.entries()) {
+    const person = SNAP.entrants.find(e => e.id === c.entrant_id);
+    const where = isStages()
+      ? (SNAP.stages.find(s => s.id === c.stage_id)?.name || "")
+      : (SNAP.discipline.relays > 1 ? `Relay ${c.relay}` : "");
+
+    const el = document.createElement("div");
+    el.className = "cf";
+    el.innerHTML = `
+      <h4>Two versions of this card</h4>
+      <p>${esc(person?.name || "A competitor")}${where ? " · " + esc(where) : ""} —
+         someone else changed this while you were offline. Nothing has been
+         overwritten. Choose which one is right.</p>
+      <div class="side">
+        <b>Yours</b>
+        <div class="val">${esc(describe(c.yours))}</div>
+        <div class="att">${esc(c.yours.scored_by || SCORER)}</div>
+      </div>
+      <div class="side">
+        <b>On the server</b>
+        <div class="val">${esc(describe(c.theirs))}</div>
+        <div class="att">${esc(c.theirs.scored_by || "unknown")}${
+          c.theirs.scored_at ? " · " + new Date(c.theirs.scored_at).toLocaleTimeString() : ""}</div>
+      </div>
+      <div class="acts">
+        <button class="btn ghost sm" data-keep="theirs" data-i="${i}">Use theirs</button>
+        <button class="btn sm" data-keep="mine" data-i="${i}">Keep mine</button>
+      </div>`;
+    box.appendChild(el);
+  }
+
+  box.querySelectorAll("[data-keep]").forEach(b => {
+    b.onclick = () => {
+      const c = CONFLICTS[Number(b.dataset.i)];
+      const l = LOCAL[c.key] || {};
+
+      if (b.dataset.keep === "theirs") {
+        if (isStages()) l.hits = c.theirs.hits;
+        else { l.score = c.theirs.score; l.x_count = c.theirs.x_count; }
+        l.id = c.theirs.id; l.version = c.theirs.version;
+        l.scored_by = c.theirs.scored_by; l.dirty = false;
+        LOCAL[c.key] = l;
+      } else {
+        // Re-send from the server's version, so this write lands on top
+        // rather than being refused again.
+        l.id = c.theirs.id; l.version = c.theirs.version;
+        LOCAL[c.key] = l;
+        enqueue(c.key, {
+          entrant_id: c.entrant_id, stage_id: c.stage_id,
+          relay: c.relay, base_version: c.theirs.version
+        });
+      }
+
+      CONFLICTS = CONFLICTS.filter(x => x !== c);
+      saveLocal(); paintConflicts(); paint();
+    };
+  });
+}
+
+/* ================================================================
+   Screens
+   ================================================================ */
+
+function showScoring() {
+  document.getElementById("codecard").hidden = true;
+  document.getElementById("namecard").hidden = true;
+  document.getElementById("scorescreen").hidden = false;
+  if (isStages() && !stageId && SNAP.stages.length) stageId = SNAP.stages[0].id;
+  paint();
+  if (SNAP.discipline.state === "setup")
+    banner("This match hasn't been opened yet. You can look around, but scores won't send until your director opens it.", "info");
+  else if (SNAP.discipline.state === "complete")
+    banner("This match has been closed. Scores can no longer be changed.", "info");
+}
+
+function showName() {
+  document.getElementById("codecard").hidden = true;
+  document.getElementById("namecard").hidden = false;
+  document.getElementById("scorer").focus();
+}
+
+function showCode(message) {
+  document.getElementById("codecard").hidden = false;
+  document.getElementById("namecard").hidden = true;
+  document.getElementById("scorescreen").hidden = true;
+  document.getElementById("pill").hidden = true;
+  if (message) document.getElementById("codemsg").innerHTML = `<div class="msg err">${esc(message)}</div>`;
+}
+
+/* ================================================================
+   Wiring
+   ================================================================ */
+
+const fmtCode = v => {
+  const c = v.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+  return c.replace(/(.{4})(?=.)/g, "$1-");
+};
+
+const codeInput = document.getElementById("code");
+codeInput.addEventListener("input", e => { e.target.value = fmtCode(e.target.value); });
+
+document.getElementById("codeform").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = document.getElementById("codebtn");
+  const code = fmtCode(codeInput.value);
+  if (code.replace(/-/g, "").length !== 12) {
+    document.getElementById("codemsg").innerHTML =
+      `<div class="msg err">A squad code is twelve characters, like ABCD-EFGH-JKMN.</div>`;
+    return;
+  }
+  btn.disabled = true; btn.textContent = "Checking…";
+  try {
+    const fresh = await fetchSquad(code);
+    CODE = code;
+    localStorage.setItem(LS.code, CODE);
+    loadLocal();
+    mergeSnapshot(fresh);
+    document.getElementById("codemsg").innerHTML = "";
+    SCORER ? showScoring() : showName();
+  } catch (err) {
+    document.getElementById("codemsg").innerHTML =
+      `<div class="msg err">${esc(err.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = "Continue";
+  }
+});
+
+document.getElementById("nameform").addEventListener("submit", e => {
+  e.preventDefault();
+  const v = document.getElementById("scorer").value.trim();
+  if (!v) return;
+  SCORER = v.slice(0, 80);
+  localStorage.setItem(LS.scorer, SCORER);
+  showScoring();
+});
+
+document.getElementById("syncnow").onclick = () => {
+  if (!navigator.onLine) { banner("Still no connection. Everything is saved on this phone.", "info"); return; }
+  if (!QUEUE.length) { banner("Everything has been sent.", "ok"); return; }
+  flush(true);
+};
+
+document.getElementById("refresh").onclick = async () => {
+  if (!navigator.onLine) { banner("No connection right now.", "info"); return; }
+  try {
+    const fresh = await fetchSquad(CODE);
+    mergeSnapshot(fresh); paint();
+    banner("Up to date with the server.", "ok");
+  } catch (err) { banner(err.message, "err"); }
+};
+
+document.getElementById("signout").onclick = () => {
+  if (QUEUE.length && !confirm(
+    `${QUEUE.length} score${QUEUE.length === 1 ? "" : "s"} still to send. Finish anyway?`)) return;
+  localStorage.removeItem(LS.code);
+  CODE = ""; SNAP = null; LOCAL = {}; QUEUE = []; CONFLICTS = []; stageId = null;
+  codeInput.value = "";
+  showCode();
+};
+
+window.addEventListener("online",  () => { paintPill(); scheduleFlush(300); });
+window.addEventListener("offline", paintPill);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && QUEUE.length) scheduleFlush(300);
+});
+setInterval(() => { if (QUEUE.length) flush(); }, 20000);
+
+// A last chance to warn before the tab closes with work still queued.
+window.addEventListener("beforeunload", e => {
+  if (QUEUE.length) { e.preventDefault(); e.returnValue = ""; }
+});
+
+/* ---- start ---- */
+(async function start() {
+  const fromLink = new URLSearchParams(location.search).get("code");
+  if (fromLink) {
+    CODE = fmtCode(fromLink);
+    localStorage.setItem(LS.code, CODE);
+    history.replaceState(null, "", location.pathname);   // keep the code out of history
+  }
+
+  if (!CODE) { showCode(); return; }
+  loadLocal();
+
+  // Whatever is stored comes up first, so the page is usable with no network.
+  if (SNAP) { SCORER ? showScoring() : showName(); }
+  else if (!navigator.onLine) { showCode("No connection, and nothing saved on this phone yet. Open this page once while you have signal."); return; }
+
+  // Whether a screen was already shown has to be settled *before* the fetch,
+  // because merging the response always sets SNAP — asking afterwards would
+  // never reveal the scoring screen on a phone opening the link for the
+  // first time.
+  const alreadyShowing = !!SNAP;
+
+  if (navigator.onLine) {
+    try {
+      const fresh = await fetchSquad(CODE);
+      mergeSnapshot(fresh);
+      if (!alreadyShowing) { SCORER ? showScoring() : showName(); } else paint();
+      if (QUEUE.length) scheduleFlush(500);
+    } catch (err) {
+      if (!alreadyShowing) showCode(err.message);
+      else banner("Couldn't reach the server. Working from what's saved on this phone.", "info");
+    }
+  }
+})();
+
+/* The service worker exists so this page opens at all with no signal. It is
+   deliberately narrow: it caches this page and nothing else, and never touches
+   the API. */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+
+})();
+</script>
+</body>
+</html>

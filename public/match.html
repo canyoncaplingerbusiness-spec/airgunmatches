@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Run a Match — Airgun Matches</title>
+
+<!--
+  MATCH DIRECTOR CONSOLE
+
+  Authorised by the event's own results code — the same one used to upload
+  results. No account, no password, because a match director shouldn't have to
+  create one to run a Saturday shoot.
+
+  This page is the only place squad codes are ever shown. Everything else in
+  the system treats them as secrets: the scoring page never echoes one back,
+  and the public live standings never contain one.
+-->
+
+<style>
+  :root{
+    --navy:#12263f; --navy-2:#1c3557; --steel:#5a6b82;
+    --amber:#e08c1b; --amber-dk:#b86f0e;
+    --bg:#f5f6f8; --card:#fff; --line:#e2e6ec;
+    --text:#1d2733; --muted:#6b7684;
+    --green:#1f7a4d; --green-bg:#eaf6ef; --green-line:#b9dfc9;
+    --red:#b3261e; --red-bg:#fdecea; --red-line:#f5c2bd;
+    --radius:10px; --shadow:0 1px 2px rgba(18,38,63,.06), 0 4px 12px rgba(18,38,63,.05);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:900px;margin:0 auto;padding:0 18px}
+  button,input,select,textarea{font-family:inherit}
+
+  header.site{background:linear-gradient(160deg,var(--navy),var(--navy-2));color:#fff;padding:24px 0}
+  header.site h1{margin:0;font-size:20px;font-weight:700;letter-spacing:-.2px}
+  header.site p{margin:4px 0 0;color:#a8b8cd;font-size:14px}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:22px;margin:18px 0}
+  .card h2{margin:0 0 6px;font-size:18px}
+  .card h3{margin:0 0 12px;font-size:15px;text-transform:uppercase;
+    letter-spacing:.7px;color:var(--muted)}
+  .card p.sub{margin:0 0 16px;color:var(--muted);font-size:14px}
+
+  label{display:block;font-size:12.5px;font-weight:700;margin-bottom:5px}
+  input[type=text],input[type=number],select,textarea{width:100%;padding:11px 12px;
+    border:1px solid var(--line);border-radius:8px;font-size:15px;background:#fff;color:var(--text)}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--navy-2);outline-offset:-1px}
+  textarea{min-height:120px;resize:vertical}
+  .codebox{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:19px;
+    letter-spacing:2px;text-transform:uppercase;text-align:center}
+  .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:16px}
+  .fields .full{grid-column:1/-1}
+
+  .btn{background:var(--amber);color:#241503;font-weight:700;font-size:15px;border:0;
+    padding:12px 20px;border-radius:var(--radius);cursor:pointer}
+  .btn:hover{background:var(--amber-dk);color:#fff}
+  .btn:disabled{opacity:.55;cursor:default}
+  .btn.wide{width:100%}
+  .btn.ghost{background:#fff;border:1px solid var(--line);color:var(--navy-2)}
+  .btn.ghost:hover{background:var(--bg);color:var(--navy)}
+  .btn.danger{background:#fff;border:1px solid var(--red-line);color:var(--red)}
+  .btn.danger:hover{background:var(--red-bg);color:var(--red)}
+  .btn.sm{padding:8px 13px;font-size:13.5px;border-radius:8px}
+  .row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+
+  .msg{border-radius:8px;padding:12px 14px;font-size:14px;margin-bottom:16px}
+  .msg.err{background:var(--red-bg);border:1px solid var(--red-line);color:#8f2419}
+  .msg.ok{background:var(--green-bg);border:1px solid var(--green-line);color:var(--green)}
+  .msg.info{background:#eef2f7;border:1px solid #dde4ee;color:var(--navy-2)}
+
+  .eventhead{border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:18px}
+  .eventhead h2{margin:0 0 4px;font-size:20px}
+  .eventhead .meta{color:var(--muted);font-size:14.5px}
+
+  /* discipline tabs */
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+  .tab{background:#fff;border:1px solid var(--line);border-radius:999px;padding:9px 16px;
+    font-size:14px;font-weight:600;color:var(--steel);cursor:pointer;display:flex;align-items:center;gap:8px}
+  .tab[aria-selected=true]{background:var(--navy);border-color:var(--navy);color:#fff}
+  .tab .dot{width:8px;height:8px;border-radius:50%;background:var(--line)}
+  .tab .dot.live{background:var(--red);box-shadow:0 0 0 3px rgba(179,38,30,.15)}
+  .tab .dot.done{background:var(--green)}
+  .tab[aria-selected=true] .dot{background:rgba(255,255,255,.4)}
+  .tab[aria-selected=true] .dot.live{background:#ff8a80}
+  .tab[aria-selected=true] .dot.done{background:#6fd8a2}
+
+  .state{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.6px;padding:5px 11px;border-radius:999px}
+  .state.setup{background:#eef2f7;color:var(--navy-2)}
+  .state.live{background:var(--red-bg);color:var(--red)}
+  .state.complete{background:var(--green-bg);color:var(--green)}
+
+  .bar{height:7px;background:var(--line);border-radius:999px;overflow:hidden;margin:9px 0 4px}
+  .bar span{display:block;height:100%;background:var(--green);border-radius:999px}
+  .barnote{font-size:12.5px;color:var(--muted)}
+
+  /* squads */
+  .squad{border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:11px}
+  .squad .top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .squad .top b{flex:1;font-size:15.5px}
+  .squad .cnt{font-size:12.5px;color:var(--muted)}
+  .code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:19px;
+    font-weight:700;letter-spacing:1.5px;background:var(--bg);border:1px solid var(--line);
+    border-radius:8px;padding:11px 14px;text-align:center;margin-bottom:10px;user-select:all}
+
+  /* roster */
+  table{width:100%;border-collapse:collapse;font-size:14.5px}
+  th{background:var(--bg);text-align:left;padding:9px 11px;font-size:11px;
+    text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+  td{padding:8px 11px;border-top:1px solid var(--line);vertical-align:middle}
+  td.num{width:56px;font-weight:700;color:var(--navy);text-align:center}
+  td.act{width:1%;white-space:nowrap;text-align:right}
+  td select{padding:7px 9px;font-size:13.5px}
+  .tblwrap{border:1px solid var(--line);border-radius:10px;overflow:hidden}
+
+  .score{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700}
+  .declared{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+    color:var(--amber-dk);background:#fdf3e3;padding:3px 8px;border-radius:999px;margin-left:7px}
+  .winner{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted);cursor:pointer}
+  .winner input{width:19px;height:19px;margin:0;accent-color:var(--amber)}
+
+  .example{background:var(--bg);border:1px solid var(--line);border-radius:8px;
+    padding:11px 13px;font-size:13.5px;color:var(--steel);margin:-6px 0 16px}
+  .example b{color:var(--text)}
+  details{border:1px solid var(--line);border-radius:10px;padding:0;margin-bottom:12px;background:#fff}
+  details>summary{padding:13px 15px;cursor:pointer;font-weight:700;font-size:14.5px;list-style:none}
+  details>summary::-webkit-details-marker{display:none}
+  details>summary::before{content:"▸ ";color:var(--muted)}
+  details[open]>summary::before{content:"▾ "}
+  details .inner{padding:0 15px 15px;border-top:1px solid var(--line);padding-top:14px}
+  .empty{text-align:center;color:var(--muted);font-size:14.5px;padding:26px 16px}
+  footer.site{color:var(--muted);font-size:13px;text-align:center;padding:28px 0}
+  footer.site a{color:var(--navy-2)}
+  .hint{font-size:12.5px;color:var(--muted);margin:6px 0 0}
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <h1>Run a Match</h1>
+    <p>For match directors — stages, squads, live scoring and standings.</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- 1. code -->
+  <div class="card" id="codecard">
+    <h2>Enter your event code</h2>
+    <p class="sub">The same code you use to upload results. It was emailed to you when your event was approved.</p>
+    <div id="codemsg"></div>
+    <form id="codeform">
+      <label for="code">Event code</label>
+      <input type="text" id="code" class="codebox" maxlength="14" placeholder="ABCD-EFGH-JKMN"
+             autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+      <div style="height:14px"></div>
+      <button class="btn wide" type="submit" id="codebtn">Continue</button>
+    </form>
+  </div>
+
+  <!-- 2. console -->
+  <div id="console" hidden>
+    <div class="card">
+      <div class="eventhead">
+        <h2 id="ev-name"></h2>
+        <div class="meta" id="ev-meta"></div>
+      </div>
+      <div id="topmsg"></div>
+      <div class="tabs" id="tabs"></div>
+      <div id="panel"></div>
+    </div>
+    <footer class="site">
+      <span id="whoami"></span> ·
+      <a href="/results.html">Upload finished results instead</a> ·
+      <a href="#" id="signout">Finish</a>
+    </footer>
+  </div>
+
+</div>
+
+<script>
+(() => {
+"use strict";
+
+/* ================================================================ */
+/* State                                                            */
+/* ================================================================ */
+
+let CODE = sessionStorage.getItem("agm.match.code") || "";
+let DIRECTOR = localStorage.getItem("agm.match.director") || "";
+let DATA = null;          // { event, match_disciplines }
+let current = null;       // md id
+let standings = {};       // md id -> rows
+let busy = false;
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
+  ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+const $ = id => document.getElementById(id);
+
+const fmtCode = v => {
+  const c = String(v).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+  return c.replace(/(.{4})(?=.)/g, "$1-");
+};
+
+/* ================================================================ */
+/* API                                                              */
+/* ================================================================ */
+
+async function api(path, method = "GET", body = null) {
+  const res = await fetch(path, {
+    method, credentials: "omit", cache: "no-store",
+    ...(body ? { headers: { "content-type": "application/json" },
+                 body: JSON.stringify({ code: CODE, ...body }) } : {})
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(out.error || "Something went wrong.");
+  return out;
+}
+
+async function act(fn, okMessage) {
+  if (busy) return;
+  busy = true;
+  try {
+    await fn();
+    await load();
+    if (okMessage) say(okMessage, "ok");
+  } catch (err) {
+    say(err.message, "err");
+  } finally { busy = false; }
+}
+
+function say(text, kind) {
+  $("topmsg").innerHTML = `<div class="msg ${kind}">${esc(text)}</div>`;
+  if (kind === "ok") setTimeout(() => {
+    const m = $("topmsg").firstElementChild;
+    if (m && m.classList.contains("ok")) $("topmsg").innerHTML = "";
+  }, 4000);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function load() {
+  DATA = await api(`/api/scoring/match?code=${encodeURIComponent(CODE)}`);
+  if (!DATA.match_disciplines.some(m => m.id === current))
+    current = DATA.match_disciplines[0]?.id ?? null;
+  if (current) {
+    const md = DATA.match_disciplines.find(m => m.id === current);
+    if (md && md.state !== "setup") await loadStandings(md.id);
+  }
+  render();
+}
+
+async function loadStandings(id) {
+  try {
+    const s = await api(`/api/scoring/standings?code=${encodeURIComponent(CODE)}&md=${id}`);
+    standings[id] = s;
+  } catch { /* standings are a convenience; a failure here shouldn't blank the page */ }
+}
+
+/* ================================================================ */
+/* Render                                                           */
+/* ================================================================ */
+
+function render() {
+  const ev = DATA.event;
+  $("ev-name").textContent = ev.name;
+  const when = ev.end_date && ev.end_date !== ev.start_date
+    ? `${ev.start_date} to ${ev.end_date}` : ev.start_date;
+  $("ev-meta").textContent = `${when} · ${ev.venue}, ${ev.city}, ${ev.state}`;
+  $("whoami").textContent = DIRECTOR ? `Signed in as ${DIRECTOR}` : "";
+
+  renderTabs();
+  renderPanel();
+}
+
+function renderTabs() {
+  const box = $("tabs");
+  box.innerHTML = "";
+  const setUp = new Set(DATA.match_disciplines.map(m => m.discipline));
+
+  for (const md of DATA.match_disciplines) {
+    const b = document.createElement("button");
+    b.className = "tab";
+    b.setAttribute("aria-selected", String(md.id === current));
+    const cls = md.state === "live" ? "live" : md.state === "complete" ? "done" : "";
+    b.innerHTML = `<span class="dot ${cls}"></span>${esc(md.discipline)}`;
+    b.onclick = async () => {
+      current = md.id;
+      if (md.state !== "setup" && !standings[md.id]) await loadStandings(md.id);
+      render();
+    };
+    box.appendChild(b);
+  }
+
+  // Disciplines on the event that haven't been set up for live scoring yet.
+  for (const d of DATA.event.disciplines.filter(d => !setUp.has(d))) {
+    const b = document.createElement("button");
+    b.className = "tab";
+    b.style.borderStyle = "dashed";
+    b.innerHTML = `+ ${esc(d)}`;
+    b.onclick = () => { current = "new:" + d; render(); };
+    if (current === "new:" + d) b.setAttribute("aria-selected", "true");
+    box.appendChild(b);
+  }
+}
+
+function renderPanel() {
+  const panel = $("panel");
+  panel.innerHTML = "";
+
+  if (!DATA.match_disciplines.length && typeof current !== "string") {
+    panel.innerHTML = `<div class="empty">
+      Choose a discipline above to set it up for live scoring.<br>
+      <span style="font-size:13.5px">You can also just
+      <a href="/results.html">upload finished results</a> if you scored on paper.</span></div>`;
+    return;
+  }
+
+  if (typeof current === "string" && current.startsWith("new:")) {
+    return renderNew(panel, current.slice(4));
+  }
+
+  const md = DATA.match_disciplines.find(m => m.id === current);
+  if (!md) return;
+
+  renderHeadline(panel, md);
+  if (md.mode === "stages") renderStages(panel, md);
+  else renderDirectSettings(panel, md);
+  renderSquads(panel, md);
+  renderRoster(panel, md);
+  if (md.state !== "setup") renderStandings(panel, md);
+}
+
+/* ---------------- new discipline ---------------- */
+
+function renderNew(panel, discipline) {
+  panel.innerHTML = `
+    <h3>Set up ${esc(discipline)}</h3>
+    <p class="sub">How is this discipline scored? This can't change once the match opens,
+      so it's worth getting right.</p>
+
+    <div class="fields">
+      <div class="full">
+        <label for="nm-mode">Scoring</label>
+        <select id="nm-mode">
+          <option value="stages">Stage by stage — scorers tap hit or miss for each shot</option>
+          <option value="direct">Direct entry — you key in a score for each competitor</option>
+        </select>
+      </div>
+    </div>
+    <div class="example" id="nm-ex"></div>
+    <button class="btn" id="nm-go">Set up ${esc(discipline)}</button>`;
+
+  const ex = $("nm-ex");
+  const paint = () => {
+    ex.innerHTML = $("nm-mode").value === "stages"
+      ? `<b>Stage by stage.</b> You set out the stages and how many shots each one has.
+         Squad scorers get a phone screen with one box per shot and tap hit or miss.
+         Suits field target, precision rifle, silhouette — anything scored shot by shot.`
+      : `<b>Direct entry.</b> No stages. You grade the target and key in the score,
+         plus the X count — <b>250-25X</b> and so on. That's how airgun bench rest
+         is scored, and it's what this starts out set to. Group sizes and times are
+         available too, for formats that use them.`;
+  };
+  $("nm-mode").onchange = paint; paint();
+
+  $("nm-go").onclick = () => act(async () => {
+    const mode = $("nm-mode").value;
+    const out = await api("/api/scoring/discipline", "POST", {
+      discipline, mode,
+      ...(mode === "direct" ? { score_type: "points", winner: "highest", relays: 1, aggregation: "sum" } : {})
+    });
+    current = out.id;
+  }, `${discipline} is set up. Now add ${$("nm-mode").value === "stages" ? "stages, squads" : "squads"} and your competitors.`);
+}
+
+/* ---------------- headline ---------------- */
+
+function renderHeadline(panel, md) {
+  const p = md.progress || { done: 0, possible: 0 };
+  const pct = p.possible ? Math.round(p.done / p.possible * 100) : 0;
+
+  const el = document.createElement("div");
+  el.innerHTML = `
+    <div class="row" style="margin-bottom:14px">
+      <span class="state ${md.state}">${md.state === "setup" ? "Not open yet"
+        : md.state === "live" ? "Live" : "Closed"}</span>
+      <span style="flex:1"></span>
+      <div id="hl-actions" class="row"></div>
+    </div>
+    ${md.state !== "setup" ? `<div class="bar"><span style="width:${pct}%"></span></div>
+      <p class="barnote">${p.done} of ${p.possible} scores recorded${
+        p.possible ? ` · ${pct}%` : ""}</p>` : ""}
+    ${md.state === "live" ? `<label class="winner" style="margin-top:12px">
+        <input type="checkbox" id="hl-public" ${md.live_public ? "checked" : ""}>
+        <span>Show live standings publicly while the match is running</span></label>` : ""}`;
+  panel.appendChild(el);
+
+  const acts = el.querySelector("#hl-actions");
+  const btn = (label, cls, fn) => {
+    const b = document.createElement("button");
+    b.className = `btn ${cls} sm`; b.textContent = label; b.onclick = fn;
+    acts.appendChild(b); return b;
+  };
+
+  if (md.state === "setup") {
+    btn("Open the match", "", () => act(() =>
+      api("/api/scoring/state", "POST", { md_id: md.id, state: "live", live_public: 1 }),
+      "The match is open. Squad scorers can start entering scores."));
+  } else if (md.state === "live") {
+    btn("Close the match", "ghost", () => {
+      if (!confirm("Close the match? Scorers won't be able to enter or change anything.")) return;
+      act(() => api("/api/scoring/state", "POST", { md_id: md.id, state: "complete" }),
+        "The match is closed.");
+    });
+  } else {
+    btn("Reopen", "ghost", () => act(() =>
+      api("/api/scoring/state", "POST", { md_id: md.id, state: "live" }),
+      "The match is open again."));
+  }
+
+  const pub = el.querySelector("#hl-public");
+  if (pub) pub.onchange = () => act(() =>
+    api("/api/scoring/state", "POST", { md_id: md.id, state: "live", live_public: pub.checked ? 1 : 0 }));
+}
+
+/* ---------------- stages ---------------- */
+
+function renderStages(panel, md) {
+  const locked = md.state !== "setup" || md.stages.length > 0 && md.progress.done > 0;
+
+  const d = document.createElement("details");
+  d.open = !md.stages.length;
+  d.innerHTML = `
+    <summary>Stages <span style="font-weight:400;color:var(--muted)">— ${
+      md.stages.length ? `${md.stages.length} stages, ${
+        md.stages.reduce((a,s)=>a+s.shot_count,0)} shots in total` : "none yet"}</span></summary>
+    <div class="inner">
+      ${md.stages.length ? `<div class="tblwrap" style="margin-bottom:14px"><table>
+        <thead><tr><th style="width:56px">#</th><th>Stage</th><th style="width:110px">Shots</th></tr></thead>
+        <tbody>${md.stages.map(s => `<tr><td class="num">${s.ordinal}</td>
+          <td>${esc(s.name)}</td><td>${s.shot_count}</td></tr>`).join("")}</tbody></table></div>` : ""}
+      ${locked ? `<p class="sub" style="margin:0">Scores have been entered, so the stage list is
+        fixed. This protects cards that already exist — renumbering stages underneath them
+        would move hits between them.</p>`
+      : `<div id="st-rows"></div>
+         <div class="row" style="margin-top:12px">
+           <button class="btn ghost sm" id="st-add">Add a stage</button>
+           <span style="flex:1"></span>
+           <button class="btn sm" id="st-save">Save stages</button>
+         </div>
+         <p class="hint">Every stage can have a different number of shots.</p>`}
+    </div>`;
+  panel.appendChild(d);
+  if (locked) return;
+
+  const rows = d.querySelector("#st-rows");
+  let list = md.stages.length
+    ? md.stages.map(s => ({ name: s.name, shot_count: s.shot_count }))
+    : [{ name: "Stage 1", shot_count: 10 }];
+
+  const paint = () => {
+    rows.innerHTML = "";
+    list.forEach((s, i) => {
+      const r = document.createElement("div");
+      r.className = "row";
+      r.style.marginBottom = "9px";
+      r.innerHTML = `
+        <div style="flex:1"><input type="text" value="${esc(s.name)}" maxlength="60" placeholder="Stage name"></div>
+        <div style="width:110px"><input type="number" value="${s.shot_count}" min="1" max="100" step="1"></div>
+        <button class="btn danger sm" type="button" ${list.length === 1 ? "disabled" : ""}>Remove</button>`;
+      const [nm, sh] = r.querySelectorAll("input");
+      nm.oninput = () => { s.name = nm.value; };
+      sh.oninput = () => { s.shot_count = parseInt(sh.value, 10) || 0; };
+      r.querySelector("button").onclick = () => { list.splice(i, 1); paint(); };
+      rows.appendChild(r);
+    });
+  };
+  paint();
+
+  d.querySelector("#st-add").onclick = () => {
+    list.push({ name: `Stage ${list.length + 1}`, shot_count: 10 }); paint();
+  };
+  d.querySelector("#st-save").onclick = () => act(() =>
+    api("/api/scoring/stages", "POST", { md_id: md.id, stages: list }), "Stages saved.");
+}
+
+/* ---------------- direct entry settings ---------------- */
+
+function renderDirectSettings(panel, md) {
+  const d = document.createElement("details");
+  d.open = md.state === "setup";
+  d.innerHTML = `
+    <summary>Scoring settings <span style="font-weight:400;color:var(--muted)">— ${
+      esc(md.score_type || "points")}, ${md.relays} relay${md.relays === 1 ? "" : "s"}</span></summary>
+    <div class="inner">
+      <div class="fields">
+        <div>
+          <label for="ds-type">What are you entering?</label>
+          <select id="ds-type">
+            <option value="points">A score, with X count — the usual bench rest scoring</option>
+            <option value="group">A group size — measured, smallest wins</option>
+            <option value="time">A time</option>
+          </select>
+          <p class="hint">Airgun bench rest is scored on points, not group size.
+            Leave this on the first option unless your format really is measured.</p>
+        </div>
+        <div>
+          <label for="ds-winner">Who wins?</label>
+          <select id="ds-winner">
+            <option value="highest">The highest number</option>
+            <option value="lowest">The lowest number</option>
+          </select>
+        </div>
+        <div>
+          <label for="ds-dec">Decimal places</label>
+          <input type="number" id="ds-dec" min="0" max="4" step="1" value="${md.decimals || 0}">
+        </div>
+        <div>
+          <label for="ds-max">Highest possible score</label>
+          <input type="number" id="ds-max" min="1" step="1" value="${md.max_score ?? ""}" placeholder="e.g. 250">
+        </div>
+        <div>
+          <label for="ds-shots">Shots fired</label>
+          <input type="number" id="ds-shots" min="1" step="1" value="${md.shots_fired ?? ""}" placeholder="e.g. 25">
+        </div>
+        <div>
+          <label for="ds-relays">Relays</label>
+          <input type="number" id="ds-relays" min="1" max="20" step="1" value="${md.relays || 1}">
+        </div>
+        <div class="full" id="ds-aggwrap">
+          <label for="ds-agg">How do the relays combine?</label>
+          <select id="ds-agg">
+            <option value="sum">Add them together</option>
+            <option value="best">Take the best one</option>
+            <option value="average">Average them</option>
+            <option value="bestn">Take the best few</option>
+          </select>
+        </div>
+        <div id="ds-bestnwrap" hidden>
+          <label for="ds-bestn">Best how many?</label>
+          <input type="number" id="ds-bestn" min="1" max="20" step="1" value="${md.best_n ?? 3}">
+        </div>
+      </div>
+      <div class="example" id="ds-ex"></div>
+      <button class="btn" id="ds-save">Save settings</button>
+      ${md.state !== "setup" ? `<p class="hint">Changing these now will re-rank scores that
+        are already in. The numbers themselves aren't touched.</p>` : ""}
+    </div>`;
+  panel.appendChild(d);
+
+  $("ds-type").value   = md.score_type || "points";
+  $("ds-winner").value = md.winner || "highest";
+  $("ds-agg").value    = md.aggregation || "sum";
+
+  /* The worked example is the point of this whole block. Bench rest group size
+     sorts the opposite way to a points score, and a director who picks the
+     wrong one won't discover it until the standings are upside down — so show
+     them, in their own units, which number would win. */
+  const paintExample = () => {
+    const type = $("ds-type").value;
+    const low = $("ds-winner").value === "lowest";
+    const dec = Math.min(Math.max(parseInt($("ds-dec").value, 10) || 0, 0), 4);
+    const relays = Math.max(parseInt($("ds-relays").value, 10) || 1, 1);
+    const agg = $("ds-agg").value;
+
+    let a, b;
+    if (type === "group")      { a = 0.245; b = 0.412; }
+    else if (type === "time")  { a = 41.2;  b = 58.6;  }
+    else                       { a = 249;   b = 246;   }
+    const f = n => Number(n).toFixed(type === "points" ? dec : Math.max(dec, type === "group" ? 3 : 1));
+    const winner = low ? Math.min(a, b) : Math.max(a, b);
+    const loser  = low ? Math.max(a, b) : Math.min(a, b);
+
+    const aggWord = relays === 1 ? "" :
+      agg === "sum" ? ` Each competitor's ${relays} relays are added together.`
+      : agg === "best" ? ` Only each competitor's best relay counts.`
+      : agg === "average" ? ` Each competitor's ${relays} relays are averaged.`
+      : ` Only each competitor's best ${$("ds-bestn").value || 3} relays count.`;
+
+    $("ds-ex").innerHTML =
+      `<b>${f(winner)} beats ${f(loser)}</b> — ${low ? "smaller" : "bigger"} is better.${esc(aggWord)}` +
+      (low && type === "points" ? ` <span style="color:var(--red)">Check this is right — a points
+        score usually means the highest number wins.</span>` : "") +
+      (!low && type === "group" ? ` <span style="color:var(--red)">Check this is right — a group
+        size usually means the smallest number wins.</span>` : "");
+
+    $("ds-bestnwrap").hidden = agg !== "bestn";
+    $("ds-aggwrap").hidden = relays <= 1;
+    if (relays <= 1) $("ds-bestnwrap").hidden = true;
+  };
+
+  /* Choosing "group size" almost always means lowest wins. Nudge the default
+     rather than silently getting it wrong, but leave the director in charge. */
+  $("ds-type").onchange = () => {
+    const t = $("ds-type").value;
+    if (t === "group" || t === "time") $("ds-winner").value = "lowest";
+    if (t === "points") $("ds-winner").value = "highest";
+    if (t === "group" && (parseInt($("ds-dec").value, 10) || 0) < 3) $("ds-dec").value = 3;
+    paintExample();
+  };
+  ["ds-winner","ds-dec","ds-relays","ds-agg","ds-bestn"].forEach(id => {
+    $(id).onchange = paintExample; $(id).oninput = paintExample;
+  });
+  paintExample();
+
+  $("ds-save").onclick = () => act(() => api("/api/scoring/discipline", "POST", {
+    discipline: md.discipline, mode: "direct",
+    score_type: $("ds-type").value,
+    winner: $("ds-winner").value,
+    decimals: parseInt($("ds-dec").value, 10) || 0,
+    max_score: $("ds-max").value ? parseInt($("ds-max").value, 10) : null,
+    shots_fired: $("ds-shots").value ? parseInt($("ds-shots").value, 10) : null,
+    relays: parseInt($("ds-relays").value, 10) || 1,
+    aggregation: $("ds-agg").value,
+    best_n: $("ds-agg").value === "bestn" ? parseInt($("ds-bestn").value, 10) : null,
+    live_public: md.live_public
+  }), "Settings saved.");
+}
+
+/* ---------------- squads and codes ---------------- */
+
+function renderSquads(panel, md) {
+  const d = document.createElement("details");
+  d.open = !md.squads.length;
+  d.innerHTML = `
+    <summary>Squads and scorer codes <span style="font-weight:400;color:var(--muted)">— ${
+      md.squads.length ? `${md.squads.length}` : "none yet"}</span></summary>
+    <div class="inner">
+      <p class="sub">Each squad gets its own code. A code reaches that squad's competitors and
+        nobody else's — a scorer holding it cannot see or change another squad's scores, however
+        they ask. Hand each code to that squad's scorer.</p>
+      <div id="sq-list"></div>
+      <div class="row" style="margin-top:12px">
+        <div style="width:110px"><input type="number" id="sq-n" min="1" max="20" value="1"></div>
+        <button class="btn ghost sm" id="sq-add">Add squads</button>
+      </div>
+    </div>`;
+  panel.appendChild(d);
+
+  const list = d.querySelector("#sq-list");
+  if (!md.squads.length) {
+    list.innerHTML = `<div class="empty">No squads yet. Add one and a code is generated for it.</div>`;
+  }
+
+  for (const s of md.squads) {
+    const el = document.createElement("div");
+    el.className = "squad";
+    const link = `${location.origin}/score.html?code=${s.code}`;
+    el.innerHTML = `
+      <div class="top">
+        <b>${esc(s.name)}</b>
+        <span class="cnt">${s.entrants} competitor${s.entrants === 1 ? "" : "s"}</span>
+      </div>
+      <div class="code">${esc(s.code)}</div>
+      <div class="row">
+        <button class="btn ghost sm" data-a="copycode">Copy code</button>
+        <button class="btn ghost sm" data-a="copylink">Copy scorer link</button>
+        <button class="btn ghost sm" data-a="rename">Rename</button>
+        <span style="flex:1"></span>
+        <button class="btn ghost sm" data-a="rotate">New code</button>
+        <button class="btn danger sm" data-a="delete">Delete</button>
+      </div>`;
+
+    const copy = async (text, label, btn) => {
+      try { await navigator.clipboard.writeText(text); }
+      catch { prompt("Copy this:", text); return; }
+      const was = btn.textContent; btn.textContent = "Copied";
+      setTimeout(() => { btn.textContent = was; }, 1400);
+    };
+
+    el.querySelectorAll("[data-a]").forEach(b => {
+      b.onclick = () => {
+        const a = b.dataset.a;
+        if (a === "copycode") return copy(s.code, "code", b);
+        if (a === "copylink") return copy(link, "link", b);
+        if (a === "rename") {
+          const name = prompt("Squad name:", s.name);
+          if (name && name.trim()) act(() =>
+            api("/api/scoring/squads", "POST", { md_id: md.id, action: "rename", squad_id: s.id, name }));
+          return;
+        }
+        if (a === "rotate") {
+          if (!confirm(`Issue a new code for ${s.name}?\n\nThe old code stops working straight away — ` +
+                       `use this if a phone is lost or a code has gone too far. Other squads aren't affected.`)) return;
+          return act(() => api("/api/scoring/squads", "POST",
+            { md_id: md.id, action: "rotate", squad_id: s.id }), `${s.name} has a new code.`);
+        }
+        if (a === "delete") {
+          if (!confirm(`Delete ${s.name}?`)) return;
+          return act(() => api("/api/scoring/squads", "POST",
+            { md_id: md.id, action: "delete", squad_id: s.id }));
+        }
+      };
+    });
+    list.appendChild(el);
+  }
+
+  d.querySelector("#sq-add").onclick = () => act(() =>
+    api("/api/scoring/squads", "POST", {
+      md_id: md.id, action: "create",
+      count: parseInt(d.querySelector("#sq-n").value, 10) || 1
+    }), "Squads added, each with its own code.");
+}
+
+/* ---------------- roster ---------------- */
+
+function renderRoster(panel, md) {
+  const d = document.createElement("details");
+  d.open = !md.entrants.length;
+  d.innerHTML = `
+    <summary>Competitors <span style="font-weight:400;color:var(--muted)">— ${
+      md.entrants.length || "none yet"}</span></summary>
+    <div class="inner">
+      <div class="fields">
+        <div class="full">
+          <label for="rs-names">Add competitors — one name per line</label>
+          <textarea id="rs-names" placeholder="Dale Whitcomb&#10;Rita Alvarez&#10;Tom Brenner"></textarea>
+        </div>
+        <div>
+          <label for="rs-squad">Put them in</label>
+          <select id="rs-squad">
+            <option value="">No squad yet</option>
+            ${md.squads.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}
+          </select>
+        </div>
+        <div>
+          <label for="rs-class">Class (optional)</label>
+          <input type="text" id="rs-class" maxlength="60" placeholder="e.g. Hunter">
+        </div>
+      </div>
+      <button class="btn" id="rs-add">Add them</button>
+      <div id="rs-list" style="margin-top:18px"></div>
+    </div>`;
+  panel.appendChild(d);
+
+  d.querySelector("#rs-add").onclick = () => act(() => api("/api/scoring/entrants", "POST", {
+    md_id: md.id, action: "add",
+    names: d.querySelector("#rs-names").value,
+    squad_id: d.querySelector("#rs-squad").value || null,
+    class: d.querySelector("#rs-class").value || null
+  }), "Competitors added.");
+
+  const list = d.querySelector("#rs-list");
+  if (!md.entrants.length) return;
+
+  const unsquadded = md.entrants.filter(e => !e.squad_id).length;
+  list.innerHTML = `
+    ${unsquadded && md.squads.length ? `<div class="msg info">${unsquadded} competitor${
+      unsquadded === 1 ? " isn't" : "s aren't"} in a squad yet. Nobody can score them until they are.</div>` : ""}
+    <div class="tblwrap"><table>
+      <thead><tr><th>Competitor</th><th style="width:180px">Squad</th><th></th></tr></thead>
+      <tbody></tbody></table></div>`;
+
+  const tb = list.querySelector("tbody");
+  for (const e of md.entrants) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${esc(e.name)}${e.class ? ` <span style="color:var(--muted);font-size:13px">· ${esc(e.class)}</span>` : ""}</td>
+      <td><select>
+        <option value="">— none —</option>
+        ${md.squads.map(s => `<option value="${s.id}" ${s.id === e.squad_id ? "selected" : ""}>${esc(s.name)}</option>`).join("")}
+      </select></td>
+      <td class="act"><button class="btn danger sm">Remove</button></td>`;
+    tr.querySelector("select").onchange = ev => act(() =>
+      api("/api/scoring/entrants", "POST", {
+        md_id: md.id, action: "assign", entrant_id: e.id, squad_id: ev.target.value || null }));
+    tr.querySelector("button").onclick = () => {
+      if (!confirm(`Remove ${e.name} from this discipline?`)) return;
+      act(() => api("/api/scoring/entrants", "POST",
+        { md_id: md.id, action: "remove", entrant_id: e.id }));
+    };
+    tb.appendChild(tr);
+  }
+}
+
+/* ---------------- standings ---------------- */
+
+function renderStandings(panel, md) {
+  const s = standings[md.id];
+  const el = document.createElement("div");
+  el.style.marginTop = "20px";
+
+  if (!s) { el.innerHTML = `<div class="empty">Loading standings…</div>`; panel.appendChild(el); return; }
+
+  const anyDeclared = s.standings.some(r => r.declared);
+
+  el.innerHTML = `
+    <h3 style="margin-top:24px">Standings</h3>
+    <p class="sub">Ties are left as ties — the system won't break one for you. If two competitors
+      finish level, tick the one who won and everyone below moves down.</p>
+    <div class="tblwrap"><table>
+      <thead><tr>
+        <th style="width:56px">#</th><th>Competitor</th>
+        <th style="width:120px">${md.mode === "stages" ? "Hits" : "Score"}</th>
+        <th style="width:150px">Winner</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table></div>
+    ${anyDeclared ? `<p class="hint">Placings marked <span class="declared">declared</span>
+      were set by you, not worked out from the scores.</p>` : ""}
+    <div class="row" style="margin-top:16px">
+      <button class="btn ghost sm" id="std-refresh">Refresh</button>
+      <span style="flex:1"></span>
+      <button class="btn" id="std-publish">Publish these results</button>
+    </div>
+    <p class="hint">Publishing puts this discipline on the event's public results page and
+      feeds the national rankings. You can publish again later if anything changes.</p>`;
+  panel.appendChild(el);
+
+  const tb = el.querySelector("tbody");
+  for (const r of s.standings) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="num">${r.place ?? "—"}</td>
+      <td>${esc(r.name)}${r.squad_name ? ` <span style="color:var(--muted);font-size:13px">· ${esc(r.squad_name)}</span>` : ""}${
+        r.declared ? `<span class="declared">declared</span>` : ""}</td>
+      <td class="score">${esc(r.display)}${r.complete === false && md.state === "live"
+        ? ` <span style="color:var(--muted);font-weight:400;font-size:12px">still shooting</span>` : ""}</td>
+      <td><label class="winner"><input type="checkbox" ${r.declared && r.place === 1 ? "checked" : ""}>
+        <span>${r.declared && r.place === 1 ? "Declared winner" : "Declare winner"}</span></label></td>`;
+
+    tr.querySelector("input").onchange = ev => {
+      const on = ev.target.checked;
+      if (on && !DIRECTOR) {
+        const who = prompt("Your name — declarations are recorded against it:");
+        if (!who || !who.trim()) { ev.target.checked = false; return; }
+        DIRECTOR = who.trim().slice(0, 80);
+        localStorage.setItem("agm.match.director", DIRECTOR);
+      }
+      act(async () => {
+        await api("/api/scoring/declare", "POST", {
+          md_id: md.id, entrant_id: r.entrant_id,
+          place: on ? 1 : null, by: DIRECTOR
+        });
+        await loadStandings(md.id);
+      }, on ? `${r.name} declared the winner.` : "Declaration removed.");
+    };
+    tb.appendChild(tr);
+  }
+
+  el.querySelector("#std-refresh").onclick = () =>
+    act(async () => { await loadStandings(md.id); });
+
+  el.querySelector("#std-publish").onclick = () => {
+    const scored = s.standings.filter(r => r.place !== null).length;
+    if (!confirm(`Publish ${scored} result${scored === 1 ? "" : "s"} for ${md.discipline}?\n\n` +
+      `They go on the event's public results page and into the national rankings. ` +
+      `The match will be closed. You can publish again if anything changes.`)) return;
+    act(() => api("/api/scoring/publish", "POST", { md_id: md.id }),
+      `${md.discipline} published.`);
+  };
+}
+
+/* ================================================================ */
+/* Wiring                                                           */
+/* ================================================================ */
+
+const codeInput = $("code");
+codeInput.addEventListener("input", e => { e.target.value = fmtCode(e.target.value); });
+
+$("codeform").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = $("codebtn");
+  const code = fmtCode(codeInput.value);
+  if (code.replace(/-/g, "").length !== 12) {
+    $("codemsg").innerHTML = `<div class="msg err">An event code is twelve characters, like ABCD-EFGH-JKMN.</div>`;
+    return;
+  }
+  btn.disabled = true; btn.textContent = "Checking…";
+  const was = CODE; CODE = code;
+  try {
+    await load();
+    // The code is kept for this browser tab only. A director's phone is often
+    // handed around at a match, and a code that survives a closed tab is a
+    // code that outlives its owner's attention.
+    sessionStorage.setItem("agm.match.code", CODE);
+    $("codecard").hidden = true;
+    $("console").hidden = false;
+    $("codemsg").innerHTML = "";
+  } catch (err) {
+    CODE = was;
+    $("codemsg").innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
+  } finally { btn.disabled = false; btn.textContent = "Continue"; }
+});
+
+$("signout").addEventListener("click", e => {
+  e.preventDefault();
+  sessionStorage.removeItem("agm.match.code");
+  CODE = ""; DATA = null; current = null; standings = {};
+  codeInput.value = "";
+  $("console").hidden = true;
+  $("codecard").hidden = false;
+});
+
+(async function start() {
+  const fromLink = new URLSearchParams(location.search).get("code");
+  if (fromLink) {
+    CODE = fmtCode(fromLink);
+    history.replaceState(null, "", location.pathname);
+  }
+  if (!CODE) return;
+  try {
+    await load();
+    sessionStorage.setItem("agm.match.code", CODE);
+    $("codecard").hidden = true;
+    $("console").hidden = false;
+  } catch (err) {
+    CODE = "";
+    sessionStorage.removeItem("agm.match.code");
+    $("codemsg").innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
+  }
+})();
+
+})();
+</script>
+</body>
+</html>

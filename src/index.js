@@ -27,6 +27,8 @@
  *     because Access sits in front of the route.
  */
 
+import { handleScoring } from "./scoring.js";
+
 const ADMIN_PATH = "/admin.html";
 
 /* Columns the public may ever see. Submitter and review fields are absent
@@ -802,6 +804,15 @@ async function adminExport(request, env) {
 /* Router                                                              */
 /* ------------------------------------------------------------------ */
 
+/* The scoring module is given only what it needs, and shares this file's
+   single definition of each helper — so a fix to name matching or to the
+   points table applies to uploaded results and live scoring alike, and the
+   two can never drift apart. */
+const SCORING_HELPERS = {
+  json, fail, safeParse, eventForCode, makeResultsCode,
+  resolveShooter, pointsForPlace
+};
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -817,6 +828,16 @@ export default {
         // Results upload — authorised by the event's own code, nothing else
         if (path === "/api/results" && method === "GET")  return await getResultsEvent(request, env);
         if (path === "/api/results" && method === "POST") return await saveResults(request, env);
+
+        // Live scoring. Authorisation lives inside the module: the event's
+        // results code for the director, a per-squad code for a scorer, and
+        // neither for the public live view. No admin session is involved, so
+        // this sits ahead of the admin block deliberately.
+        if (path.startsWith("/api/scoring/")) {
+          const res = await handleScoring(request, env, path, method, SCORING_HELPERS);
+          if (res) return res;
+          return fail("Not found", 404);
+        }
 
         // Public standings
         if (path === "/api/rankings" && method === "GET") return await getRankings(request, env);
