@@ -15,6 +15,8 @@
     --amber:#e08c1b; --amber-dk:#b86f0e;
     --bg:#f5f6f8; --card:#fff; --line:#e2e6ec;
     --text:#1d2733; --muted:#6b7684;
+    --green:#1f7a4d; --green-bg:#e7f6ee; --green-line:#a9d9c0;
+    --red:#d62828;
     --radius:10px; --shadow:0 1px 2px rgba(18,38,63,.06), 0 4px 12px rgba(18,38,63,.05);
   }
   *{box-sizing:border-box}
@@ -101,7 +103,16 @@
   .rtable td{padding:7px 10px;border-top:1px solid var(--line)}
   .rtable td.pl{width:46px;font-weight:800;color:var(--navy)}
   .rtable tr:nth-child(2) td.pl{color:var(--amber-dk)}
-  .tag.results{background:var(--navy-2);color:#fff;border-color:var(--navy-2)}
+  .tag.results{background:var(--green-bg);border-color:var(--green-line);color:var(--red);
+    display:inline-flex;align-items:center;gap:5px;letter-spacing:.6px}
+  .tag.results .dot{width:7px;height:7px;border-radius:50%;background:var(--red);
+    display:inline-block;flex:none;animation:pulse 2s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @media (prefers-reduced-motion:reduce){ .tag.results .dot{animation:none} }
+
+  /* Results button, so a finished match reads differently from an upcoming one */
+  .minibtn.res{background:var(--green);color:#fff;border-color:var(--green)}
+  .minibtn.res:hover{background:#18603c;border-color:#18603c}
 
   /* ---------- Embedded video ---------- */
   .videowrap{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
@@ -612,7 +623,9 @@ function render(){
 
   let rows = EVENTS.map((ev,i) => ({ev,i})).filter(({ev}) => {
     if(!parseDate(ev.start)) return false;
-    if(upcom && isPast(ev)) return false;
+    // Events with published results stay listed even when past events are hidden,
+    // since results are the reason someone looks a match up afterwards.
+    if(upcom && isPast(ev) && !ev.results) return false;
     if(st && ev.state !== st) return false;
     // An event matches if ANY of its disciplines is the selected one
     if(disc && !(ev.disciplines || []).includes(disc)) return false;
@@ -670,6 +683,7 @@ function render(){
     const e = parseDate(ev.end);
     const multi = e && e.getTime() !== s.getTime();
     const open = OPEN.has(ev.id);
+    const hasResults = !!ev.results;
     const days = multi ? Math.round((e - s) / 86400000) + 1 : 1;
 
     html += `<article class="event${isPast(ev) ? " past" : ""}${open ? " open" : ""}"
@@ -689,14 +703,15 @@ function render(){
           ${(ev.disciplines || []).map(d => `<span class="tag">${esc(d)}</span>`).join("")}
           ${ev.org ? `<span class="tag org">${esc(ev.org)}</span>` : ""}
           ${ev.juniors ? `<span class="tag">Junior eligible</span>` : ""}
-          ${ev.results ? `<span class="tag results">Results posted</span>` : ""}
+          ${ev.results ? `<span class="tag results"><span class="dot"></span>LIVE</span>` : ""}
         </div>
       </div>
       <div class="eactions">
-        <button class="minibtn ${open ? "" : "primary"}" type="button" data-open="${esc(ev.id)}">
-          ${open ? "Hide details" : "View details"}
+        <button class="minibtn ${open ? "" : (hasResults ? "res" : "primary")}" type="button" data-open="${esc(ev.id)}">
+          ${open ? (hasResults ? "Hide results" : "Hide details")
+                 : (hasResults ? "Results" : "View details")}
         </button>
-        <button class="minibtn" type="button" data-ics="${i}">Add to calendar</button>
+        ${hasResults ? "" : `<button class="minibtn" type="button" data-ics="${i}">Add to calendar</button>`}
       </div>
 
       ${open ? `<div class="details">
@@ -713,7 +728,7 @@ function render(){
         ${videoEmbed(ev.video)}
         <div class="dactions">
           ${ev.url ? `<a class="go" href="${esc(ev.url)}" target="_blank" rel="noopener noreferrer">Registration &amp; info ↗</a>` : ""}
-          <button type="button" data-ics="${i}">Add to calendar</button>
+          ${hasResults ? "" : `<button type="button" data-ics="${i}">Add to calendar</button>`}
           <a href="${esc(mapLink(ev))}" target="_blank" rel="noopener noreferrer">Directions ↗</a>
         </div>
       </div>` : ""}
