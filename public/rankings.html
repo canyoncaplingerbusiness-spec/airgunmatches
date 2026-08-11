@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rankings — Airgun Matches</title>
+<meta name="description" content="National airgun standings built from posted match results. Points awarded by finishing position across field target, silhouette, bench rest, precision rifle and long range.">
+<meta property="og:title" content="Airgun Matches — National Rankings">
+<meta property="og:description" content="Who's shooting best across the country, by discipline, over the last twelve months.">
+
+<style>
+  :root{
+    --navy:#12263f; --navy-2:#1c3557; --steel:#5a6b82;
+    --amber:#e08c1b; --amber-dk:#b86f0e;
+    --bg:#f5f6f8; --card:#fff; --line:#e2e6ec;
+    --text:#1d2733; --muted:#6b7684;
+    --green:#1f7a4d; --gold:#c9a227; --silver:#8d949e; --bronze:#a9702f;
+    --radius:10px; --shadow:0 1px 2px rgba(18,38,63,.06), 0 4px 12px rgba(18,38,63,.05);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  a{color:var(--navy-2)}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 20px}
+  button{font-family:inherit}
+
+  header.site{background:linear-gradient(160deg,var(--navy),var(--navy-2));color:#fff;padding:32px 0 28px}
+  .brandrow{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+  .brand h1{margin:0;font-size:25px;letter-spacing:-.4px;font-weight:700}
+  .brand p{margin:4px 0 0;color:#a8b8cd;font-size:14px}
+  .navbtn{display:inline-block;text-decoration:none;background:rgba(255,255,255,.12);color:#fff;
+    border:1px solid rgba(255,255,255,.3);font-weight:600;font-size:14px;
+    padding:9px 16px;border-radius:8px}
+  .navbtn:hover{background:rgba(255,255,255,.2)}
+
+  .bar{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:15px 16px;margin:-20px 0 20px;position:relative;z-index:2;
+    display:flex;gap:12px;align-items:end;flex-wrap:wrap}
+  .field{flex:1;min-width:180px}
+  .field label{display:block;font-size:11.5px;text-transform:uppercase;letter-spacing:.6px;
+    color:var(--muted);font-weight:700;margin-bottom:5px}
+  .field select,.field input{width:100%;padding:10px 11px;border:1px solid var(--line);
+    border-radius:8px;font-size:15px;font-family:inherit;background:#fff;color:var(--text)}
+  .field select:focus,.field input:focus{outline:2px solid var(--navy-2);outline-offset:-1px}
+
+  .note{font-size:13.5px;color:var(--muted);margin:0 0 16px}
+
+  table.board{width:100%;border-collapse:collapse;background:var(--card);
+    border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
+  table.board th{background:var(--bg);text-align:left;padding:11px 12px;font-size:10.5px;
+    letter-spacing:.7px;text-transform:uppercase;color:var(--muted);font-weight:800;white-space:nowrap}
+  table.board td{padding:12px;border-top:1px solid var(--line);vertical-align:middle}
+  table.board tr.row{cursor:pointer}
+  table.board tr.row:hover td{background:#fafbfc}
+
+  .rank{width:56px;font-weight:800;font-size:17px;color:var(--navy);text-align:center}
+  .rank.g1{color:var(--gold)} .rank.g2{color:var(--silver)} .rank.g3{color:var(--bronze)}
+  .who{font-weight:700;font-size:15.5px}
+  .who small{display:block;font-weight:400;font-size:12.5px;color:var(--muted);margin-top:2px}
+  .pts{font-weight:800;font-size:17px;color:var(--navy-2);text-align:right;width:80px}
+  .num{text-align:center;width:70px;color:var(--muted);font-size:14.5px}
+  .num b{color:var(--text)}
+  @media (max-width:700px){ .hide-sm{display:none} }
+
+  .empty{background:var(--card);border:1px dashed var(--steel);border-radius:var(--radius);
+    padding:48px 24px;text-align:center;color:var(--muted)}
+  .empty strong{display:block;color:var(--text);font-size:17px;margin-bottom:6px}
+  .spinner{width:22px;height:22px;border:3px solid var(--line);border-top-color:var(--navy-2);
+    border-radius:50%;animation:spin .8s linear infinite;margin:40px auto}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* Shooter detail */
+  .sheet{position:fixed;inset:0;background:rgba(18,38,63,.45);display:flex;
+    align-items:flex-start;justify-content:center;padding:24px;overflow:auto;z-index:50}
+  .sheet[hidden]{display:none}
+  .sheetcard{background:var(--card);border-radius:var(--radius);max-width:720px;width:100%;
+    box-shadow:0 12px 40px rgba(18,38,63,.28);padding:24px}
+  .sheetcard h2{margin:0 0 3px;font-size:21px}
+  .sheetcard .sub{color:var(--muted);font-size:14px;margin:0 0 18px}
+  .closex{float:right;background:none;border:0;font-size:22px;color:var(--muted);cursor:pointer;
+    line-height:1;padding:0 4px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:12px;
+    margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+  .stat{text-align:center}
+  .stat .v{font-size:22px;font-weight:800;color:var(--navy)}
+  .stat .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:700}
+  .hist{width:100%;border-collapse:collapse;font-size:14px}
+  .hist th{text-align:left;padding:7px 9px;font-size:10.5px;text-transform:uppercase;
+    letter-spacing:.6px;color:var(--muted);background:var(--bg)}
+  .hist td{padding:8px 9px;border-top:1px solid var(--line)}
+  .hist .p{font-weight:800;color:var(--navy);width:44px}
+
+  footer.site{background:var(--navy);color:#a8b8cd;padding:26px 0;font-size:13.5px;margin-top:44px}
+  footer.site a{color:#fff}
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap brandrow">
+    <div class="brand">
+      <h1>National Rankings</h1>
+      <p>Built from posted match results — rolling twelve months.</p>
+    </div>
+    <a class="navbtn" href="/">← Back to the calendar</a>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="bar">
+    <div class="field">
+      <label for="discipline">Discipline</label>
+      <select id="discipline"><option value="">All disciplines combined</option></select>
+    </div>
+    <div class="field">
+      <label for="q">Find a shooter</label>
+      <input type="search" id="q" placeholder="Name…" autocomplete="off">
+    </div>
+  </div>
+
+  <p class="note" id="note"></p>
+  <div id="board"><div class="spinner"></div></div>
+</main>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="sheetcard">
+    <button class="closex" id="closesheet" aria-label="Close">×</button>
+    <div id="sheetbody"></div>
+  </div>
+</div>
+
+<footer class="site">
+  <div class="wrap">
+    Points are awarded by finishing position, so every discipline and course of fire counts
+    on the same scale. <a href="/">Browse upcoming matches →</a>
+  </div>
+</footer>
+
+<script type="module">
+const API = "/api";
+let STANDINGS = [];
+
+const esc = s => String(s == null ? "" : s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+  .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function fmtDate(s){
+  if(!s) return "";
+  const [y,m,d] = s.slice(0,10).split("-").map(Number);
+  return `${MONTHS[m-1]} ${d}, ${y}`;
+}
+
+async function load(){
+  const discipline = document.getElementById("discipline").value;
+  document.getElementById("board").innerHTML = '<div class="spinner"></div>';
+
+  const url = discipline ? `${API}/rankings?discipline=${encodeURIComponent(discipline)}` : `${API}/rankings`;
+  let data;
+  try {
+    const res = await fetch(url);
+    if(!res.ok) throw new Error(`Server responded ${res.status}`);
+    data = await res.json();
+  } catch (err) {
+    document.getElementById("board").innerHTML =
+      `<div class="empty"><strong>Couldn't load the rankings.</strong>${esc(err.message)}</div>`;
+    return;
+  }
+
+  STANDINGS = data.standings || [];
+
+  // Build the discipline filter once, keeping the current choice
+  const sel = document.getElementById("discipline");
+  if(sel.options.length <= 1 && data.disciplines?.length){
+    data.disciplines.forEach(d => {
+      sel.insertAdjacentHTML("beforeend",
+        `<option value="${esc(d.discipline)}">${esc(d.discipline)} (${d.shooters})</option>`);
+    });
+    if(discipline) sel.value = discipline;
+  }
+
+  render();
+}
+
+function render(){
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  const rows = q ? STANDINGS.filter(s => s.name.toLowerCase().includes(q)) : STANDINGS;
+  const board = document.getElementById("board");
+  const note = document.getElementById("note");
+
+  if(!STANDINGS.length){
+    note.textContent = "";
+    board.innerHTML = `<div class="empty">
+      <strong>No rankings yet.</strong>
+      Standings appear as soon as match directors start posting results.
+      <br><a href="/">See upcoming matches →</a></div>`;
+    return;
+  }
+
+  note.textContent =
+    `${STANDINGS.length} shooter${STANDINGS.length === 1 ? "" : "s"} ranked over the last twelve months` +
+    (q ? ` · showing ${rows.length} matching "${q}"` : "");
+
+  if(!rows.length){
+    board.innerHTML = `<div class="empty"><strong>No shooter by that name.</strong>
+      Try part of a first or last name.</div>`;
+    return;
+  }
+
+  board.innerHTML = `<table class="board">
+    <tr>
+      <th style="text-align:center">#</th>
+      <th>Shooter</th>
+      <th class="hide-sm" style="text-align:center">Events</th>
+      <th class="hide-sm" style="text-align:center">Wins</th>
+      <th class="hide-sm" style="text-align:center">Podiums</th>
+      <th style="text-align:right">Points</th>
+    </tr>
+    ${rows.map(s => `<tr class="row" data-shooter="${s.shooter_id}">
+      <td class="rank ${s.rank <= 3 ? "g" + s.rank : ""}">${s.rank}</td>
+      <td class="who">${esc(s.name)}
+        <small>${esc((s.disciplines || []).join(" · "))}</small></td>
+      <td class="num hide-sm"><b>${s.events}</b></td>
+      <td class="num hide-sm">${s.wins ? `<b>${s.wins}</b>` : "—"}</td>
+      <td class="num hide-sm">${s.podiums ? `<b>${s.podiums}</b>` : "—"}</td>
+      <td class="pts">${s.points}</td>
+    </tr>`).join("")}
+  </table>`;
+}
+
+/* ---------- Shooter detail ---------- */
+async function openShooter(id){
+  const sheet = document.getElementById("sheet");
+  const body = document.getElementById("sheetbody");
+  body.innerHTML = '<div class="spinner"></div>';
+  sheet.hidden = false;
+
+  let data;
+  try {
+    const res = await fetch(`${API}/shooters/${id}`);
+    if(!res.ok) throw new Error("Couldn't load that shooter.");
+    data = await res.json();
+  } catch (err) {
+    body.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+    return;
+  }
+
+  const r = data.results || [];
+  const standing = STANDINGS.find(s => s.shooter_id === id);
+  const wins = r.filter(x => x.place === 1).length;
+  const podiums = r.filter(x => x.place && x.place <= 3).length;
+  const points = r.reduce((t, x) => t + (x.points || 0), 0);
+
+  body.innerHTML = `
+    <h2>${esc(data.shooter.display_name)}</h2>
+    <p class="sub">${r.length} recorded result${r.length === 1 ? "" : "s"}${
+      standing ? ` · currently ranked #${standing.rank}` : ""}</p>
+    <div class="stats">
+      <div class="stat"><div class="v">${points}</div><div class="k">Points</div></div>
+      <div class="stat"><div class="v">${r.length}</div><div class="k">Results</div></div>
+      <div class="stat"><div class="v">${wins}</div><div class="k">Wins</div></div>
+      <div class="stat"><div class="v">${podiums}</div><div class="k">Podiums</div></div>
+    </div>
+    <table class="hist">
+      <tr><th>Place</th><th>Event</th><th>Discipline</th><th>Score</th><th>Pts</th></tr>
+      ${r.map(x => `<tr>
+        <td class="p">${x.place ?? "—"}</td>
+        <td>${esc(x.event)}<br>
+          <small style="color:var(--muted)">${esc(fmtDate(x.start_date))} · ${esc(x.city)}, ${esc(x.state)}</small></td>
+        <td>${esc(x.discipline)}</td>
+        <td>${esc(x.score || "—")}</td>
+        <td>${x.points}</td>
+      </tr>`).join("")}
+    </table>`;
+}
+
+function closeSheet(){ document.getElementById("sheet").hidden = true; }
+
+document.getElementById("board").addEventListener("click", e => {
+  const row = e.target.closest("[data-shooter]");
+  if(row) openShooter(Number(row.dataset.shooter));
+});
+document.getElementById("closesheet").addEventListener("click", closeSheet);
+document.getElementById("sheet").addEventListener("click", e => {
+  if(e.target.id === "sheet") closeSheet();
+});
+document.addEventListener("keydown", e => { if(e.key === "Escape") closeSheet(); });
+
+document.getElementById("discipline").addEventListener("change", load);
+document.getElementById("q").addEventListener("input", render);
+
+load();
+</script>
+</body>
+</html>

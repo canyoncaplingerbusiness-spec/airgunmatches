@@ -39,6 +39,8 @@
   .btn:hover{background:var(--amber-dk);color:#fff}
   .btn:active{transform:translateY(1px)}
   .btn:disabled{opacity:.6;cursor:default;transform:none}
+  .btn.ghost{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.3);font-weight:600}
+  .btn.ghost:hover{background:rgba(255,255,255,.22);color:#fff}
 
   .filters{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
     box-shadow:var(--shadow);padding:16px;margin:-22px 0 22px;position:relative;z-index:2}
@@ -219,7 +221,10 @@
         <p>Every match in the country, in date order.</p>
       </div>
     </div>
-    <a class="btn" href="#submit">Submit an Event</a>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <a class="btn ghost" href="/rankings.html">Rankings</a>
+      <a class="btn" href="#submit">Submit an Event</a>
+    </div>
   </div>
 </header>
 
