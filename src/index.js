@@ -178,6 +178,40 @@ async function requireAdmin(request, env) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Results upload codes                                                */
+/*                                                                     */
+/* Each approved event gets a single-purpose code. It grants exactly    */
+/* one capability: replacing the results for that one event. It cannot  */
+/* read submitter data, touch other events, or reach the dashboard.     */
+/* ------------------------------------------------------------------ */
+
+// Ambiguous characters (0/O, 1/I/L) are excluded so a code can be read
+// aloud or copied off a phone screen without confusion.
+const CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+
+function makeResultsCode() {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  const chars = [...bytes].map(b => CODE_ALPHABET[b % CODE_ALPHABET.length]);
+  return `${chars.slice(0,4).join("")}-${chars.slice(4,8).join("")}-${chars.slice(8,12).join("")}`;
+}
+
+const normaliseCode = c =>
+  String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+
+/** Looks up an event by its results code, comparing on the normalised form
+ *  so hyphens, spaces and lower case all work. */
+async function eventForCode(env, code) {
+  const clean = normaliseCode(code);
+  if (clean.length !== 12) return null;
+  return await env.DB.prepare(
+    `SELECT id, name, start_date, end_date, venue, city, state, disciplines, status
+       FROM events
+      WHERE replace(upper(results_token), '-', '') = ?`
+  ).bind(clean).first();
+}
+
+/* ------------------------------------------------------------------ */
 /* Turnstile                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -261,6 +295,53 @@ const parseRow = r => ({ ...r, disciplines: safeParse(r.disciplines), juniors: !
 function safeParse(s) { try { const v = JSON.parse(s); return Array.isArray(v) ? v : []; } catch { return []; } }
 
 /* ------------------------------------------------------------------ */
+/* Results parsing                                                     */
+/* ------------------------------------------------------------------ */
+
+/** Accepts rows pasted from a spreadsheet. Splits on tabs, commas or runs
+ *  of spaces, tolerates a header row, and treats a leading number as the
+ *  finishing place. Anything unparseable is reported rather than guessed at. */
+function parseResultRows(text) {
+  const errors = [], rows = [];
+  const lines = String(text || "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+  lines.forEach((line, i) => {
+    // Skip an obvious header
+    if (i === 0 && /^(place|pos|rank|#)\b/i.test(line)) return;
+
+    // Delimited cells keep their position even when blank, so an empty name
+    // column can't let the score slide into the competitor field.
+    const delimited = line.includes("\t") || line.includes(",");
+    const cells = line.includes("\t") ? line.split("\t")
+                : line.includes(",")  ? line.split(",")
+                : line.split(/\s{2,}/);
+    let parts = cells.map(c => c.trim());
+    if (!delimited) parts = parts.filter(c => c !== "");
+    while (parts.length && parts[parts.length - 1] === "") parts.pop();
+    if (!parts.length) return;
+
+    let place = null, rest = parts;
+    if (/^\d{1,4}[.)]?$/.test(parts[0])) {
+      place = parseInt(parts[0], 10);
+      rest = parts.slice(1);
+    }
+
+    const competitor = (rest[0] || "").slice(0, 120);
+    if (!competitor) { errors.push(`Line ${i + 1}: no competitor name found.`); return; }
+
+    rows.push({
+      place,
+      competitor,
+      score: (rest[1] || "").slice(0, 60) || null,
+      class: (rest[2] || "").slice(0, 60) || null
+    });
+  });
+
+  if (rows.length > 500) errors.push("More than 500 rows in one discipline.");
+  return { rows, errors };
+}
+
+/* ------------------------------------------------------------------ */
 /* Handlers                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -268,7 +349,27 @@ async function getPublicEvents(env) {
   const { results } = await env.DB.prepare(
     `SELECT ${PUBLIC_COLUMNS} FROM events WHERE status = 'approved' ORDER BY start_date ASC`
   ).all();
-  return json({ events: (results || []).map(parseRow) }, 200, {
+  const events = (results || []).map(parseRow);
+
+  // Attach published results, grouped by discipline, in finishing order.
+  const rows = await env.DB.prepare(
+    `SELECT r.event_id, r.discipline, r.place, r.competitor, r.score, r.class
+       FROM results r
+       JOIN events e ON e.id = r.event_id
+      WHERE e.status = 'approved'
+      ORDER BY r.discipline, r.sort_order`
+  ).all();
+
+  const byEvent = {};
+  (rows.results || []).forEach(r => {
+    const ev = (byEvent[r.event_id] ||= {});
+    (ev[r.discipline] ||= []).push({
+      place: r.place, competitor: r.competitor, score: r.score, class: r.class
+    });
+  });
+  events.forEach(e => { e.results = byEvent[e.id] || null; });
+
+  return json({ events }, 200, {
     // Short cache: approvals appear within a minute without a deploy.
     "cache-control": "public, max-age=60, stale-while-revalidate=300"
   });
@@ -325,6 +426,71 @@ async function createSubmission(request, env) {
   return json({ ok: true, id }, 201);
 }
 
+async function getResultsEvent(request, env) {
+  const code = new URL(request.url).searchParams.get("code");
+  const ev = await eventForCode(env, code);
+  if (!ev || ev.status !== "approved") return fail("That code isn't recognised.", 404);
+
+  const existing = await env.DB.prepare(
+    "SELECT discipline, place, competitor, score, class FROM results WHERE event_id = ? ORDER BY discipline, sort_order"
+  ).bind(ev.id).all();
+
+  return json({
+    event: {
+      name: ev.name, start_date: ev.start_date, end_date: ev.end_date,
+      venue: ev.venue, city: ev.city, state: ev.state,
+      disciplines: safeParse(ev.disciplines)
+    },
+    results: existing.results || []
+  }, 200, { "cache-control": "no-store" });
+}
+
+async function saveResults(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return fail("Malformed request."); }
+
+  const ev = await eventForCode(env, body.code);
+  if (!ev || ev.status !== "approved") return fail("That code isn't recognised.", 404);
+
+  const disciplines = safeParse(ev.disciplines);
+  const incoming = body.disciplines && typeof body.disciplines === "object" ? body.disciplines : {};
+
+  const statements = [];
+  let total = 0;
+  const problems = [];
+
+  for (const [discipline, text] of Object.entries(incoming)) {
+    if (!disciplines.includes(discipline)) {
+      problems.push(`"${discipline}" is not one of this event's disciplines.`);
+      continue;
+    }
+    const { rows, errors } = parseResultRows(text);
+    errors.forEach(e => problems.push(`${discipline} — ${e}`));
+    rows.forEach((r, idx) => {
+      statements.push(
+        env.DB.prepare(
+          `INSERT INTO results (event_id, discipline, place, competitor, score, class, sort_order)
+           VALUES (?,?,?,?,?,?,?)`
+        ).bind(ev.id, discipline, r.place, r.competitor, r.score, r.class,
+               r.place !== null ? r.place : idx + 1)
+      );
+      total++;
+    });
+  }
+
+  if (problems.length) return json({ error: problems.join(" ") }, 400);
+  if (!total) return fail("No results were found in what you pasted.");
+
+  // Replace wholesale, so re-uploading a corrected sheet is safe.
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM results WHERE event_id = ?").bind(ev.id),
+    ...statements,
+    env.DB.prepare("UPDATE events SET results_updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?").bind(ev.id)
+  ]);
+
+  return json({ ok: true, saved: total });
+}
+
 async function adminList(env) {
   const { results } = await env.DB.prepare(
     "SELECT * FROM events ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, created_at DESC"
@@ -345,7 +511,17 @@ async function adminUpdate(request, env, id, email) {
     if (!["pending","approved","denied"].includes(body.status)) return fail("Invalid status.");
     sets.push("status = ?"); binds.push(body.status);
     sets.push("reviewed_by = ?"); binds.push(email);
+
+    // Approving an event issues its results code, once. Re-approving later
+    // keeps the original so a code already sent to an organizer keeps working.
+    if (body.status === "approved") {
+      const cur = await env.DB.prepare("SELECT results_token FROM events WHERE id = ?").bind(id).first();
+      if (!cur?.results_token) { sets.push("results_token = ?"); binds.push(makeResultsCode()); }
+    }
   }
+
+  // Explicitly re-issue a code, for when one has been lost or leaked.
+  if (body.regenerate_code === true) { sets.push("results_token = ?"); binds.push(makeResultsCode()); }
 
   for (const [k, v] of Object.entries(body)) {
     if (!EDITABLE.has(k)) continue;               // id, created_at, submitter_* are not editable
@@ -431,6 +607,10 @@ export default {
         // ---- public ----
         if (path === "/api/events" && method === "GET")  return await getPublicEvents(env);
         if (path === "/api/events" && method === "POST") return await createSubmission(request, env);
+
+        // Results upload — authorised by the event's own code, nothing else
+        if (path === "/api/results" && method === "GET")  return await getResultsEvent(request, env);
+        if (path === "/api/results" && method === "POST") return await saveResults(request, env);
 
         // ---- admin session ----
         if (path === "/api/admin/login"  && method === "POST") return await handleLogin(request, env);
