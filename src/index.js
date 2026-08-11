@@ -295,6 +295,70 @@ const parseRow = r => ({ ...r, disciplines: safeParse(r.disciplines), juniors: !
 function safeParse(s) { try { const v = JSON.parse(s); return Array.isArray(v) ? v : []; } catch { return []; } }
 
 /* ------------------------------------------------------------------ */
+/* Rankings — shooter identity and placement points                    */
+/*                                                                     */
+/* Scores cannot be compared between disciplines or courses of fire    */
+/* (a 60/60 field target card and a 0.245" benchrest group are not the */
+/* same kind of number), so standings are built from finishing place.  */
+/* ------------------------------------------------------------------ */
+
+// Points by finishing position, tapering off after the podium. Anyone who
+// finishes outside the top 20 still scores 1 for turning up and completing.
+const PLACE_POINTS = [25, 20, 16, 13, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+const pointsForPlace = place =>
+  !place || place < 1 ? 1 : (PLACE_POINTS[place - 1] ?? 1);
+
+/** Reduces a name to a comparison key: lower case, accents stripped,
+ *  punctuation and extra spaces removed. "D. O'Brien-Smith" and
+ *  "d obrien smith" collapse to the same key. */
+function nameKey(name) {
+  return String(name || "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    // Apostrophes and full stops vanish, so O'Brien = OBrien and D. = D.
+    // Everything else non-alphanumeric becomes a space.
+    .replace(/['\u2019.]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Best-effort split for display and sorting. Names are messy, so the full
+ *  name as typed is always kept; these are only a convenience. */
+function splitName(name) {
+  const parts = String(name || "").trim().split(/\s+/);
+  if (parts.length === 1) return { first: parts[0], last: null };
+  return { first: parts[0], last: parts[parts.length - 1] };
+}
+
+/** Finds or creates the shooter for a name, following any merge. */
+async function resolveShooter(env, name) {
+  const key = nameKey(name);
+  if (!key) return null;
+
+  let row = await env.DB.prepare(
+    "SELECT id, merged_into FROM shooters WHERE name_key = ?"
+  ).bind(key).first();
+
+  if (!row) {
+    const { first, last } = splitName(name);
+    const res = await env.DB.prepare(
+      `INSERT INTO shooters (name_key, display_name, first_name, last_name)
+       VALUES (?,?,?,?)`
+    ).bind(key, String(name).trim().slice(0, 120), first, last).run();
+    return res.meta.last_row_id;
+  }
+
+  // Follow the merge chain, with a hard stop so a bad loop can't hang a request.
+  let id = row.id, hops = 0;
+  while (row?.merged_into && hops++ < 10) {
+    id = row.merged_into;
+    row = await env.DB.prepare("SELECT id, merged_into FROM shooters WHERE id = ?").bind(id).first();
+  }
+  return id;
+}
+
+/* ------------------------------------------------------------------ */
 /* Results parsing                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -466,16 +530,21 @@ async function saveResults(request, env) {
     }
     const { rows, errors } = parseResultRows(text);
     errors.forEach(e => problems.push(`${discipline} — ${e}`));
-    rows.forEach((r, idx) => {
+
+    const fieldSize = rows.length;
+    for (const [idx, r] of rows.entries()) {
+      const place = r.place !== null ? r.place : idx + 1;
+      const shooterId = await resolveShooter(env, r.competitor);
       statements.push(
         env.DB.prepare(
-          `INSERT INTO results (event_id, discipline, place, competitor, score, class, sort_order)
-           VALUES (?,?,?,?,?,?,?)`
+          `INSERT INTO results (event_id, discipline, place, competitor, score, class,
+                                sort_order, shooter_id, points, field_size)
+           VALUES (?,?,?,?,?,?,?,?,?,?)`
         ).bind(ev.id, discipline, r.place, r.competitor, r.score, r.class,
-               r.place !== null ? r.place : idx + 1)
+               place, shooterId, pointsForPlace(place), fieldSize)
       );
       total++;
-    });
+    }
   }
 
   if (problems.length) return json({ error: problems.join(" ") }, 400);
@@ -489,6 +558,143 @@ async function saveResults(request, env) {
   ]);
 
   return json({ ok: true, saved: total });
+}
+
+/* Standings over a rolling 12 months. Points come from finishing place, so
+   every discipline and course of fire contributes on the same scale. */
+async function getRankings(request, env) {
+  const url = new URL(request.url);
+  const discipline = url.searchParams.get("discipline");
+  const since = new Date(Date.now() - 365 * 86400_000).toISOString().slice(0, 10);
+
+  const where = ["e.status = 'approved'", "e.start_date >= ?", "r.shooter_id IS NOT NULL"];
+  const binds = [since];
+  if (discipline) { where.push("r.discipline = ?"); binds.push(discipline); }
+
+  const { results } = await env.DB.prepare(
+    `SELECT s.id                       AS shooter_id,
+            s.display_name             AS name,
+            s.first_name, s.last_name,
+            SUM(r.points)              AS points,
+            COUNT(DISTINCT r.event_id) AS events,
+            SUM(CASE WHEN r.place = 1 THEN 1 ELSE 0 END) AS wins,
+            SUM(CASE WHEN r.place <= 3 THEN 1 ELSE 0 END) AS podiums,
+            MIN(r.place)               AS best_place,
+            MAX(e.start_date)          AS last_event,
+            GROUP_CONCAT(DISTINCT r.discipline) AS disciplines
+       FROM results r
+       JOIN events e   ON e.id = r.event_id
+       JOIN shooters s ON s.id = r.shooter_id
+      WHERE ${where.join(" AND ")}
+      GROUP BY s.id
+      ORDER BY points DESC, wins DESC, events DESC, s.display_name ASC
+      LIMIT 300`
+  ).bind(...binds).all();
+
+  const standings = (results || []).map((r, i) => ({
+    rank: i + 1,
+    shooter_id: r.shooter_id,
+    name: r.name,
+    first_name: r.first_name,
+    last_name: r.last_name,
+    points: r.points,
+    events: r.events,
+    wins: r.wins,
+    podiums: r.podiums,
+    best_place: r.best_place,
+    last_event: r.last_event,
+    disciplines: (r.disciplines || "").split(",").filter(Boolean)
+  }));
+
+  // Which disciplines actually have ranked results, for the filter
+  const discRows = await env.DB.prepare(
+    `SELECT r.discipline, COUNT(DISTINCT r.shooter_id) AS shooters
+       FROM results r JOIN events e ON e.id = r.event_id
+      WHERE e.status = 'approved' AND e.start_date >= ? AND r.shooter_id IS NOT NULL
+      GROUP BY r.discipline ORDER BY r.discipline`
+  ).bind(since).all();
+
+  return json({
+    standings,
+    disciplines: discRows.results || [],
+    window: { since, description: "Rolling 12 months" }
+  }, 200, { "cache-control": "public, max-age=300, stale-while-revalidate=900" });
+}
+
+/* Every result for one shooter, newest first. */
+async function getShooter(request, env, id) {
+  const shooter = await env.DB.prepare(
+    "SELECT id, display_name, first_name, last_name FROM shooters WHERE id = ? AND merged_into IS NULL"
+  ).bind(id).first();
+  if (!shooter) return fail("Shooter not found.", 404);
+
+  const { results } = await env.DB.prepare(
+    `SELECT e.name AS event, e.start_date, e.venue, e.city, e.state,
+            r.discipline, r.place, r.score, r.class, r.points, r.field_size
+       FROM results r JOIN events e ON e.id = r.event_id
+      WHERE r.shooter_id = ? AND e.status = 'approved'
+      ORDER BY e.start_date DESC`
+  ).bind(id).all();
+
+  return json({ shooter, results: results || [] }, 200,
+              { "cache-control": "public, max-age=300" });
+}
+
+/* Names that look like the same person, for the merge screen. */
+async function adminDuplicates(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT s.id, s.display_name, s.first_name, s.last_name, s.name_key,
+            COUNT(r.id) AS result_count
+       FROM shooters s LEFT JOIN results r ON r.shooter_id = s.id
+      WHERE s.merged_into IS NULL
+      GROUP BY s.id ORDER BY s.last_name, s.display_name`
+  ).all();
+
+  const shooters = results || [];
+  const pairs = [];
+
+  for (let i = 0; i < shooters.length; i++) {
+    for (let j = i + 1; j < shooters.length; j++) {
+      const a = shooters[i], b = shooters[j];
+      let reason = null;
+
+      // Same surname, and one first name is an initial or prefix of the other
+      if (a.last_name && b.last_name &&
+          a.last_name.toLowerCase() === b.last_name.toLowerCase()) {
+        const fa = (a.first_name || "").toLowerCase().replace(/\./g, "");
+        const fb = (b.first_name || "").toLowerCase().replace(/\./g, "");
+        if (fa && fb && (fa.startsWith(fb) || fb.startsWith(fa))) {
+          reason = fa === fb ? "Same name, different spacing" : "Same surname, first name abbreviated";
+        }
+      }
+      // Same words in a different order, e.g. "Whitcomb Dale"
+      if (!reason) {
+        const sa = a.name_key.split(" ").sort().join(" ");
+        const sb = b.name_key.split(" ").sort().join(" ");
+        if (sa === sb && a.name_key !== b.name_key) reason = "Same words, different order";
+      }
+      if (reason) pairs.push({ a, b, reason });
+    }
+  }
+  return json({ pairs: pairs.slice(0, 100), total_shooters: shooters.length });
+}
+
+/* Folds one shooter into another. Reversible by clearing merged_into. */
+async function adminMerge(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return fail("Malformed request."); }
+  const from = Number(body.from), into = Number(body.into);
+  if (!from || !into || from === into) return fail("Pick two different shooters.");
+
+  const target = await env.DB.prepare("SELECT id FROM shooters WHERE id = ? AND merged_into IS NULL")
+    .bind(into).first();
+  if (!target) return fail("That target shooter doesn't exist.", 404);
+
+  await env.DB.batch([
+    env.DB.prepare("UPDATE results  SET shooter_id  = ? WHERE shooter_id = ?").bind(into, from),
+    env.DB.prepare("UPDATE shooters SET merged_into = ? WHERE id = ?").bind(into, from)
+  ]);
+  return json({ ok: true });
 }
 
 async function adminList(env) {
@@ -612,6 +818,11 @@ export default {
         if (path === "/api/results" && method === "GET")  return await getResultsEvent(request, env);
         if (path === "/api/results" && method === "POST") return await saveResults(request, env);
 
+        // Public standings
+        if (path === "/api/rankings" && method === "GET") return await getRankings(request, env);
+        const sm = path.match(/^\/api\/shooters\/(\d+)$/);
+        if (sm && method === "GET") return await getShooter(request, env, Number(sm[1]));
+
         // ---- admin session ----
         if (path === "/api/admin/login"  && method === "POST") return await handleLogin(request, env);
         if (path === "/api/admin/logout" && method === "POST") return handleLogout();
@@ -622,6 +833,8 @@ export default {
           if (auth.error) return auth.error;
 
           if (path === "/api/admin/events" && method === "GET")  return await adminList(env);
+          if (path === "/api/admin/duplicates" && method === "GET")  return await adminDuplicates(env);
+          if (path === "/api/admin/merge" && method === "POST") return await adminMerge(request, env);
           if (path === "/api/admin/export" && method === "GET")  return await adminExport(request, env);
 
           const m = path.match(/^\/api\/admin\/events\/([0-9a-fA-F-]{36})$/);
