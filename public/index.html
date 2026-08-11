@@ -195,6 +195,15 @@
   footer.site a{color:#fff}
   .frow{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 
+  /* Four buttons don't fit one phone row. Rather than let them wrap raggedly,
+     they become an even two-by-two block at narrow widths. */
+  .navbtns{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+  @media (max-width:620px){
+    .navbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%}
+    .navbtns .btn{padding:11px 10px;font-size:14px;text-align:center}
+  }
+
   @media (max-width:760px){
     .fgrid{grid-template-columns:1fr 1fr}
     .fgrid .field.searchfield,.fgrid .field.btnfield{grid-column:1/-1}
@@ -221,10 +230,12 @@
         <p>Every match in the country, in date order.</p>
       </div>
     </div>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <nav class="navbtns" aria-label="Main">
       <a class="btn ghost" href="/rankings.html">Rankings</a>
+      <a class="btn ghost" href="/organizers.html">Organizers</a>
+      <a class="btn ghost" href="/score.html">Score a Squad</a>
       <a class="btn" href="#submit">Submit an Event</a>
-    </div>
+    </nav>
   </div>
 </header>
 
@@ -383,7 +394,8 @@
     <div>
       <a href="#submit">Submit an event</a> ·
       <a href="/rankings.html">Rankings</a> ·
-      <a href="/match.html">Match directors</a>
+      <a href="/organizers.html">For organizers</a> ·
+      <a href="/score.html">Score a squad</a>
     </div>
   </div>
 </footer>

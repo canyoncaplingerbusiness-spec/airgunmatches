@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>For Event Organizers — Airgun Matches</title>
+<meta name="description" content="List your match, run live squad scoring from a phone, and post results to the national rankings. Free, no account needed.">
+
+<style>
+  :root{
+    --navy:#12263f; --navy-2:#1c3557; --steel:#5a6b82;
+    --amber:#e08c1b; --amber-dk:#b86f0e;
+    --bg:#f5f6f8; --card:#fff; --line:#e2e6ec;
+    --text:#1d2733; --muted:#6b7684;
+    --green:#1f7a4d; --green-bg:#eaf6ef; --green-line:#b9dfc9;
+    --radius:10px; --shadow:0 1px 2px rgba(18,38,63,.06), 0 4px 12px rgba(18,38,63,.05);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:880px;margin:0 auto;padding:0 20px}
+  a{color:var(--navy-2)}
+
+  header.site{background:linear-gradient(160deg,var(--navy),var(--navy-2));color:#fff;padding:22px 0}
+  header.site .brandrow{display:flex;align-items:center;gap:14px;justify-content:space-between;flex-wrap:wrap}
+  header.site .brand{display:flex;align-items:center;gap:12px}
+  header.site h1{margin:0;font-size:19px;font-weight:700;letter-spacing:-.2px}
+  header.site p{margin:2px 0 0;color:#a8b8cd;font-size:13.5px}
+  header.site a.back{color:#fff;font-size:14px;text-decoration:none;
+    border:1px solid rgba(255,255,255,.3);padding:8px 14px;border-radius:9px}
+  header.site a.back:hover{background:rgba(255,255,255,.1)}
+
+  .hero{padding:34px 0 6px}
+  .hero h2{margin:0 0 8px;font-size:27px;letter-spacing:-.4px}
+  .hero p{margin:0;color:var(--muted);font-size:16.5px;max-width:62ch}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin:26px 0}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:22px;display:flex;flex-direction:column}
+  .tile .step{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;
+    color:var(--amber-dk);margin-bottom:8px}
+  .tile h3{margin:0 0 8px;font-size:17.5px}
+  .tile p{margin:0 0 18px;color:var(--muted);font-size:14.5px;flex:1}
+  .btn{display:inline-block;background:var(--amber);color:#241503;font-weight:700;font-size:15px;
+    border:0;padding:12px 20px;border-radius:var(--radius);cursor:pointer;text-decoration:none;text-align:center}
+  .btn:hover{background:var(--amber-dk);color:#fff}
+  .btn.ghost{background:#fff;border:1px solid var(--line);color:var(--navy-2)}
+  .btn.ghost:hover{background:var(--bg);color:var(--navy)}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:26px;margin:22px 0}
+  .card h3{margin:0 0 14px;font-size:19px}
+  .card h4{margin:22px 0 7px;font-size:15.5px}
+  .card p{margin:0 0 13px}
+  .card p:last-child{margin-bottom:0}
+
+  .codes{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:6px}
+  .codebox{border:1px solid var(--line);border-radius:10px;padding:17px;background:var(--bg)}
+  .codebox .tag{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;
+    color:var(--muted);margin-bottom:7px}
+  .codebox .sample{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:17px;
+    font-weight:700;letter-spacing:1.5px;color:var(--navy);margin-bottom:9px}
+  .codebox p{margin:0;font-size:14px;color:var(--steel)}
+
+  ol.flow{margin:0;padding-left:22px}
+  ol.flow li{margin-bottom:11px}
+  ol.flow li:last-child{margin-bottom:0}
+
+  .note{background:var(--green-bg);border:1px solid var(--green-line);border-radius:9px;
+    padding:14px 16px;font-size:14.5px;color:#155e3a;margin-top:18px}
+
+  table.faq{width:100%;border-collapse:collapse;font-size:14.5px;margin-top:4px}
+  table.faq th{text-align:left;padding:10px 12px 10px 0;vertical-align:top;width:38%;
+    border-top:1px solid var(--line);font-weight:700}
+  table.faq td{padding:10px 0;vertical-align:top;border-top:1px solid var(--line);color:var(--steel)}
+
+  footer.site{background:var(--navy);color:#a8b8cd;padding:26px 0;font-size:13.5px;margin-top:34px}
+  footer.site a{color:#fff}
+  footer.site .frow{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap brandrow">
+    <div class="brand">
+      <svg width="36" height="36" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+        <circle cx="20" cy="20" r="18" stroke="#e08c1b" stroke-width="2.5"/>
+        <circle cx="20" cy="20" r="11" stroke="#e08c1b" stroke-width="2"/>
+        <circle cx="20" cy="20" r="4.5" fill="#e08c1b"/>
+      </svg>
+      <div>
+        <h1>For Event Organizers</h1>
+        <p>Everything you need to run a match</p>
+      </div>
+    </div>
+    <a class="back" href="/">← Back to the calendar</a>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="hero">
+    <h2>List it, score it, post the results.</h2>
+    <p>All of it is free, and none of it needs an account. Everything you do here is
+       unlocked by the code that's emailed to you when your event is approved.</p>
+  </div>
+
+  <div class="grid">
+    <div class="tile">
+      <div class="step">Step one</div>
+      <h3>List your match</h3>
+      <p>Add your event to the national calendar — dates, venue, disciplines, entry details.
+         We review every submission by hand, usually within a day.</p>
+      <a class="btn" href="/#submit">Submit an event</a>
+    </div>
+
+    <div class="tile">
+      <div class="step">Step two — on the day</div>
+      <h3>Score it live</h3>
+      <p>Set out your stages and squads, then hand each squad's scorer a code. They score
+         from their own phone, and standings build as the match runs.</p>
+      <a class="btn" href="/match.html">Open the director console</a>
+    </div>
+
+    <div class="tile">
+      <div class="step">Step two — the paper way</div>
+      <h3>Or just post results</h3>
+      <p>Scored on paper? Paste your finishing order straight out of a spreadsheet.
+         No stages, no squads, no phones.</p>
+      <a class="btn ghost" href="/results.html">Upload finished results</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>The two kinds of code</h3>
+    <p>This trips people up, so it's worth ninety seconds. There are two, they do very
+       different jobs, and only one of them is yours to keep.</p>
+
+    <div class="codes">
+      <div class="codebox">
+        <div class="tag">Your event code</div>
+        <div class="sample">ABCD-EFGH-JKMN</div>
+        <p><b>Keep this one to yourself.</b> It's emailed to you when your event is approved.
+           It opens the director console and the results upload — everything on this page.
+           Anyone holding it can change your match, so treat it like a password.</p>
+      </div>
+      <div class="codebox">
+        <div class="tag">A squad code</div>
+        <div class="sample">7K4M-PD9T-2XRB</div>
+        <p><b>These are for handing out.</b> You generate one per squad in the director
+           console. A squad code reaches that squad's competitors and nobody else's — a
+           scorer holding it can't see or change another squad's scores, and can't touch
+           your match settings.</p>
+      </div>
+    </div>
+
+    <div class="note">
+      Lost a phone, or a code got passed around further than you meant? Open the director
+      console and press <b>New code</b> on that squad. The old one stops working immediately
+      and every other squad carries on unaffected — nobody else has to re-enter anything.
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>How a scored match runs</h3>
+    <ol class="flow">
+      <li><b>Before the day.</b> Open the director console with your event code. For each
+          discipline, choose how it's scored — stage by stage for field target, precision
+          rifle and silhouette, or direct entry for bench rest where you grade the target
+          and key in the score.</li>
+      <li><b>Set out the match.</b> Add your stages and how many shots each one has. Stages
+          can be different lengths. Then add your competitors and split them into squads.</li>
+      <li><b>Hand out the codes.</b> Each squad gets its own. Copy the scorer link and text
+          it to whoever is scoring that squad — it opens the scoring page with the code
+          already filled in.</li>
+      <li><b>Open the match.</b> Scorers can now enter scores. Nothing can be scored before
+          you open it, and nothing after you close it.</li>
+      <li><b>Watch it come in.</b> The console shows how much of the match is recorded and
+          which squads are behind. You can show live standings publicly, or keep them to
+          yourself until the end.</li>
+      <li><b>Declare and publish.</b> If two competitors tie, the system leaves it as a tie —
+          it won't break one for you. Tick the winner and everyone below moves down. Then
+          publish, and the results go on your event's page and into the national rankings.</li>
+    </ol>
+
+    <div class="note">
+      <b>No signal at your range?</b> That's the normal case, and the scoring page is built
+      for it. Each scorer opens the page once while they have a bar of signal — after that
+      every tap is saved on their phone and sent automatically whenever the connection comes
+      back. They can close the browser, lose signal all day, and nothing is lost.
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Questions we get asked</h3>
+    <table class="faq">
+      <tr>
+        <th>What does it cost?</th>
+        <td>Nothing. Listing an event, scoring it and posting results are all free.</td>
+      </tr>
+      <tr>
+        <th>Do I need an account?</th>
+        <td>No. Your event code is the only thing that unlocks your match.</td>
+      </tr>
+      <tr>
+        <th>I've lost my event code.</th>
+        <td>Get in touch and we'll reissue it to the email address on your submission.</td>
+      </tr>
+      <tr>
+        <th>Can two people score the same squad?</th>
+        <td>Yes. If they both edit the same competitor on the same stage, the second one is
+            shown both versions side by side with who entered each, and picks. Nothing is
+            ever silently overwritten.</td>
+      </tr>
+      <tr>
+        <th>My match has several disciplines.</th>
+        <td>Each one is set up and scored separately, and can use a different scoring method.
+            Publish them as they finish.</td>
+      </tr>
+      <tr>
+        <th>Can I fix a score after publishing?</th>
+        <td>Yes. Reopen the discipline, correct it, and publish again. The rankings update
+            with it.</td>
+      </tr>
+      <tr>
+        <th>What happens to competitors' details?</th>
+        <td>Only names, placings and scores are ever public. Your contact details as the
+            submitter are never shown on the site.</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="card" style="text-align:center">
+    <h3>Scoring a squad today?</h3>
+    <p style="color:var(--muted);max-width:52ch;margin:0 auto 18px">
+      If your match director gave you a squad code, this is where you go.</p>
+    <a class="btn" href="/score.html">Enter a squad code and start scoring</a>
+  </div>
+
+</main>
+
+<footer class="site">
+  <div class="wrap frow">
+    <div>Airgun Matches — a free listing for the airgun competition community.</div>
+    <div>
+      <a href="/">Calendar</a> ·
+      <a href="/rankings.html">Rankings</a> ·
+      <a href="/score.html">Score a squad</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
