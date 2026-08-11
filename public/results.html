@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Upload Results — Airgun Matches</title>
+
+<style>
+  :root{
+    --navy:#12263f; --navy-2:#1c3557; --steel:#5a6b82;
+    --amber:#e08c1b; --amber-dk:#b86f0e;
+    --bg:#f5f6f8; --card:#fff; --line:#e2e6ec;
+    --text:#1d2733; --muted:#6b7684;
+    --green:#1f7a4d; --green-bg:#eaf6ef; --green-line:#b9dfc9;
+    --red:#b3261e; --red-bg:#fdecea; --red-line:#f5c2bd;
+    --radius:10px; --shadow:0 1px 2px rgba(18,38,63,.06), 0 4px 12px rgba(18,38,63,.05);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:820px;margin:0 auto;padding:0 20px}
+  button{font-family:inherit}
+
+  header.site{background:linear-gradient(160deg,var(--navy),var(--navy-2));color:#fff;padding:26px 0}
+  header.site h1{margin:0;font-size:21px;font-weight:700;letter-spacing:-.2px}
+  header.site p{margin:4px 0 0;color:#a8b8cd;font-size:14px}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:24px;margin:24px 0}
+  .card h2{margin:0 0 6px;font-size:19px}
+  .card p.sub{margin:0 0 18px;color:var(--muted);font-size:14.5px}
+
+  label{display:block;font-size:12.5px;font-weight:700;margin-bottom:5px}
+  input[type=text],textarea{width:100%;padding:11px 12px;border:1px solid var(--line);
+    border-radius:8px;font-size:15px;font-family:inherit;background:#fff;color:var(--text)}
+  input:focus,textarea:focus{outline:2px solid var(--navy-2);outline-offset:-1px}
+  textarea{min-height:170px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px}
+  .codebox{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:18px;
+    letter-spacing:2px;text-transform:uppercase;text-align:center}
+
+  .btn{background:var(--amber);color:#241503;font-weight:700;font-size:15px;border:0;
+    padding:12px 22px;border-radius:var(--radius);cursor:pointer}
+  .btn:hover{background:var(--amber-dk);color:#fff}
+  .btn:disabled{opacity:.6;cursor:default}
+  .btn.wide{width:100%}
+
+  .msg{border-radius:8px;padding:12px 14px;font-size:14px;margin-bottom:16px}
+  .msg.err{background:var(--red-bg);border:1px solid var(--red-line);color:#8f2419}
+  .msg.ok{background:var(--green-bg);border:1px solid var(--green-line);color:var(--green)}
+  .msg.info{background:#eef2f7;border:1px solid #dde4ee;color:var(--navy-2)}
+
+  .eventhead{border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:20px}
+  .eventhead h2{margin:0 0 4px;font-size:20px}
+  .eventhead .meta{color:var(--muted);font-size:14.5px}
+
+  .disc{border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:16px}
+  .disc h3{margin:0 0 4px;font-size:16.5px}
+  .disc .hint{font-size:13px;color:var(--muted);margin:0 0 12px}
+
+  .preview{margin-top:12px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .preview table{width:100%;border-collapse:collapse;font-size:14px}
+  .preview th{background:var(--bg);text-align:left;padding:8px 11px;font-size:11px;
+    text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+  .preview td{padding:8px 11px;border-top:1px solid var(--line)}
+  .preview td.place{width:52px;font-weight:700;color:var(--navy)}
+  .count{font-size:13px;color:var(--muted);margin-top:8px}
+
+  .example{background:var(--bg);border:1px solid var(--line);border-radius:8px;
+    padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:12.5px;color:var(--muted);white-space:pre;overflow-x:auto;margin:10px 0 0}
+  footer.site{color:var(--muted);font-size:13px;text-align:center;padding:30px 0}
+  footer.site a{color:var(--navy-2)}
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <h1>Upload Match Results</h1>
+    <p>For match directors — no account needed, just your event code.</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- Step 1: code -->
+  <div class="card" id="codecard">
+    <h2>Enter your event code</h2>
+    <p class="sub">This was emailed to you when your event was approved. It looks like <b>ABCD-EFGH-JKMN</b>.</p>
+    <div id="codemsg"></div>
+    <form id="codeform">
+      <label for="code">Event code</label>
+      <input type="text" id="code" class="codebox" maxlength="14" placeholder="ABCD-EFGH-JKMN"
+             autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+      <div style="height:14px"></div>
+      <button class="btn wide" type="submit" id="codebtn">Continue</button>
+    </form>
+  </div>
+
+  <!-- Step 2: results -->
+  <div class="card" id="resultscard" hidden>
+    <div class="eventhead">
+      <h2 id="ev-name"></h2>
+      <div class="meta" id="ev-meta"></div>
+    </div>
+
+    <div id="savemsg"></div>
+
+    <p class="sub">
+      Paste your finishing order for each discipline — straight out of Excel or Google Sheets.
+      One competitor per line. Leave a discipline blank if you're not posting it.
+    </p>
+
+    <div class="example">1    Dale Whitcomb      248-6X     Hunter
+2    Rita Alvarez       246-4X     Hunter
+3    Tom Brenner        241-2X     Open</div>
+    <p class="count" style="margin-bottom:18px">
+      Place, competitor, score, class. Place is optional — if you leave it off, the order you
+      paste is the order shown. Tabs, commas or two spaces all work as separators.
+    </p>
+
+    <form id="resultsform">
+      <div id="disciplines"></div>
+      <button class="btn wide" type="submit" id="savebtn">Publish Results</button>
+      <p class="count">
+        Publishing replaces anything posted before, so you can safely re-upload a corrected sheet.
+      </p>
+    </form>
+  </div>
+
+</div>
+
+<footer class="site">
+  <a href="/">Back to the calendar</a>
+</footer>
+
+<script type="module">
+const API = "/api/results";
+let EVENT = null, CODE = "";
+
+const esc = s => String(s == null ? "" : s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+  .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+
+const show = (id, on) => document.getElementById(id).hidden = !on;
+const setMsg = (id, text, kind = "err") =>
+  document.getElementById(id).innerHTML = text ? `<div class="msg ${kind}">${esc(text)}</div>` : "";
+
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+function fmtDate(s){
+  if(!s) return "";
+  const [y,m,d] = s.slice(0,10).split("-").map(Number);
+  return `${MONTHS[m-1]} ${d}, ${y}`;
+}
+
+/* Mirrors the server's parser so the preview matches exactly what will be saved. */
+function parseRows(text){
+  const rows = [];
+  String(text || "").split(/\r?\n/).map(l => l.trim()).filter(Boolean).forEach((line, i) => {
+    if(i === 0 && /^(place|pos|rank|#)\b/i.test(line)) return;
+    const delimited = line.includes("\t") || line.includes(",");
+    const cells = line.includes("\t") ? line.split("\t")
+                : line.includes(",")  ? line.split(",")
+                : line.split(/\s{2,}/);
+    let parts = cells.map(c => c.trim());
+    if(!delimited) parts = parts.filter(c => c !== "");
+    while(parts.length && parts[parts.length-1] === "") parts.pop();
+    if(!parts.length) return;
+    let place = null, rest = parts;
+    if(/^\d{1,4}[.)]?$/.test(parts[0])){ place = parseInt(parts[0],10); rest = parts.slice(1); }
+    if(!rest[0]) return;
+    rows.push({ place, competitor: rest[0], score: rest[1] || "", class: rest[2] || "" });
+  });
+  return rows;
+}
+
+function renderPreview(box, text){
+  const rows = parseRows(text);
+  if(!rows.length){ box.innerHTML = ""; return; }
+  box.innerHTML = `<div class="preview"><table>
+      <tr><th>Place</th><th>Competitor</th><th>Score</th><th>Class</th></tr>
+      ${rows.slice(0,60).map((r,i) => `<tr>
+        <td class="place">${r.place ?? i+1}</td>
+        <td>${esc(r.competitor)}</td>
+        <td>${esc(r.score)}</td>
+        <td>${esc(r.class)}</td></tr>`).join("")}
+    </table></div>
+    <p class="count">${rows.length} competitor${rows.length === 1 ? "" : "s"}${
+      rows.length > 60 ? " — showing the first 60" : ""}</p>`;
+}
+
+/* ---------- Step 1 ---------- */
+document.getElementById("codeform").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = document.getElementById("codebtn");
+  btn.disabled = true; btn.textContent = "Checking…";
+  setMsg("codemsg", "");
+
+  CODE = document.getElementById("code").value.trim();
+  const res = await fetch(`${API}?code=${encodeURIComponent(CODE)}`);
+  const out = await res.json().catch(() => ({}));
+
+  btn.disabled = false; btn.textContent = "Continue";
+  if(!res.ok){ setMsg("codemsg", out.error || "That code isn't recognised."); return; }
+
+  EVENT = out.event;
+  document.getElementById("ev-name").textContent = EVENT.name;
+  document.getElementById("ev-meta").textContent =
+    `${fmtDate(EVENT.start_date)}${EVENT.end_date ? " – " + fmtDate(EVENT.end_date) : ""} · ` +
+    `${EVENT.venue}, ${EVENT.city}, ${EVENT.state}`;
+
+  // Pre-fill with anything already published, so an edit starts from what's live
+  const existing = {};
+  (out.results || []).forEach(r => {
+    (existing[r.discipline] ||= []).push(
+      [r.place ?? "", r.competitor, r.score || "", r.class || ""].filter(x => x !== "").join("\t")
+    );
+  });
+
+  document.getElementById("disciplines").innerHTML = EVENT.disciplines.map((d, i) => `
+    <div class="disc">
+      <h3>${esc(d)}</h3>
+      <p class="hint">Paste the finishing order for ${esc(d)}, or leave blank.</p>
+      <textarea data-discipline="${esc(d)}" id="d${i}" placeholder="1&#9;Competitor Name&#9;Score&#9;Class"
+      >${esc((existing[d] || []).join("\n"))}</textarea>
+      <div id="p${i}"></div>
+    </div>`).join("");
+
+  EVENT.disciplines.forEach((d, i) => {
+    const ta = document.getElementById("d" + i), box = document.getElementById("p" + i);
+    ta.addEventListener("input", () => renderPreview(box, ta.value));
+    renderPreview(box, ta.value);
+  });
+
+  show("codecard", false);
+  show("resultscard", true);
+});
+
+/* ---------- Step 2 ---------- */
+document.getElementById("resultsform").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = document.getElementById("savebtn");
+  setMsg("savemsg", "");
+
+  const disciplines = {};
+  document.querySelectorAll("[data-discipline]").forEach(ta => {
+    if(ta.value.trim()) disciplines[ta.dataset.discipline] = ta.value;
+  });
+
+  if(!Object.keys(disciplines).length){
+    setMsg("savemsg", "Paste results into at least one discipline first.");
+    return;
+  }
+
+  btn.disabled = true; btn.textContent = "Publishing…";
+  const res = await fetch(API, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code: CODE, disciplines })
+  });
+  const out = await res.json().catch(() => ({}));
+  btn.disabled = false; btn.textContent = "Publish Results";
+
+  if(!res.ok){ setMsg("savemsg", out.error || "Couldn't publish those results."); return; }
+  setMsg("savemsg",
+    `Published — ${out.saved} result${out.saved === 1 ? "" : "s"} are now live on the calendar. ` +
+    `You can re-upload any time to correct them.`, "ok");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
+
+// Allow a code in the address bar: /results.html?code=ABCD-EFGH-JKMN
+const preset = new URLSearchParams(location.search).get("code");
+if(preset){
+  document.getElementById("code").value = preset;
+  document.getElementById("codeform").requestSubmit();
+}
+</script>
+</body>
+</html>

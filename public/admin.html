@@ -103,6 +103,16 @@
   .cell.wide{grid-column:1/-1}
   .cell a{color:var(--navy-2)}
 
+  .codebar{display:flex;gap:12px;align-items:center;margin-top:14px;padding:11px 13px;
+    background:#eef2f7;border:1px solid #dde4ee;border-radius:8px;flex-wrap:wrap}
+  .codebar .k{display:block;font-size:10.5px;font-weight:800;letter-spacing:.7px;
+    text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+  .codebar code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:16px;
+    letter-spacing:1.5px;font-weight:700;color:var(--navy)}
+  .codebar button{font-size:12.5px;font-weight:700;padding:6px 12px;border-radius:7px;
+    border:1px solid var(--line);background:#fff;color:var(--navy-2);cursor:pointer}
+  .codebar button:hover{border-color:var(--steel)}
+
   .vidrow{display:flex;gap:12px;align-items:center;margin-top:14px;padding-top:13px;
     border-top:1px solid var(--line);flex-wrap:wrap}
   .vidrow img{width:120px;height:68px;object-fit:cover;border-radius:6px;
@@ -450,6 +460,17 @@ function render(){
         ${cell("Details", r.note, { wide:true })}
       </div>
 
+      ${r.results_token ? `<div class="codebar">
+        <div>
+          <span class="k">Results upload code</span>
+          <code>${esc(r.results_token)}</code>
+        </div>
+        <button type="button" data-copycode="${esc(r.results_token)}">Copy code</button>
+        <button type="button" data-copylink="${esc(r.results_token)}">Copy link</button>
+        <button type="button" data-newcode="${esc(r.id)}">New code</button>
+        ${r.results_updated_at ? `<span style="font-size:12.5px;color:var(--green);font-weight:600">Results posted</span>` : ""}
+      </div>` : ""}
+
       ${videoRow(r.video_url)}
 
       <div class="contact">
@@ -536,6 +557,32 @@ document.getElementById("rows").addEventListener("click", async e => {
 });
 
 // ---- editing ----
+// ---- results code actions ----
+document.getElementById("rows").addEventListener("click", async e => {
+  const cc = e.target.closest("button[data-copycode]");
+  if(cc){ await navigator.clipboard.writeText(cc.dataset.copycode);
+          cc.textContent = "Copied"; setTimeout(()=>cc.textContent="Copy code",1500); return; }
+
+  const cl = e.target.closest("button[data-copylink]");
+  if(cl){ await navigator.clipboard.writeText(
+            `${location.origin}/results.html?code=${cl.dataset.copylink}`);
+          cl.textContent = "Copied"; setTimeout(()=>cl.textContent="Copy link",1500); return; }
+
+  const nc = e.target.closest("button[data-newcode]");
+  if(nc){
+    if(!confirm("Issue a new code? The old one stops working immediately.")) return;
+    const res = await fetch(`${API}/events/${nc.dataset.newcode}`, {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ regenerate_code: true })
+    });
+    const out = await res.json().catch(() => ({}));
+    if(!res.ok){ alert("Couldn't issue a new code: " + (out.error || res.status)); return; }
+    const i = ROWS.findIndex(r => r.id === nc.dataset.newcode);
+    if(i > -1 && out.event) ROWS[i] = out.event;
+    render();
+  }
+});
+
 document.getElementById("rows").addEventListener("click", e => {
   const ed = e.target.closest("button[data-edit]");
   if(ed){ EDITING.has(ed.dataset.edit) ? EDITING.delete(ed.dataset.edit) : EDITING.add(ed.dataset.edit); render(); return; }

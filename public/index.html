@@ -88,6 +88,21 @@
     font-size:14.5px;white-space:pre-wrap}
   .dnote .k{display:block;font-size:10.5px;font-weight:800;letter-spacing:.7px;
     text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+  /* ---------- Published results ---------- */
+  .resultswrap{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+  .resultswrap .k{display:block;font-size:10.5px;font-weight:800;letter-spacing:.7px;
+    text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+  .rdisc{margin-bottom:16px}
+  .rdisc h4{margin:0 0 7px;font-size:14px;font-weight:800;color:var(--navy-2)}
+  .rtable{width:100%;border-collapse:collapse;font-size:14px;background:#fff;
+    border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .rtable th{background:var(--bg);text-align:left;padding:7px 10px;font-size:10.5px;
+    text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:800}
+  .rtable td{padding:7px 10px;border-top:1px solid var(--line)}
+  .rtable td.pl{width:46px;font-weight:800;color:var(--navy)}
+  .rtable tr:nth-child(2) td.pl{color:var(--amber-dk)}
+  .tag.results{background:var(--navy-2);color:#fff;border-color:var(--navy-2)}
+
   /* ---------- Embedded video ---------- */
   .videowrap{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
   .videowrap .k{display:block;font-size:10.5px;font-weight:800;letter-spacing:.7px;
@@ -466,6 +481,25 @@ function videoEmbed(url){
 function dcell(label, value){
   return `<div class="dcell"><span class="k">${esc(label)}</span><span class="v">${esc(value)}</span></div>`;
 }
+/* Renders published results, one table per discipline, in finishing order. */
+function resultsTable(ev){
+  if(!ev.results) return "";
+  const blocks = Object.entries(ev.results).map(([discipline, rows]) => `
+    <div class="rdisc">
+      <h4>${esc(discipline)}</h4>
+      <table class="rtable">
+        <tr><th>Place</th><th>Competitor</th><th>Score</th><th>Class</th></tr>
+        ${rows.map((r,i) => `<tr>
+          <td class="pl">${r.place ?? i+1}</td>
+          <td>${esc(r.competitor)}</td>
+          <td>${esc(r.score || "")}</td>
+          <td>${esc(r.class || "")}</td>
+        </tr>`).join("")}
+      </table>
+    </div>`).join("");
+  return `<div class="resultswrap"><span class="k">Results</span>${blocks}</div>`;
+}
+
 function mapLink(ev){
   return "https://www.google.com/maps/search/?api=1&query=" +
     encodeURIComponent([ev.venue, ev.city, ev.state].filter(Boolean).join(", "));
@@ -479,6 +513,7 @@ async function loadEvents(){
 
   EVENTS = (events || []).map(r => ({
     id: r.id,
+    results: r.results || null,
     name: r.name, start: r.start_date, end: r.end_date || "",
     venue: r.venue, city: r.city, state: r.state,
     disciplines: Array.isArray(r.disciplines) ? r.disciplines : [],
@@ -583,8 +618,10 @@ function render(){
     if(disc && !(ev.disciplines || []).includes(disc)) return false;
     if(jrs && !ev.juniors) return false;
     if(q){
+      const competitors = ev.results
+        ? Object.values(ev.results).flat().map(r => r.competitor).join(" ") : "";
       const hay = [ev.name, ev.venue, ev.city, ev.state, STATES[ev.state],
-                   (ev.disciplines || []).join(" "), ev.org, ev.note]
+                   (ev.disciplines || []).join(" "), ev.org, ev.note, competitors]
         .filter(Boolean).join(" ").toLowerCase();
       if(!hay.includes(q)) return false;
     }
@@ -652,6 +689,7 @@ function render(){
           ${(ev.disciplines || []).map(d => `<span class="tag">${esc(d)}</span>`).join("")}
           ${ev.org ? `<span class="tag org">${esc(ev.org)}</span>` : ""}
           ${ev.juniors ? `<span class="tag">Junior eligible</span>` : ""}
+          ${ev.results ? `<span class="tag results">Results posted</span>` : ""}
         </div>
       </div>
       <div class="eactions">
@@ -671,6 +709,7 @@ function render(){
           ${dcell("Junior / youth", ev.juniors ? "Eligible" : "Not junior eligible")}
         </div>
         ${ev.note ? `<div class="dnote"><span class="k">Event details</span>${esc(ev.note)}</div>` : ""}
+        ${resultsTable(ev)}
         ${videoEmbed(ev.video)}
         <div class="dactions">
           ${ev.url ? `<a class="go" href="${esc(ev.url)}" target="_blank" rel="noopener noreferrer">Registration &amp; info ↗</a>` : ""}
