@@ -226,15 +226,35 @@ async function eventForCode(env, code) {
 
 async function turnstileOk(token, ip, env) {
   if (!env.TURNSTILE_SECRET_KEY) return true;   // not configured yet — don't lock people out
-  if (!token) return false;
+
+  /* A failed spam check used to be silent, which made it impossible to tell a
+     wrong secret from an expired token from a hostname the widget doesn't
+     allow — three completely different problems with one identical symptom.
+     Cloudflare returns an error code saying exactly which; it goes to the
+     Workers log. The secret itself is never logged. */
+  if (!token) {
+    console.error("turnstile: the browser sent no token");
+    return false;
+  }
+
   const body = new FormData();
   body.append("secret", env.TURNSTILE_SECRET_KEY);
   body.append("response", token);
   if (ip) body.append("remoteip", ip);
+
   const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
     method: "POST", body
   });
   const out = await res.json().catch(() => ({ success: false }));
+
+  if (out.success !== true) {
+    console.error("turnstile rejected:", JSON.stringify({
+      codes: out["error-codes"] || null,
+      hostname: out.hostname || null,
+      secret_len: String(env.TURNSTILE_SECRET_KEY).length,
+      secret_trimmed_len: String(env.TURNSTILE_SECRET_KEY).trim().length
+    }));
+  }
   return out.success === true;
 }
 
