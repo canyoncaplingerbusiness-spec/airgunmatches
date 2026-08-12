@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Run a Match — Airgun Matches</title>
+<title>Run a Match — GunMatches.com</title>
 
 <!--
   MATCH DIRECTOR CONSOLE
@@ -363,10 +363,10 @@ function renderNew(panel, discipline) {
       ? `<b>Stage by stage.</b> You set out the stages and how many shots each one has.
          Squad scorers get a phone screen with one box per shot and tap hit or miss.
          Suits field target, precision rifle, silhouette — anything scored shot by shot.`
-      : `<b>Direct entry.</b> No stages. You grade the target and key in the score,
-         plus the X count — <b>250-25X</b> and so on. That's how airgun bench rest
-         is scored, and it's what this starts out set to. Group sizes and times are
-         available too, for formats that use them.`;
+      : `<b>Direct entry.</b> No stages. You grade the target and key in a number.
+         Airgun bench rest is scored on points with an X count — <b>250-25X</b> —
+         and that's what this starts out set to. Centerfire bench rest is usually
+         measured group size instead, where the smallest wins. Times are there too.`;
   };
   $("nm-mode").onchange = paint; paint();
 
@@ -508,8 +508,8 @@ function renderDirectSettings(panel, md) {
             <option value="group">A group size — measured, smallest wins</option>
             <option value="time">A time</option>
           </select>
-          <p class="hint">Airgun bench rest is scored on points, not group size.
-            Leave this on the first option unless your format really is measured.</p>
+          <p class="hint">Airgun bench rest is scored on points; centerfire bench rest is
+            usually measured group size. Pick whichever matches your format.</p>
         </div>
         <div>
           <label for="ds-winner">Who wins?</label>

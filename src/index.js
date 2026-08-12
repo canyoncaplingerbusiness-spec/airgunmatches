@@ -34,7 +34,14 @@ const ADMIN_PATH = "/admin.html";
 /* Columns the public may ever see. Submitter and review fields are absent
    by construction rather than filtered out afterwards. */
 const PUBLIC_COLUMNS =
-  "id, name, start_date, end_date, venue, city, state, disciplines, org, juniors, url, video_url, note";
+  "id, name, start_date, end_date, venue, city, state, gun_types, disciplines, org, juniors, url, video_url, note";
+
+/* What a match is shot with, as opposed to how it's scored. Kept separate from
+   disciplines because the same discipline name means different things in
+   different worlds — a "Precision Rifle" match is one thing with a PCP airgun
+   and quite another with a centrefire, and a visitor filtering for one does not
+   want the other. */
+const GUN_TYPES = ["Airgun", "Rimfire", "Centerfire", "Shotgun", "Muzzleloader", "Archery"];
 
 const STATES = new Set(["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"]);
 
@@ -268,6 +275,16 @@ function validateSubmission(b) {
   if (!disciplines.length) e.push("Pick at least one discipline.");
   if (disciplines.length > 8) e.push("No more than 8 disciplines.");
 
+  /* Gun types are a fixed list, unlike disciplines. Write-ins are what make the
+     discipline filter useful, but they would make this one meaningless — the
+     whole point is that "Airgun" always means the same thing. */
+  let gunTypes = Array.isArray(b.gun_types) ? b.gun_types : [];
+  gunTypes = [...new Set(
+    gunTypes.map(g => (typeof g === "string" ? g.trim() : "")).filter(g => GUN_TYPES.includes(g))
+  )];
+  if (!gunTypes.length) e.push("Pick at least one type — airgun, rimfire, centerfire and so on.");
+  if (gunTypes.length > GUN_TYPES.length) e.push("Too many types.");
+
   const url = str(b.url, 500);
   if (url && !/^https?:\/\/.+/i.test(url)) e.push("Registration link must start with http:// or https://");
 
@@ -281,6 +298,7 @@ function validateSubmission(b) {
     errors: e,
     row: {
       name, start_date: start, end_date: end || null, venue, city, state,
+      gun_types: JSON.stringify(gunTypes),
       disciplines: JSON.stringify(disciplines),
       org: org || null,
       juniors: b.juniors === true || b.juniors === "true" || b.juniors === 1 ? 1 : 0,
@@ -293,7 +311,12 @@ function validateSubmission(b) {
   };
 }
 
-const parseRow = r => ({ ...r, disciplines: safeParse(r.disciplines), juniors: !!r.juniors });
+const parseRow = r => ({
+  ...r,
+  gun_types: safeParse(r.gun_types),
+  disciplines: safeParse(r.disciplines),
+  juniors: !!r.juniors
+});
 function safeParse(s) { try { const v = JSON.parse(s); return Array.isArray(v) ? v : []; } catch { return []; } }
 
 /* ------------------------------------------------------------------ */
@@ -470,13 +493,13 @@ async function createSubmission(request, env) {
   const id = crypto.randomUUID();
   try {
     await env.DB.prepare(
-      `INSERT INTO events (id, name, start_date, end_date, venue, city, state, disciplines,
+      `INSERT INTO events (id, name, start_date, end_date, venue, city, state, gun_types, disciplines,
                            org, juniors, url, video_url, note, submitter_name, submitter_email,
                            status, submit_ip_hash, submit_country)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?)`
     ).bind(
       id, row.name, row.start_date, row.end_date, row.venue, row.city, row.state,
-      row.disciplines, row.org, row.juniors, row.url, row.video_url, row.note,
+      row.gun_types, row.disciplines, row.org, row.juniors, row.url, row.video_url, row.note,
       row.submitter_name, row.submitter_email,
       ipHash, request.headers.get("CF-IPCountry") || null
     ).run();
@@ -706,7 +729,7 @@ async function adminList(env) {
   return json({ events: (results || []).map(parseRow) });
 }
 
-const EDITABLE = new Set(["name","start_date","end_date","venue","city","state","disciplines",
+const EDITABLE = new Set(["name","start_date","end_date","venue","city","state","gun_types","disciplines",
                           "org","juniors","url","video_url","note","review_note"]);
 
 async function adminUpdate(request, env, id, email) {
@@ -739,6 +762,12 @@ async function adminUpdate(request, env, id, email) {
         : [];
       if (!list.length || list.length > 8) return fail("Between 1 and 8 disciplines required.");
       sets.push("disciplines = ?"); binds.push(JSON.stringify(list));
+    } else if (k === "gun_types") {
+      const list = Array.isArray(v)
+        ? [...new Set(v.map(x => String(x).trim()).filter(x => GUN_TYPES.includes(x)))]
+        : [];
+      if (!list.length) return fail("Pick at least one type — airgun, rimfire, centerfire and so on.");
+      sets.push("gun_types = ?"); binds.push(JSON.stringify(list));
     } else if (k === "juniors") {
       sets.push("juniors = ?"); binds.push(v ? 1 : 0);
     } else if (k === "state") {
@@ -785,7 +814,7 @@ async function adminExport(request, env) {
     return new Response(csv, {
       headers: {
         "content-type": "text/csv; charset=utf-8",
-        "content-disposition": `attachment; filename="airgunmatches-${stamp}.csv"`,
+        "content-disposition": `attachment; filename="gunmatches-${stamp}.csv"`,
         ...securityHeaders()
       }
     });
@@ -794,7 +823,7 @@ async function adminExport(request, env) {
                                        events: rows.map(parseRow) }, null, 2), {
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "content-disposition": `attachment; filename="airgunmatches-${stamp}.json"`,
+      "content-disposition": `attachment; filename="gunmatches-${stamp}.json"`,
       ...securityHeaders()
     }
   });
@@ -803,6 +832,47 @@ async function adminExport(request, env) {
 /* ------------------------------------------------------------------ */
 /* Router                                                              */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Moving the site to a new domain.
+ *
+ * Controlled by the REDIRECT_HOST setting rather than hard-coded, so the move
+ * can be switched on the moment the new domain is verified and switched off
+ * again in seconds if anything is wrong — without a deploy.
+ *
+ * Three things are deliberately left alone:
+ *   - anything but GET and HEAD, because a 301 turns a POST into a GET and
+ *     would silently discard an organizer's submission;
+ *   - /api/, so a page someone already has open keeps working;
+ *   - the workers.dev address, which stays reachable for checking the site.
+ *
+ * Someone typing the old airgun address is, by definition, looking for airgun
+ * matches — so the front page lands them on the airgun view rather than the
+ * whole calendar. They can clear the filter to see everything else.
+ */
+function movedPermanently(url, request, env) {
+  const target = String(env.REDIRECT_HOST || "").trim().toLowerCase();
+  if (!target) return null;
+  if (request.method !== "GET" && request.method !== "HEAD") return null;
+  if (url.pathname.startsWith("/api/")) return null;
+
+  const host = url.hostname.toLowerCase();
+  if (host === target || host === `www.${target}` || host.endsWith(".workers.dev")) return null;
+
+  const to = new URL(url.toString());
+  to.protocol = "https:";
+  to.hostname = target;
+  to.port = "";
+
+  const airgunSite = host === "airgunmatches.com" || host === "www.airgunmatches.com";
+  if (airgunSite && (to.pathname === "/" || to.pathname === "") && !to.searchParams.has("gun"))
+    to.searchParams.set("gun", "Airgun");
+
+  return new Response(null, {
+    status: 301,
+    headers: { location: to.toString(), "cache-control": "no-cache", ...securityHeaders() }
+  });
+}
 
 /* The scoring module is given only what it needs, and shares this file's
    single definition of each helper — so a fix to name matching or to the
@@ -820,6 +890,9 @@ export default {
     const method = request.method;
 
     try {
+      const moved = movedPermanently(url, request, env);
+      if (moved) return moved;
+
       if (path.startsWith("/api/")) {
         // ---- public ----
         if (path === "/api/events" && method === "GET")  return await getPublicEvents(env);

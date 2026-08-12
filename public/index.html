@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Airgun Matches — Every Match, One Place</title>
-<meta name="description" content="Every airgun match in the country, in date order. Field target, silhouette, bench rest, precision rifle and long range events across all 50 states. Free listings for match directors.">
-<meta property="og:title" content="Airgun Matches">
-<meta property="og:description" content="Every airgun match in the country, in date order, filterable by state and discipline.">
+<title>GunMatches.com — Every Match, One Place</title>
+<meta name="description" content="Every shooting match in the country, in date order. Airgun, rimfire, centerfire and shotgun events — field target, PRS, silhouette, bench rest, trap and more, across all 50 states. Free listings for match directors.">
+<meta property="og:title" content="GunMatches.com">
+<meta property="og:description" content="Every shooting match in the country, in date order, filterable by state, type and discipline.">
 <meta property="og:type" content="website">
 
 <style>
@@ -44,7 +44,7 @@
 
   .filters{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
     box-shadow:var(--shadow);padding:16px;margin:-22px 0 22px;position:relative;z-index:2}
-  .fgrid{display:grid;grid-template-columns:1.4fr 1fr 1fr auto;gap:12px;align-items:end}
+  .fgrid{display:grid;grid-template-columns:1.4fr 1fr .9fr 1fr auto;gap:12px;align-items:end}
   .field label{display:block;font-size:11.5px;text-transform:uppercase;letter-spacing:.6px;
     color:var(--muted);font-weight:700;margin-bottom:5px}
   .field input,.field select{width:100%;padding:10px 11px;border:1px solid var(--line);
@@ -145,6 +145,9 @@
   .tag{font-size:11.5px;font-weight:700;padding:3px 8px;border-radius:20px;
     background:#eef2f7;color:var(--navy-2);border:1px solid #dde4ee}
   .tag.state{background:var(--navy);color:#fff;border-color:var(--navy)}
+  /* What it's shot with reads first and reads differently from the disciplines
+     beside it, because on a mixed calendar it's the thing people scan for. */
+  .tag.gun{background:#e8eef6;color:var(--navy);border-color:#c8d6e6;letter-spacing:.3px}
   .tag.org{background:#fdf3e3;color:var(--amber-dk);border-color:#f6e3c2}
   .note{font-size:13.5px;color:var(--muted);margin:8px 0 0;font-style:italic}
   .eactions{display:flex;flex-direction:column;gap:6px;min-width:112px}
@@ -226,7 +229,7 @@
         <circle cx="20" cy="20" r="4.5" fill="#e08c1b"/>
       </svg>
       <div>
-        <h1>Airgun Matches</h1>
+        <h1>GunMatches.com</h1>
         <p>Every match in the country, in date order.</p>
       </div>
     </div>
@@ -249,6 +252,10 @@
       <div class="field">
         <label for="state">State</label>
         <select id="state"><option value="">All states</option></select>
+      </div>
+      <div class="field">
+        <label for="guntype">Type</label>
+        <select id="guntype"><option value="">All types</option></select>
       </div>
       <div class="field">
         <label for="discipline">Discipline</label>
@@ -319,14 +326,22 @@
         <select id="f-state" required><option value="">Select…</option></select>
       </div>
       <div class="full">
+        <label>What's it shot with? <span class="req">*</span>
+          <span style="color:var(--muted);font-weight:400">— tick every one that applies</span></label>
+        <div class="disclist" id="f-gunlist"></div>
+        <p class="hint">This is how shooters filter the calendar, so it matters more than
+          anything else on this form. Tick more than one if your match runs several.</p>
+      </div>
+      <div class="full">
         <label>Disciplines <span class="req">*</span>
           <span style="color:var(--muted);font-weight:400">— tick every one your match runs</span></label>
         <div class="disclist" id="f-disclist"></div>
         <div class="otherrow">
           <input type="text" id="f-discother" maxlength="80"
-                 placeholder="Something else? Type it here (e.g. Long Range Airgun)">
+                 placeholder="Something else? Type it here (e.g. Vintage Military Rifle)">
         </div>
-        <p class="hint">Separate multiple write-ins with a comma. Up to 8 disciplines per event.</p>
+        <p class="hint">This list follows what you ticked above. Separate multiple write-ins
+          with a comma. Up to 8 disciplines per event.</p>
       </div>
       <div>
         <label for="f-org">Sanctioning body / organization</label>
@@ -390,7 +405,7 @@
 
 <footer class="site">
   <div class="wrap frow">
-    <div>Airgun Matches — a free listing for the airgun competition community.</div>
+    <div>GunMatches.com — a free listing for the shooting sports community.</div>
     <div>
       <a href="#submit">Submit an event</a> ·
       <a href="/rankings.html">Rankings</a> ·
@@ -422,17 +437,39 @@ const STATES = {
 };
 const STATE_CODES = Object.keys(STATES).sort((a,b) => STATES[a].localeCompare(STATES[b]));
 /* ==================================================================
-   DISCIPLINE CHECKLIST — edit this list to change what organizers see.
-   Anything not listed can still be typed into the "Other" box.
+   WHAT A MATCH IS SHOT WITH.
+
+   This list is fixed and must match the one in the Worker — a write-in
+   would defeat the point, which is that "Airgun" always means the same
+   thing so a visitor can filter on it and trust the result.
    ================================================================== */
-const DISCIPLINE_OPTIONS = [
-  "Extreme Field Target",
-  "Hunter Field Target",
-  "Silhouette",
-  "Precision Rifle",
-  "Long Range",
-  "Bench Rest"
-];
+const GUN_TYPES = ["Airgun", "Rimfire", "Centerfire", "Shotgun", "Muzzleloader", "Archery"];
+
+/* ==================================================================
+   DISCIPLINE CHECKLIST — edit these lists to change what organizers see.
+   Anything not listed can still be typed into the "Other" box.
+
+   Grouped by what it's shot with, because the same name means different
+   things in different worlds and an organizer shouldn't have to scroll
+   past forty options to find their own. Names that appear under more
+   than one heading are deliberate — Silhouette really is shot with all
+   of them.
+   ================================================================== */
+const DISCIPLINES_BY_TYPE = {
+  "Airgun":      ["Extreme Field Target","Hunter Field Target","Silhouette",
+                  "Precision Rifle","Long Range","Bench Rest"],
+  "Rimfire":     ["NRL22","Rimfire Benchrest","Silhouette","Steel Challenge",
+                  "Precision Rifle","Sporting Rifle"],
+  "Centerfire":  ["PRS","NRL","F-Class","High Power","Service Rifle","Long Range",
+                  "Bench Rest","Silhouette","3-Gun","USPSA","IDPA","Steel Challenge",
+                  "Cowboy Action"],
+  "Shotgun":     ["Trap","Skeet","Sporting Clays","5-Stand","3-Gun"],
+  "Muzzleloader":["Silhouette","Bench Rest","Trail Walk"],
+  "Archery":     ["Field Archery","3D Archery","Target Archery"]
+};
+
+/* Every discipline, de-duplicated — used when no gun type is picked yet. */
+const DISCIPLINE_OPTIONS = [...new Set(Object.values(DISCIPLINES_BY_TYPE).flat())].sort();
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const MO_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
@@ -548,6 +585,8 @@ async function loadEvents(){
     results: r.results || null,
     name: r.name, start: r.start_date, end: r.end_date || "",
     venue: r.venue, city: r.city, state: r.state,
+    // Anything listed before gun types existed was an airgun match.
+    gunTypes: Array.isArray(r.gun_types) && r.gun_types.length ? r.gun_types : ["Airgun"],
     disciplines: Array.isArray(r.disciplines) ? r.disciplines : [],
     org: r.org || "",
     juniors: !!r.juniors, url: r.url || "", note: r.note || "",
@@ -564,22 +603,70 @@ function buildOptions(){
     stateSel.insertAdjacentHTML("beforeend", opt);
     fState.insertAdjacentHTML("beforeend", opt);
   });
-  // Submission checklist
-  document.getElementById("f-disclist").innerHTML = DISCIPLINE_OPTIONS.map((d,i) =>
-    `<label><input type="checkbox" class="discbox" id="disc-${i}" value="${esc(d)}"> ${esc(d)}</label>`
+  // Submission checklists
+  document.getElementById("f-gunlist").innerHTML = GUN_TYPES.map((g,i) =>
+    `<label><input type="checkbox" class="gunbox" id="gun-${i}" value="${esc(g)}"> ${esc(g)}</label>`
+  ).join("");
+  document.querySelectorAll(".gunbox").forEach(b => b.addEventListener("change", buildDisciplineChecklist));
+  buildDisciplineChecklist();
+}
+
+/* The discipline checklist follows whatever the organizer has ticked above it,
+   so a shotgun club isn't asked to scroll past field target. Ticking nothing
+   shows everything rather than an empty box. Anything already ticked stays
+   ticked even if its heading disappears — losing a selection silently would be
+   worse than showing one stray option. */
+function buildDisciplineChecklist(){
+  const box = document.getElementById("f-disclist");
+  const chosen = [...document.querySelectorAll(".gunbox:checked")].map(b => b.value);
+  const wasTicked = new Set([...document.querySelectorAll(".discbox:checked")].map(b => b.value));
+
+  let list = chosen.length
+    ? [...new Set(chosen.flatMap(g => DISCIPLINES_BY_TYPE[g] || []))]
+    : [...DISCIPLINE_OPTIONS];
+  for (const t of wasTicked) if (!list.includes(t)) list.push(t);
+  list.sort();
+
+  box.innerHTML = list.map((d,i) =>
+    `<label><input type="checkbox" class="discbox" id="disc-${i}" value="${esc(d)}"${
+      wasTicked.has(d) ? " checked" : ""}> ${esc(d)}</label>`
   ).join("");
 }
 // Filter options come from live data — every discipline actually in use, including
 // write-ins you've approved. Counts show how many events run each one.
+//
+// The discipline list narrows to whatever gun type is selected, so choosing
+// Shotgun leaves Trap and Skeet rather than every discipline on the site. If
+// that would strand the discipline already chosen, it's cleared rather than
+// left applying invisibly and hiding everything.
 function buildDisciplineFilter(){
   const sel = document.getElementById("discipline");
+  const gun = document.getElementById("guntype").value;
   const keep = sel.value;
   const tally = {};
-  EVENTS.forEach(e => (e.disciplines || []).forEach(d => { tally[d] = (tally[d] || 0) + 1; }));
+  EVENTS.forEach(e => {
+    if (gun && !(e.gunTypes || []).includes(gun)) return;
+    (e.disciplines || []).forEach(d => { tally[d] = (tally[d] || 0) + 1; });
+  });
   sel.innerHTML = '<option value="">All disciplines</option>';
   Object.keys(tally).sort().forEach(d => {
     sel.insertAdjacentHTML("beforeend",
       `<option value="${esc(d)}">${esc(d)} (${tally[d]})</option>`);
+  });
+  sel.value = [...sel.options].some(o => o.value === keep) ? keep : "";
+}
+
+// Gun types come from live data too, so a type nobody has listed yet doesn't
+// sit in the filter promising results that don't exist.
+function buildGunFilter(){
+  const sel = document.getElementById("guntype");
+  const keep = sel.value;
+  const tally = {};
+  EVENTS.forEach(e => (e.gunTypes || []).forEach(g => { tally[g] = (tally[g] || 0) + 1; }));
+  sel.innerHTML = '<option value="">All types</option>';
+  GUN_TYPES.filter(g => tally[g]).forEach(g => {
+    sel.insertAdjacentHTML("beforeend",
+      `<option value="${esc(g)}">${esc(g)} (${tally[g]})</option>`);
   });
   if([...sel.options].some(o => o.value === keep)) sel.value = keep;
 }
@@ -614,14 +701,14 @@ function downloadICS(i){
   const dayAfter = new Date(e.getFullYear(), e.getMonth(), e.getDate()+1); // DTEND is exclusive
   const fold = t => String(t).replace(/\\/g,"\\\\").replace(/[,;]/g, m => "\\"+m).replace(/\r?\n/g,"\\n");
   const lines = [
-    "BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Airgun Matches//EN","BEGIN:VEVENT",
-    "UID:" + icsDate(s) + "-" + i + "@airgunmatches.com",
+    "BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//GunMatches.com//EN","BEGIN:VEVENT",
+    "UID:" + icsDate(s) + "-" + i + "@gunmatches.com",
     "DTSTAMP:" + icsDate(todayLocal()) + "T000000Z",
     "DTSTART;VALUE=DATE:" + icsDate(s),
     "DTEND;VALUE=DATE:" + icsDate(dayAfter),
     "SUMMARY:" + fold(ev.name),
     "LOCATION:" + fold([ev.venue, ev.city, ev.state].filter(Boolean).join(", ")),
-    "DESCRIPTION:" + fold([(ev.disciplines || []).join(", "), ev.org, ev.note, ev.url]
+    "DESCRIPTION:" + fold([[(ev.gunTypes || []).join(", "), (ev.disciplines || []).join(", ")].filter(Boolean).join(" — "), ev.org, ev.note, ev.url]
                           .filter(Boolean).join(" — ")),
     "END:VEVENT","END:VCALENDAR"
   ];
@@ -638,6 +725,7 @@ function render(){
   const q     = document.getElementById("q").value.trim().toLowerCase();
   const st    = document.getElementById("state").value;
   const disc  = document.getElementById("discipline").value;
+  const gun   = document.getElementById("guntype").value;
   const sort  = document.getElementById("sort").value;
   const upcom = document.getElementById("upcoming").checked;
   const jrs   = document.getElementById("juniors").checked;
@@ -648,6 +736,9 @@ function render(){
     // since results are the reason someone looks a match up afterwards.
     if(upcom && isPast(ev) && !ev.results) return false;
     if(st && ev.state !== st) return false;
+    // A match counts if ANY of its types is the selected one — a club running
+    // both airgun and rimfire relays should show up under either.
+    if(gun && !(ev.gunTypes || []).includes(gun)) return false;
     // An event matches if ANY of its disciplines is the selected one
     if(disc && !(ev.disciplines || []).includes(disc)) return false;
     if(jrs && !ev.juniors) return false;
@@ -655,7 +746,7 @@ function render(){
       const competitors = ev.results
         ? Object.values(ev.results).flat().map(r => r.competitor).join(" ") : "";
       const hay = [ev.name, ev.venue, ev.city, ev.state, STATES[ev.state],
-                   (ev.disciplines || []).join(" "), ev.org, ev.note, competitors]
+                   (ev.gunTypes || []).join(" "), (ev.disciplines || []).join(" "), ev.org, ev.note, competitors]
         .filter(Boolean).join(" ").toLowerCase();
       if(!hay.includes(q)) return false;
     }
@@ -721,6 +812,7 @@ function render(){
         <p class="meta">${esc(fmtRange(ev))}<span class="sep">|</span>${esc(ev.venue)} — ${esc(ev.city)}, ${esc(ev.state)}</p>
         <div class="tags">
           <span class="tag state">${esc(STATES[ev.state] || ev.state)}</span>
+          ${(ev.gunTypes || []).map(g => `<span class="tag gun">${esc(g)}</span>`).join("")}
           ${(ev.disciplines || []).map(d => `<span class="tag">${esc(d)}</span>`).join("")}
           ${ev.org ? `<span class="tag org">${esc(ev.org)}</span>` : ""}
           ${ev.juniors ? `<span class="tag">Junior eligible</span>` : ""}
@@ -740,6 +832,7 @@ function render(){
           ${dcell("When", fmtRange(ev) + (days > 1 ? ` · ${days} days` : ""))}
           ${dcell("Venue", ev.venue)}
           ${dcell("Location", `${ev.city}, ${STATES[ev.state] || ev.state}`)}
+          ${dcell("Shot with", (ev.gunTypes || []).join(" · ") || "Not specified")}
           ${dcell("Disciplines", (ev.disciplines || []).join(" · ") || "Not specified")}
           ${dcell("Organization", ev.org || "Not specified")}
           ${dcell("Junior / youth", ev.juniors ? "Eligible" : "Not junior eligible")}
@@ -803,6 +896,13 @@ function initForm(){
     }
 
     // Ticked boxes plus any comma-separated write-ins, de-duplicated
+    const gun_types = [...document.querySelectorAll(".gunbox:checked")].map(c => c.value);
+    if(!gun_types.length){
+      showError("Tick what your match is shot with — airgun, rimfire, centerfire and so on.");
+      document.getElementById("f-gunlist").scrollIntoView({behavior:"smooth", block:"center"});
+      return;
+    }
+
     const picked = [...document.querySelectorAll(".discbox:checked")].map(c => c.value);
     const written = val("f-discother").split(",").map(s => s.trim()).filter(s => s.length >= 2);
     const disciplines = [...new Set([...picked, ...written])];
@@ -833,6 +933,7 @@ function initForm(){
       venue: val("f-venue"),
       city: val("f-city"),
       state: val("f-state"),
+      gun_types,
       disciplines,
       org: val("f-org") || null,
       juniors: document.getElementById("f-elig").value === "true",
@@ -870,13 +971,17 @@ function initForm(){
 async function init(){
   buildOptions();
   initForm();
-  ["q","state","discipline","sort","upcoming","juniors"].forEach(id => {
+  ["q","state","guntype","discipline","sort","upcoming","juniors"].forEach(id => {
     const el = document.getElementById(id);
     el.addEventListener(el.type === "search" ? "input" : "change", render);
   });
+  // Changing the gun type rebuilds the discipline list under it before redrawing.
+  document.getElementById("guntype").addEventListener("change", buildDisciplineFilter);
   document.getElementById("clear").addEventListener("click", () => {
     document.getElementById("q").value = "";
     document.getElementById("state").value = "";
+    document.getElementById("guntype").value = "";
+    buildDisciplineFilter();
     document.getElementById("discipline").value = "";
     document.getElementById("sort").value = "asc";
     document.getElementById("upcoming").checked = true;
@@ -904,6 +1009,15 @@ async function init(){
 
   try{
     await loadEvents();
+    buildGunFilter();
+
+    /* A link can arrive with a filter already chosen — which is how anyone
+       following the old airgun address lands on airgun matches rather than
+       the whole calendar. */
+    const wanted = new URLSearchParams(location.search).get("gun");
+    const gunSel = document.getElementById("guntype");
+    if (wanted && [...gunSel.options].some(o => o.value === wanted)) gunSel.value = wanted;
+
     buildDisciplineFilter();
     render();
   }catch(err){

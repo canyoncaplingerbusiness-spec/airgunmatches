@@ -16,9 +16,13 @@
       "database_id": "986bbc6c-b6de-4798-8305-1ee55e2df957"
     }
   ],
+  // REDIRECT_HOST is the switch that moves the site to its new home.
+  // Empty means every domain serves the site normally. Set it to
+  // "gunmatches.com" and any other domain 301s there instead. Clearing it
+  // again undoes the move instantly, which is why it's a setting and not
+  // something baked into the code.
   "vars": {
-    "ACCESS_TEAM_DOMAIN": "",
-    "ACCESS_AUD": ""
+    "REDIRECT_HOST": ""
   },
   "observability": { "enabled": true }
 }

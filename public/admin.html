@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Event Review — Airgun Matches</title>
+<title>Event Review — GunMatches.com</title>
 
 <style>
   :root{
@@ -146,6 +146,13 @@
   .editform input,.editform textarea,.editform select{width:100%;padding:8px 10px;
     border:1px solid var(--line);border-radius:7px;font-size:14px;font-family:inherit}
   .editform textarea{min-height:70px;resize:vertical}
+  /* Tick boxes, not a text field — the values are a fixed list, and a typo here
+     would put a match in a filter nobody looks in. */
+  .gunpick{display:flex;flex-wrap:wrap;gap:8px 16px}
+  .gunpick label{display:flex;align-items:center;gap:6px;font-size:13.5px;
+    font-weight:600;text-transform:none;letter-spacing:0;color:var(--text);
+    margin:0;cursor:pointer}
+  .gunpick input{width:16px;height:16px;margin:0;accent-color:var(--navy-2);cursor:pointer}
   .editform input:focus,.editform textarea:focus,.editform select:focus{
     outline:2px solid var(--navy-2);outline-offset:-1px}
   @media (max-width:600px){ .editform{grid-template-columns:1fr} }
@@ -236,6 +243,8 @@
    token on every API call, so there is no login form and no key here. */
 const API = "/api/admin";
 const CALENDAR_URL = "/";
+
+const GUN_TYPES = ["Airgun", "Rimfire", "Centerfire", "Shotgun", "Muzzleloader", "Archery"];
 
 const STATES = {
   AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",CO:"Colorado",
@@ -427,7 +436,7 @@ function render(){
   let list = ROWS.filter(r => TAB === "all" || r.status === TAB);
   if(q){
     list = list.filter(r =>
-      [r.name,r.venue,r.city,r.state,STATES[r.state],(r.disciplines||[]).join(" "),
+      [r.name,r.venue,r.city,r.state,STATES[r.state],(r.gun_types||[]).join(" "),(r.disciplines||[]).join(" "),
        r.org,r.note,r.submitter_name,r.submitter_email]
         .filter(Boolean).join(" ").toLowerCase().includes(q));
   }
@@ -468,6 +477,7 @@ function render(){
         ${cell("Venue", r.venue)}
         ${cell("City", r.city)}
         ${cell("State", STATES[r.state] || r.state)}
+        ${cell("Shot with", (r.gun_types || []).join(" · "))}
         ${cell("Disciplines", (r.disciplines || []).join(" · "))}
         ${cell("Organization", r.org)}
         ${cell("Junior eligible", r.juniors ? "Yes" : "No")}
@@ -512,6 +522,9 @@ function render(){
             <option value="0"${r.juniors ? "" : " selected"}>No</option>
           </select>
         </div>
+        <div class="full"><label>Shot with</label>
+          <div class="gunpick">${GUN_TYPES.map(g => `<label><input type="checkbox" name="gun_types" value="${esc(g)}"${
+            (r.gun_types || []).includes(g) ? " checked" : ""}> ${esc(g)}</label>`).join("")}</div></div>
         <div class="full"><label>Disciplines (comma separated, max 8)</label>
           <input name="disciplines" value="${esc((r.disciplines || []).join(", "))}" required></div>
         <div class="full"><label>Organization</label>
@@ -686,6 +699,7 @@ document.getElementById("rows").addEventListener("submit", async e => {
     name: f.name, start_date: f.start_date, end_date: f.end_date || null,
     venue: f.venue, city: f.city, state: (f.state || "").toUpperCase(),
     juniors: f.juniors === "1",
+    gun_types: [...form.querySelectorAll('input[name="gun_types"]:checked')].map(b => b.value),
     disciplines: f.disciplines.split(",").map(s => s.trim()).filter(Boolean),
     org: f.org || null, url: f.url || null, video_url: f.video_url || null,
     note: f.note || null
