@@ -815,10 +815,36 @@ async function adminUpdate(request, env, id, email) {
   return json({ ok: true, event: parseRow(row) });
 }
 
+/**
+ * Deleting an event takes everything belonging to it.
+ *
+ * Results, disciplines, stages, squads, the roster, score cards and declared
+ * placings all disappear on their own — they hold a foreign key to the event
+ * with ON DELETE CASCADE, and D1 enforces it.
+ *
+ * The audit trail doesn't. `score_history` deliberately has no foreign key, so
+ * that a record of who changed a score cannot be quietly erased by deleting
+ * something else. That protection stops making sense once the match itself is
+ * gone: there is no longer a score to dispute, and the rows still hold scorers'
+ * names and device ids. So they are removed here, explicitly, rather than left
+ * behind as unreachable data about real people.
+ *
+ * The order matters. The history rows are found by walking from the event to
+ * its disciplines, so they have to go before the cascade removes the path.
+ */
 async function adminDelete(env, id) {
-  const res = await env.DB.prepare("DELETE FROM events WHERE id = ?").bind(id).run();
-  if (!res.meta.changes) return fail("Event not found.", 404);
-  return json({ ok: true });
+  const exists = await env.DB.prepare("SELECT id FROM events WHERE id = ?").bind(id).first();
+  if (!exists) return fail("Event not found.", 404);
+
+  const wiped = await env.DB.batch([
+    env.DB.prepare(
+      `DELETE FROM score_history
+        WHERE md_id IN (SELECT id FROM match_disciplines WHERE event_id = ?)`
+    ).bind(id),
+    env.DB.prepare("DELETE FROM events WHERE id = ?").bind(id)
+  ]);
+
+  return json({ ok: true, history_rows_removed: wiped[0]?.meta?.changes ?? 0 });
 }
 
 async function adminExport(request, env) {
