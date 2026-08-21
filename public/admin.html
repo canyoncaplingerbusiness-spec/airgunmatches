@@ -157,6 +157,29 @@
     outline:2px solid var(--navy-2);outline-offset:-1px}
   @media (max-width:600px){ .editform{grid-template-columns:1fr} }
 
+  .codelist{border:1px solid var(--line);border-radius:9px;margin-top:14px;overflow:hidden}
+  .codehead{display:flex;align-items:center;gap:12px;justify-content:space-between;
+    background:var(--bg);padding:9px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .codehead .k{font-size:11px;text-transform:uppercase;letter-spacing:.7px;
+    color:var(--muted);font-weight:800}
+  .copyall{font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer;
+    background:var(--navy-2);color:#fff;border:1px solid var(--navy-2);border-radius:7px;padding:6px 12px}
+  .copyall:hover{background:var(--navy)}
+  .codetable{width:100%;border-collapse:collapse;font-size:13.5px}
+  .codetable td{padding:7px 12px;border-top:1px solid var(--line);vertical-align:middle}
+  .codetable tr:first-child td{border-top:0}
+  .codetable .cdate{white-space:nowrap;color:var(--steel);width:1%}
+  .codetable code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;
+    font-weight:700;letter-spacing:1px;color:var(--navy)}
+  .codetable .cact{text-align:right;white-space:nowrap}
+  .codetable .cact button{font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;
+    background:#fff;border:1px solid var(--line);color:var(--navy-2);border-radius:6px;
+    padding:4px 9px;margin-left:4px}
+  .codetable .cact button:hover{background:var(--bg);border-color:var(--steel)}
+  .pending-code{font-size:12.5px;color:var(--muted);font-style:italic}
+  .posted{font-size:12px;color:var(--green);font-weight:700;margin-left:8px}
+  .codenote{margin:0;padding:8px 12px;font-size:12.5px;color:var(--muted);
+    background:var(--bg);border-top:1px solid var(--line)}
   .seriesbar{background:#eef2f7;border:1px solid #dde4ee;border-radius:9px;
     padding:11px 13px;margin:0 0 14px;font-size:13.5px;color:var(--navy-2)}
   .seriesbar b{display:block;margin-bottom:4px}
@@ -442,6 +465,40 @@ async function setStatus(id, status, btn){
 }
 
 /* ---------- Render ---------- */
+/* Every date in a season, each with its own code.
+ *
+ * The season is reviewed as one item, but the codes are deliberately separate —
+ * one per match, so a code that leaks from September cannot touch November.
+ * That only works if you can actually see all of them, which is what this is
+ * for. "Copy all" produces a block ready to paste into an email, because
+ * sending nine codes one at a time is how one gets forgotten. */
+function seriesCodes(sibs){
+  const withCodes = sibs.filter(x => x.results_token);
+  const rows = sibs.map(x => `<tr>
+      <td class="cdate">${esc(fmtRange(x))}</td>
+      <td>${x.results_token
+            ? `<code>${esc(x.results_token)}</code>`
+            : `<span class="pending-code">issued when approved</span>`}</td>
+      <td class="cact">${x.results_token ? `
+        <button type="button" data-copycode="${esc(x.results_token)}">Copy</button>
+        <button type="button" data-copylink="${esc(x.results_token)}">Link</button>
+        <button type="button" data-newcode="${esc(x.id)}">New</button>` : ""}
+        ${x.results_updated_at ? `<span class="posted">results posted</span>` : ""}
+      </td></tr>`).join("");
+
+  return `<div class="codelist">
+    <div class="codehead">
+      <span class="k">Results upload codes — one per date</span>
+      ${withCodes.length ? `<button type="button" class="copyall" data-copyall="${
+        esc(withCodes.map(x => `${fmtRange(x)} — ${x.results_token}`).join("\n"))}">Copy all ${
+        withCodes.length} codes</button>` : ""}
+    </div>
+    <table class="codetable"><tbody>${rows}</tbody></table>
+    <p class="codenote">Each date is its own match with its own code, results and winner.
+      A code opens only its own date.</p>
+  </div>`;
+}
+
 function render(){
   const counts = { pending:0, approved:0, denied:0, all:ROWS.length };
   ROWS.forEach(r => counts[r.status]++);
@@ -526,7 +583,9 @@ function render(){
         ${cell("Details", r.note, { wide:true })}
       </div>
 
-      ${r.results_token ? `<div class="codebar">
+      ${isSeries ? seriesCodes(sibs) : ""}
+
+      ${!isSeries && r.results_token ? `<div class="codebar">
         <div>
           <span class="k">Results upload code</span>
           <code>${esc(r.results_token)}</code>
@@ -698,6 +757,11 @@ document.getElementById("rows").addEventListener("click", async e => {
 // ---- editing ----
 // ---- results code actions ----
 document.getElementById("rows").addEventListener("click", async e => {
+  const ca = e.target.closest("button[data-copyall]");
+  if(ca){ await navigator.clipboard.writeText(ca.dataset.copyall);
+          const was = ca.textContent; ca.textContent = "Copied";
+          setTimeout(() => { ca.textContent = was; }, 1400); return; }
+
   const cc = e.target.closest("button[data-copycode]");
   if(cc){ await navigator.clipboard.writeText(cc.dataset.copycode);
           cc.textContent = "Copied"; setTimeout(()=>cc.textContent="Copy code",1500); return; }
