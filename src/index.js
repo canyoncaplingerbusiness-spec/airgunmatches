@@ -34,7 +34,17 @@ const ADMIN_PATH = "/admin.html";
 /* Columns the public may ever see. Submitter and review fields are absent
    by construction rather than filtered out afterwards. */
 const PUBLIC_COLUMNS =
-  "id, name, start_date, end_date, venue, city, state, gun_types, disciplines, org, juniors, url, video_url, note";
+  "id, name, start_date, end_date, venue, city, state, gun_types, disciplines, org, juniors, url, video_url, note, series_id";
+
+/* A club running the same match every month submits it once and gets one
+   listing per date, all sharing a series id.
+
+   Each occurrence stays an ordinary event in every other respect — its own
+   results, its own code, its own winner — because that is what actually
+   happens at a monthly match. The series id exists so the calendar can say
+   "this match also runs on these dates", and so a season can be reviewed in
+   one decision instead of nine. */
+const MAX_DATES_PER_SERIES = 60;
 
 /* What a match is shot with, as opposed to how it's scored. Kept separate from
    disciplines because the same discipline name means different things in
@@ -263,6 +273,19 @@ async function turnstileOk(token, ip, env) {
 /* ------------------------------------------------------------------ */
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** A date that is both the right shape and a day that exists.
+ *
+ *  The pattern alone accepts 2026-13-45 and 2027-02-31, which then sit in the
+ *  database sorting into strange places and rendering as "Invalid Date" on the
+ *  calendar. Round-tripping through Date is the cheap way to insist the day is
+ *  real: February 31st comes back as March 3rd and no longer matches itself. */
+function isRealDate(s) {
+  if (!s || !DATE_RE.test(s)) return false;
+  const [y, m, d] = s.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+}
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const YT_RE = /^https:\/\/((www\.|m\.)?youtube\.com\/|youtu\.be\/)/;
 
@@ -281,10 +304,44 @@ function validateSubmission(b) {
   if (!venue || venue.length < 2) e.push("Venue is required.");
   if (!city || city.length < 2) e.push("City is required.");
   if (!STATES.has(state)) e.push("A valid two-letter state code is required.");
-  if (!start || !DATE_RE.test(start)) e.push("Start date must be YYYY-MM-DD.");
-  if (end && !DATE_RE.test(end)) e.push("End date must be YYYY-MM-DD.");
-  if (start && end && end < start) e.push("End date cannot be before the start date.");
-  if (start && (start < "2015-01-01" || start > "2100-01-01")) e.push("Start date is out of range.");
+  /* Dates.
+   *
+   * A one-off match sends start_date and an optional end_date, exactly as
+   * before. A recurring match sends a `dates` array instead, one entry per
+   * occurrence, each of which may itself span days — a monthly club shoot is
+   * one day, a Grand Prix is three, and a club can run both.
+   *
+   * Everything downstream works from `occurrences`, so a single match is
+   * simply a series of one and there is no second code path to keep correct. */
+  const occurrences = [];
+  const rawDates = Array.isArray(b.dates) ? b.dates : null;
+
+  if (rawDates && rawDates.length) {
+    if (rawDates.length > MAX_DATES_PER_SERIES)
+      e.push(`No more than ${MAX_DATES_PER_SERIES} dates in one submission.`);
+
+    const seen = new Set();
+    for (const d of rawDates.slice(0, MAX_DATES_PER_SERIES)) {
+      const s = str(typeof d === "string" ? d : (d && (d.start_date ?? d.start)), 10);
+      const f = str(typeof d === "string" ? null : (d && (d.end_date ?? d.end)), 10);
+      if (!isRealDate(s)) { e.push(`"${s || "(blank)"}" isn't a real date in YYYY-MM-DD form.`); continue; }
+      if (f && !isRealDate(f)) { e.push(`"${f}" isn't a real date in YYYY-MM-DD form.`); continue; }
+      if (f && f < s) { e.push(`The match on ${s} ends before it starts.`); continue; }
+      if (s < "2015-01-01" || s > "2100-01-01") { e.push(`${s} is outside the range the calendar accepts.`); continue; }
+      if (seen.has(s)) continue;              // the same date twice is a slip, not an error
+      seen.add(s);
+      occurrences.push({ start: s, end: f || null });
+    }
+    if (!occurrences.length && !e.length) e.push("Pick at least one date.");
+  } else {
+    if (!isRealDate(start)) e.push("Start date must be a real date in YYYY-MM-DD form.");
+    if (end && !isRealDate(end)) e.push("End date must be a real date in YYYY-MM-DD form.");
+    if (start && end && end < start) e.push("End date cannot be before the start date.");
+    if (start && (start < "2015-01-01" || start > "2100-01-01")) e.push("Start date is out of range.");
+    if (isRealDate(start)) occurrences.push({ start, end: end || null });
+  }
+
+  occurrences.sort((x, y) => x.start.localeCompare(y.start));
   if (!sName || sName.length < 2) e.push("Your name is required.");
   if (!sEmail || !EMAIL_RE.test(sEmail)) e.push("A valid email address is required.");
 
@@ -316,6 +373,7 @@ function validateSubmission(b) {
 
   return {
     errors: e,
+    occurrences,
     row: {
       name, start_date: start, end_date: end || null, venue, city, state,
       gun_types: JSON.stringify(gunTypes),
@@ -496,43 +554,79 @@ async function createSubmission(request, env) {
   if (!(await turnstileOk(body.turnstile_token, ip, env)))
     return fail("Spam check failed. Please reload the page and try again.", 403);
 
-  const { errors, row } = validateSubmission(body);
+  const { errors, row, occurrences } = validateSubmission(body);
   if (errors.length) return json({ error: errors.join(" ") }, 400);
 
   const ipHash = await hashIp(ip, env.IP_SALT || "airgunmatches");
 
-  // Rate limit: at most 5 submissions per address per hour.
+  /* Rate limit: at most 5 submissions per address per hour.
+   *
+   * Counted by submission, not by row. A club posting a nine-date season is
+   * one act by one person; counting the rows would have locked them out
+   * halfway through their own first submission. */
   if (ipHash) {
     const since = new Date(Date.now() - 3600_000).toISOString().slice(0, 19) + "Z";
     const { count } = await env.DB.prepare(
-      "SELECT COUNT(*) AS count FROM events WHERE submit_ip_hash = ? AND created_at > ?"
+      `SELECT COUNT(DISTINCT COALESCE(series_id, id)) AS count
+         FROM events WHERE submit_ip_hash = ? AND created_at > ?`
     ).bind(ipHash, since).first();
     if (count >= 5) return fail("Too many submissions from this connection. Try again later.", 429);
   }
 
-  const id = crypto.randomUUID();
+  /* Dates already listed for this match are skipped rather than failing the
+     whole batch. A club re-submitting a season with two new dates added should
+     get the two new dates, not an error about the seven that already exist. */
+  const already = await env.DB.prepare(
+    `SELECT start_date FROM events
+      WHERE lower(trim(name)) = lower(trim(?)) AND lower(trim(venue)) = lower(trim(?))`
+  ).bind(row.name, row.venue).all();
+  const taken = new Set((already.results || []).map(r => r.start_date));
+  const fresh = occurrences.filter(o => !taken.has(o.start));
+
+  if (!fresh.length) {
+    return json({ ok: true, duplicate: true,
+      message: occurrences.length > 1
+        ? "Every one of those dates is already listed — we'll review the existing entries."
+        : "That match is already submitted — we'll review the existing entry." });
+  }
+
+  // Only a real series gets an id. A one-off stays null, so nothing changes for it.
+  const seriesId = occurrences.length > 1 ? crypto.randomUUID() : null;
+  const country = request.headers.get("CF-IPCountry") || null;
+
+  const made = fresh.map(o => ({ id: crypto.randomUUID(), ...o }));
+  const stmts = made.map(o => env.DB.prepare(
+    `INSERT INTO events (id, name, start_date, end_date, venue, city, state, gun_types, disciplines,
+                         org, juniors, url, video_url, note, submitter_name, submitter_email,
+                         status, submit_ip_hash, submit_country, series_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?, ?)`
+  ).bind(
+    o.id, row.name, o.start, o.end, row.venue, row.city, row.state,
+    row.gun_types, row.disciplines, row.org, row.juniors, row.url, row.video_url, row.note,
+    row.submitter_name, row.submitter_email,
+    ipHash, country, seriesId
+  ));
+
   try {
-    await env.DB.prepare(
-      `INSERT INTO events (id, name, start_date, end_date, venue, city, state, gun_types, disciplines,
-                           org, juniors, url, video_url, note, submitter_name, submitter_email,
-                           status, submit_ip_hash, submit_country)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?)`
-    ).bind(
-      id, row.name, row.start_date, row.end_date, row.venue, row.city, row.state,
-      row.gun_types, row.disciplines, row.org, row.juniors, row.url, row.video_url, row.note,
-      row.submitter_name, row.submitter_email,
-      ipHash, request.headers.get("CF-IPCountry") || null
-    ).run();
+    // All or nothing: a half-created season would be worse than a clear failure.
+    await env.DB.batch(stmts);
   } catch (err) {
-    // The unique index makes a repeat submission a no-op rather than an error
-    // the organizer has to puzzle over.
     if (String(err).includes("UNIQUE")) {
       return json({ ok: true, duplicate: true,
         message: "That match is already submitted — we'll review the existing entry." });
     }
     throw err;
   }
-  return json({ ok: true, id }, 201);
+
+  const skipped = occurrences.length - fresh.length;
+  return json({
+    ok: true,
+    id: made[0].id,
+    series_id: seriesId,
+    created: made.length,
+    skipped,
+    dates: made.map(o => o.start)
+  }, 201);
 }
 
 async function getResultsEvent(request, env) {
@@ -816,6 +910,45 @@ async function adminUpdate(request, env, id, email) {
 }
 
 /**
+ * One decision for a whole season.
+ *
+ * A club that submits nine monthly dates arrives as nine pending rows. Judging
+ * them one at a time is nine chances to approve eight and forget the ninth, so
+ * the dashboard reviews a series as a single item and this applies the verdict
+ * to every date in it.
+ *
+ * Each occurrence still gets its own results code, because each is a separate
+ * match with its own winner. Approving nine dates issues nine codes.
+ */
+async function adminUpdateSeries(request, env, email) {
+  let body;
+  try { body = await request.json(); } catch { return fail("Malformed request."); }
+
+  const seriesId = String(body.series_id || "");
+  const status = String(body.status || "");
+  if (!seriesId) return fail("Which series?");
+  if (!["pending", "approved", "denied"].includes(status)) return fail("Invalid status.");
+
+  const rows = (await env.DB.prepare(
+    "SELECT id, results_token FROM events WHERE series_id = ? ORDER BY start_date"
+  ).bind(seriesId).all()).results || [];
+  if (!rows.length) return fail("That series doesn't exist.", 404);
+
+  const stmts = rows.map(r => {
+    // Approving issues a code once. Re-approving keeps the code already sent out.
+    const needsCode = status === "approved" && !r.results_token;
+    return needsCode
+      ? env.DB.prepare("UPDATE events SET status = ?, reviewed_by = ?, results_token = ? WHERE id = ?")
+          .bind(status, email, makeResultsCode(), r.id)
+      : env.DB.prepare("UPDATE events SET status = ?, reviewed_by = ? WHERE id = ?")
+          .bind(status, email, r.id);
+  });
+
+  await env.DB.batch(stmts);
+  return json({ ok: true, status, dates_updated: rows.length });
+}
+
+/**
  * Deleting an event takes everything belonging to it.
  *
  * Results, disciplines, stages, squads, the roster, score cards and declared
@@ -976,6 +1109,7 @@ export default {
           if (path === "/api/admin/duplicates" && method === "GET")  return await adminDuplicates(env);
           if (path === "/api/admin/merge" && method === "POST") return await adminMerge(request, env);
           if (path === "/api/admin/export" && method === "GET")  return await adminExport(request, env);
+          if (path === "/api/admin/series" && method === "PATCH") return await adminUpdateSeries(request, env, auth.email);
 
           const m = path.match(/^\/api\/admin\/events\/([0-9a-fA-F-]{36})$/);
           if (m && method === "PATCH")  return await adminUpdate(request, env, m[1], auth.email);

@@ -157,6 +157,11 @@
     outline:2px solid var(--navy-2);outline-offset:-1px}
   @media (max-width:600px){ .editform{grid-template-columns:1fr} }
 
+  .seriesbar{background:#eef2f7;border:1px solid #dde4ee;border-radius:9px;
+    padding:11px 13px;margin:0 0 14px;font-size:13.5px;color:var(--navy-2)}
+  .seriesbar b{display:block;margin-bottom:4px}
+  .seriesbar .sdates{display:block;color:var(--steel);margin-bottom:5px}
+  .seriesbar .snote{display:block;font-size:12.5px;color:var(--muted)}
   .actions{display:flex;gap:9px;margin-top:16px;flex-wrap:wrap}
   .act{display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:700;
     padding:9px 16px;border-radius:8px;cursor:pointer;border:1px solid}
@@ -406,11 +411,23 @@ async function setStatus(id, status, btn){
   [...card.querySelectorAll("button")].forEach(b => b.disabled = true);
   if(btn) btn.textContent = "Saving…";
 
-  const res = await fetch(`${API}/events/${id}`, {
-    method: "PATCH",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ status })
-  });
+  /* If this row stands for a whole season, the verdict goes to every date in
+     it. One request, so a season can't end up half approved. */
+  const row = ROWS.find(r => r.id === id);
+  const seriesSize = row && row.series_id
+    ? ROWS.filter(r => r.series_id === row.series_id).length : 0;
+
+  const res = seriesSize > 1
+    ? await fetch(`${API}/series`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ series_id: row.series_id, status })
+      })
+    : await fetch(`${API}/events/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status })
+      });
   const out = await res.json().catch(() => ({}));
 
   if(!res.ok){
@@ -456,8 +473,25 @@ function render(){
     return;
   }
 
+  /* A season submitted as nine dates arrives as nine rows. Reviewing them one
+     at a time is nine chances to approve eight and forget the ninth, so the
+     series is shown once — on its earliest date — with the rest summarised and
+     a single decision that covers them all. Searching still finds any of them,
+     because a collapsed row you cannot find is worse than nine you can. */
+  const seriesGroups = {};
+  list.forEach(r => { if(r.series_id) (seriesGroups[r.series_id] ||= []).push(r); });
+  const collapsed = new Set();
+  Object.values(seriesGroups).forEach(g => {
+    if(g.length < 2) return;
+    g.sort((a,b) => a.start_date.localeCompare(b.start_date));
+    g.slice(1).forEach(r => collapsed.add(r.id));
+  });
+  if(!q) list = list.filter(r => !collapsed.has(r.id));
+
   box.innerHTML = list.map(r => {
     const isPending = r.status === "pending";
+    const sibs = r.series_id ? (seriesGroups[r.series_id] || []) : [];
+    const isSeries = sibs.length > 1 && !q;
     const link = r.url
       ? `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${esc(r.url)}</a>`
       : "";
@@ -471,6 +505,13 @@ function render(){
         </div>
         <span class="pill ${esc(r.status)}">${esc(r.status)}</span>
       </div>
+
+      ${isSeries ? `<div class="seriesbar">
+        <b>This match repeats — ${sibs.length} dates submitted together.</b>
+        <span class="sdates">${sibs.map(x => esc(fmtRange(x))).join(" &middot; ")}</span>
+        <span class="snote">Each date becomes its own listing with its own results code.
+          A decision below applies to all ${sibs.length}.</span>
+      </div>` : ""}
 
       <div class="grid">
         ${cell("Dates", fmtRange(r))}

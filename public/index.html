@@ -198,6 +198,30 @@
   footer.site a{color:#fff}
   .frow{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 
+  /* ---------- recurring dates ---------- */
+  .repeatchk{font-size:14.5px;font-weight:600;color:var(--navy-2)}
+  .repeatbox{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .rgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;align-items:end}
+  .rgrid .rbtn{display:flex;align-items:flex-end}
+  .rgrid .rbtn .btn{width:100%}
+  .datelist{display:flex;flex-wrap:wrap;gap:7px;margin:14px 0 12px}
+  /* Each generated date is removable — the pattern gets you close, and the
+     club closes for a range weekend or skips December. */
+  .datechip{display:inline-flex;align-items:center;gap:7px;background:#fff;
+    border:1px solid var(--line);border-radius:999px;padding:6px 8px 6px 13px;font-size:13.5px}
+  .datechip b{font-weight:600}
+  .datechip button{background:none;border:0;color:var(--muted);font-size:16px;line-height:1;
+    cursor:pointer;padding:0 3px;font-family:inherit}
+  .datechip button:hover{color:var(--red)}
+  .addone{gap:8px;align-items:center}
+  .addone input{max-width:190px}
+  .datecount{font-size:13px;font-weight:700;color:var(--navy-2);margin-bottom:4px}
+  .seriesdates{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+  .seriesdate{background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 11px;
+    font-size:13px;font-family:inherit;color:var(--navy-2);cursor:pointer;font-weight:600}
+  .seriesdate:hover{background:var(--navy);border-color:var(--navy);color:#fff}
+  .moredates{font-size:12.5px;color:var(--muted);align-self:center;padding-left:2px}
+
   /* Four buttons don't fit one phone row. Rather than let them wrap raggedly,
      they become an even two-by-two block at narrow widths. */
   .navbtns{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
@@ -313,6 +337,51 @@
         <label for="f-end">End date <span style="color:var(--muted);font-weight:400">(if multi-day)</span></label>
         <input type="date" id="f-end">
       </div>
+
+      <!-- Recurring matches. Hidden until asked for, so a one-off submission
+           looks exactly as it always did. -->
+      <div class="full">
+        <label class="chk repeatchk"><input type="checkbox" id="f-repeat">
+          <span>This match runs more than once — add the other dates</span></label>
+      </div>
+
+      <div class="full repeatbox" id="f-repeatbox" hidden>
+        <div class="rgrid">
+          <div>
+            <label for="f-rep-every">How often?</label>
+            <select id="f-rep-every">
+              <option value="weekly">Every week</option>
+              <option value="fortnightly">Every 2 weeks</option>
+              <option value="monthly" selected>Every month</option>
+            </select>
+          </div>
+          <div id="f-rep-whichwrap">
+            <label for="f-rep-which">Which one?</label>
+            <select id="f-rep-which">
+              <option value="1">First</option>
+              <option value="2">Second</option>
+              <option value="3">Third</option>
+              <option value="4" selected>Fourth</option>
+              <option value="last">Last</option>
+              <option value="same">Same date each month</option>
+            </select>
+          </div>
+          <div>
+            <label for="f-rep-until">Until</label>
+            <input type="date" id="f-rep-until">
+          </div>
+          <div class="rbtn">
+            <button type="button" class="btn ghost" id="f-rep-go">Add these dates</button>
+          </div>
+        </div>
+        <p class="hint" id="f-rep-hint"></p>
+
+        <div id="f-datelist" class="datelist" hidden></div>
+        <div class="row addone">
+          <input type="date" id="f-rep-one">
+          <button type="button" class="btn ghost sm" id="f-rep-add">Add one more date</button>
+        </div>
+      </div>
       <div>
         <label for="f-venue">Venue / club <span class="req">*</span></label>
         <input type="text" id="f-venue" required maxlength="160" placeholder="Cedar Ridge Shooting Club">
@@ -410,7 +479,8 @@
       <a href="#submit">Submit an event</a> ·
       <a href="/rankings.html">Rankings</a> ·
       <a href="/organizers.html">For organizers</a> ·
-      <a href="/score.html">Score a squad</a>
+      <a href="/score.html">Score a squad</a> ·
+      <a href="mailto:Canyoncaplinger.business@gmail.com">Contact</a>
     </div>
   </div>
 </footer>
@@ -488,6 +558,14 @@ function esc(s){
     .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
     .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
+/* "Sat 24 Oct" — short enough to sit several to a row on a phone. */
+function fmtShort(isoDate){
+  const d = parseDate(isoDate);
+  if(!d) return isoDate;
+  const day = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()];
+  return `${day} ${d.getDate()} ${MO_ABBR[d.getMonth()]}`;
+}
+
 function fmtRange(ev){
   const s = parseDate(ev.start), e = parseDate(ev.end);
   if(!s) return "";
@@ -587,6 +665,7 @@ async function loadEvents(){
     venue: r.venue, city: r.city, state: r.state,
     // Anything listed before gun types existed was an airgun match.
     gunTypes: Array.isArray(r.gun_types) && r.gun_types.length ? r.gun_types : ["Airgun"],
+    seriesId: r.series_id || null,
     disciplines: Array.isArray(r.disciplines) ? r.disciplines : [],
     org: r.org || "",
     juniors: !!r.juniors, url: r.url || "", note: r.note || "",
@@ -721,6 +800,28 @@ function downloadICS(i){
 }
 
 /* ---------- Render ---------- */
+/* A recurring match links to its own other dates. Someone who has found the
+   September listing is very likely to want November, and otherwise they would
+   have to go back and search for it. */
+function seriesCell(ev){
+  if(!ev.seriesId) return "";
+  const siblings = EVENTS
+    .filter(e => e.seriesId === ev.seriesId && e.id !== ev.id && parseDate(e.start))
+    .sort((a,b) => a.start.localeCompare(b.start));
+  if(!siblings.length) return "";
+
+  const today = new Date().toISOString().slice(0,10);
+  const upcoming = siblings.filter(e => e.start >= today);
+  const show = (upcoming.length ? upcoming : siblings).slice(0, 8);
+  const label = upcoming.length ? "Also runs on" : "Other dates";
+
+  return `<div class="dcell wide"><span class="k">${label}</span><span class="v seriesdates">` +
+    show.map(e => `<button type="button" class="seriesdate" data-jump="${esc(e.id)}">${
+      esc(fmtShort(e.start))}</button>`).join("") +
+    (siblings.length > show.length ? `<span class="moredates">+${siblings.length - show.length} more</span>` : "") +
+    `</span></div>`;
+}
+
 function render(){
   const q     = document.getElementById("q").value.trim().toLowerCase();
   const st    = document.getElementById("state").value;
@@ -832,6 +933,7 @@ function render(){
           ${dcell("When", fmtRange(ev) + (days > 1 ? ` · ${days} days` : ""))}
           ${dcell("Venue", ev.venue)}
           ${dcell("Location", `${ev.city}, ${STATES[ev.state] || ev.state}`)}
+          ${seriesCell(ev)}
           ${dcell("Shot with", (ev.gunTypes || []).join(" · ") || "Not specified")}
           ${dcell("Disciplines", (ev.disciplines || []).join(" · ") || "Not specified")}
           ${dcell("Organization", ev.org || "Not specified")}
@@ -930,6 +1032,11 @@ function initForm(){
       name: val("f-name"),
       start_date: val("f-start"),
       end_date: val("f-end") || null,
+      // A recurring match sends every date; the server makes one listing each.
+      dates: SERIES_DATES.length
+        ? [...new Set([val("f-start"), ...SERIES_DATES])].sort()
+            .map(d => ({ start_date: d, end_date: d === val("f-start") ? (val("f-end") || null) : null }))
+        : null,
       venue: val("f-venue"),
       city: val("f-city"),
       state: val("f-state"),
@@ -957,13 +1064,157 @@ function initForm(){
 
     form.hidden = true;
     success.hidden = false;
+    SERIES_DATES = [];
     // A repeat of an existing match is accepted quietly rather than shown as an error
     if(out.duplicate){
       success.innerHTML = "<strong>Already on our list.</strong> " +
-        "That match has been submitted before, so we'll review the existing entry " +
-        "rather than adding a duplicate.";
+        (out.message ||
+         "That match has been submitted before, so we'll review the existing entry " +
+         "rather than adding a duplicate.");
+    } else if(out.created > 1){
+      // Say plainly how many listings were made, and mention any date that was
+      // already on the calendar — silently dropping one would be alarming later.
+      success.innerHTML = `<strong>Thanks — ${out.created} dates submitted.</strong> ` +
+        `Each date becomes its own listing with its own results code, so every match ` +
+        `keeps its own scores and winner. We review them together, usually within a day.` +
+        (out.skipped ? ` <br><br>${out.skipped} of the dates you entered ${
+          out.skipped === 1 ? "was" : "were"} already on the calendar and ${
+          out.skipped === 1 ? "was" : "were"} left as ${out.skipped === 1 ? "it is" : "they are"}.` : "");
     }
     success.scrollIntoView({behavior:"smooth", block:"center"});
+  });
+}
+
+/* ==================================================================
+   RECURRING DATES
+
+   Clubs describe their season as a rule — "fourth Saturday, monthly,
+   through November" — so that's what they're asked for. The rule then
+   produces a list of actual dates they can see and edit, because no
+   rule survives contact with a real calendar: ranges close, December
+   gets skipped, and one month moves for a holiday.
+
+   The generated list is the truth. The pattern is only a shortcut to
+   filling it in.
+   ================================================================== */
+
+let SERIES_DATES = [];
+
+const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const fromIso = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); };
+
+/** The nth given weekday of a month, or the last one. Returns null when a
+ *  month has no fifth Saturday, rather than silently rolling into the next. */
+function nthWeekdayOf(year, month, weekday, nth){
+  if(nth === "last"){
+    const last = new Date(year, month + 1, 0);
+    last.setDate(last.getDate() - ((last.getDay() - weekday + 7) % 7));
+    return last;
+  }
+  const first = new Date(year, month, 1);
+  const offset = (weekday - first.getDay() + 7) % 7;
+  const day = 1 + offset + (Number(nth) - 1) * 7;
+  const d = new Date(year, month, day);
+  return d.getMonth() === month ? d : null;
+}
+
+function generateSeriesDates(){
+  const startVal = val("f-start");
+  const untilVal = val("f-rep-until");
+  if(!startVal){ showError("Set the first date before generating the rest."); return; }
+  if(!untilVal){ showError("Set the date the season finishes."); return; }
+
+  const first = fromIso(startVal), until = fromIso(untilVal);
+  if(until < first){ showError("The finish date is before the first match."); return; }
+
+  const every = document.getElementById("f-rep-every").value;
+  const which = document.getElementById("f-rep-which").value;
+  const out = [];
+  const LIMIT = 60;
+
+  if(every === "weekly" || every === "fortnightly"){
+    const step = every === "weekly" ? 7 : 14;
+    for(let d = new Date(first); d <= until && out.length < LIMIT; d.setDate(d.getDate() + step))
+      out.push(iso(d));
+  } else if(which === "same"){
+    const dayOfMonth = first.getDate();
+    for(let y = first.getFullYear(), m = first.getMonth(); out.length < LIMIT; m++){
+      const d = new Date(y, m, dayOfMonth);
+      if(d.getMonth() !== ((m % 12) + 12) % 12) continue;   // no 31st in this month
+      if(d > until) break;
+      if(d >= first) out.push(iso(d));
+    }
+  } else {
+    const weekday = first.getDay();
+    for(let m = 0; m < 400 && out.length < LIMIT; m++){
+      const probe = new Date(first.getFullYear(), first.getMonth() + m, 1);
+      const d = nthWeekdayOf(probe.getFullYear(), probe.getMonth(), weekday, which);
+      if(!d) continue;
+      if(d > until) break;
+      if(d >= first) out.push(iso(d));
+    }
+  }
+
+  if(!out.length){ showError("That pattern doesn't produce any dates. Check the finish date."); return; }
+  SERIES_DATES = [...new Set([...SERIES_DATES, ...out])].sort();
+  renderSeriesDates();
+}
+
+function renderSeriesDates(){
+  const box = document.getElementById("f-datelist");
+  SERIES_DATES = [...new Set(SERIES_DATES)].sort();
+  if(!SERIES_DATES.length){ box.hidden = true; box.innerHTML = ""; return; }
+  box.hidden = false;
+  box.innerHTML =
+    `<div class="datecount">${SERIES_DATES.length} date${SERIES_DATES.length===1?"":"s"} — this will create ${
+      SERIES_DATES.length} listing${SERIES_DATES.length===1?"":"s"}, one per date</div>` +
+    SERIES_DATES.map(d => {
+      const dt = fromIso(d);
+      return `<span class="datechip"><b>${DAY_NAMES[dt.getDay()].slice(0,3)}</b> ${
+        dt.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})
+      }<button type="button" data-drop="${esc(d)}" aria-label="Remove ${esc(d)}">&times;</button></span>`;
+    }).join("");
+
+  box.querySelectorAll("[data-drop]").forEach(b => {
+    b.onclick = () => { SERIES_DATES = SERIES_DATES.filter(d => d !== b.dataset.drop); renderSeriesDates(); };
+  });
+}
+
+function repeatHint(){
+  const el = document.getElementById("f-rep-hint");
+  const startVal = val("f-start");
+  const every = document.getElementById("f-rep-every").value;
+  const which = document.getElementById("f-rep-which").value;
+  document.getElementById("f-rep-whichwrap").hidden = every !== "monthly";
+
+  if(!startVal){ el.textContent = "Set the first date above, then generate the rest."; return; }
+  const day = DAY_NAMES[fromIso(startVal).getDay()];
+  const ord = { "1":"first", "2":"second", "3":"third", "4":"fourth", "last":"last" }[which];
+  el.textContent =
+    every === "weekly"      ? `Every ${day} from your first date until the finish date.`
+  : every === "fortnightly" ? `Every other ${day} from your first date until the finish date.`
+  : which === "same"        ? `The ${fromIso(startVal).getDate()}th of each month until the finish date.`
+                            : `The ${ord} ${day} of each month until the finish date.`;
+}
+
+function initRepeat(){
+  const box = document.getElementById("f-repeatbox");
+  document.getElementById("f-repeat").addEventListener("change", e => {
+    box.hidden = !e.target.checked;
+    if(e.target.checked) repeatHint();
+    else { SERIES_DATES = []; renderSeriesDates(); }
+  });
+  ["f-rep-every","f-rep-which"].forEach(id =>
+    document.getElementById(id).addEventListener("change", repeatHint));
+  document.getElementById("f-start").addEventListener("change", repeatHint);
+  document.getElementById("f-rep-go").addEventListener("click", generateSeriesDates);
+  document.getElementById("f-rep-add").addEventListener("click", () => {
+    const d = val("f-rep-one");
+    if(!d) return;
+    SERIES_DATES.push(d);
+    document.getElementById("f-rep-one").value = "";
+    renderSeriesDates();
   });
 }
 
@@ -971,6 +1222,7 @@ function initForm(){
 async function init(){
   buildOptions();
   initForm();
+  initRepeat();
   ["q","state","guntype","discipline","sort","upcoming","juniors"].forEach(id => {
     const el = document.getElementById(id);
     el.addEventListener(el.type === "search" ? "input" : "change", render);
@@ -993,6 +1245,17 @@ async function init(){
     // Calendar download must not also toggle the panel
     const ics = e.target.closest("[data-ics]");
     if(ics){ e.stopPropagation(); downloadICS(Number(ics.dataset.ics)); return; }
+    // Jumping to another date of the same recurring match
+    const jump = e.target.closest("[data-jump]");
+    if(jump){
+      e.stopPropagation();
+      const card = document.querySelector(`[data-open="${jump.dataset.jump}"]`);
+      if(card){
+        if(!card.classList.contains("open")) toggleDetails(jump.dataset.jump);
+        card.scrollIntoView({behavior:"smooth", block:"center"});
+      }
+      return;
+    }
     // Links inside the details panel behave normally
     if(e.target.closest("a")) return;
     const card = e.target.closest("[data-open]");
