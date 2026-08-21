@@ -541,6 +541,8 @@ function renderDirectSettings(panel, md) {
         <div>
           <label for="ds-max">Highest possible score</label>
           <input type="number" id="ds-max" min="1" step="1" value="${md.max_score ?? ""}" placeholder="e.g. 250">
+          <p class="hint">Per relay. Needed for the national rankings &mdash; without it
+            a 248 has no denominator and this discipline is ranked on finishing place only.</p>
         </div>
         <div>
           <label for="ds-shots">Shots fired</label>

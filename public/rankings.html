@@ -283,11 +283,10 @@ function render(){
       <td class="num hide-sm">${BASIS === "accuracy" ? s.rate.toFixed(1) + "%" : ""}</td>
       <td class="pts">${BASIS === "accuracy" ? s.hits : s.points}</td>
     </tr>`).join("")}
-  </table>` +
-  /* Shown, not hidden. Someone who has shot two brilliant cards should be able
-     to see exactly how much further they have to go rather than wondering why
-     they are missing from the table. */;
-
+  </table>`;
+  /* Everyone who has posted a result is shown. Someone with two brilliant cards
+     should be able to see exactly how much further they have to go, rather than
+     wondering why they are missing from the table altogether. */
 }
 
 /* ---------- Shooter detail ---------- */
