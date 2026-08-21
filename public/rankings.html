@@ -8,12 +8,15 @@
 <meta property="og:title" content="GunMatches.com — National Rankings">
 <meta property="og:description" content="Who's shooting best across the country, by discipline, over the last twelve months.">
 
+<link rel="icon" href="/img/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/img/icon-180.png">
+
 <style>
   :root{
-    --navy:#12263f; --navy-2:#1c3557; --steel:#5a6b82;
-    --amber:#e08c1b; --amber-dk:#b86f0e;
+    --navy:#121417; --navy-2:#1E2329; --steel:#5b6570;
+    --amber:#B71D1C; --amber-dk:#8E1615;
     --bg:#f5f6f8; --card:#fff; --line:#e2e6ec;
-    --text:#1d2733; --muted:#6b7684;
+    --text:#1d2733; --muted:#677280;
     --green:#1f7a4d; --gold:#c9a227; --silver:#8d949e; --bronze:#a9702f;
     --radius:10px; --shadow:0 1px 2px rgba(18,38,63,.06), 0 4px 12px rgba(18,38,63,.05);
   }
@@ -93,15 +96,26 @@
 
   footer.site{background:var(--navy);color:#a8b8cd;padding:26px 0;font-size:13.5px;margin-top:44px}
   footer.site a{color:#fff}
+
+  /* ---------- brand ---------- */
+  .brandlogo{display:block;height:64px;width:auto;flex:none}
+  .brandlink{display:inline-flex;align-items:center;text-decoration:none;flex:none}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+    clip:rect(0 0 0 0);white-space:nowrap;border:0}
+  @media (max-width:620px){ .brandlogo{height:52px} }
 </style>
 </head>
 <body>
 
 <header class="site">
   <div class="wrap brandrow">
-    <div class="brand">
+    <div class="brand" style="display:flex;align-items:center;gap:14px">
+      <a class="brandlink" href="/"><img class="brandlogo" src="/img/logo-gun.png"
+         alt="GunMatches.com" width="208" height="192"></a>
+      <div>
       <h1>National Rankings</h1>
       <p>Built from posted match results — rolling twelve months.</p>
+      </div>
     </div>
     <a class="navbtn" href="/">← Back to the calendar</a>
   </div>
