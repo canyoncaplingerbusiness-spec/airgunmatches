@@ -672,9 +672,30 @@ async function publish(request, env, H, body) {
   const md = await ownedDiscipline(env, ev.id, body.md_id);
   if (!md) return H.fail("That discipline isn't part of this event.", 404);
 
-  const { rows } = await buildStandings(env, md);
+  const { rows, possible } = await buildStandings(env, md);
   const scored = rows.filter(r => r.place !== null);
   if (!scored.length) return H.fail("There's nothing to publish yet.");
+
+  /* Hits, and the targets that were there to be hit.
+   *
+   * The national rankings are built on season accuracy, so every published
+   * result carries both numbers where they exist. Live scoring knows them
+   * exactly — it counted each tap against each stage's shot count — which is
+   * the one place this can be recorded without asking anyone to type it.
+   *
+   * Where there is no countable maximum the pair is left null rather than
+   * guessed at. A group size of 0.245 inches has no "available", and writing a
+   * zero there would read as a shooter who hit nothing. */
+  const availableFor = () => {
+    if (md.mode === "stages") return possible || null;
+    if (md.score_type !== "points" || !md.max_score) return null;
+    // direct entry: the ceiling depends on how the relays are combined
+    const relays = md.relays || 1;
+    if (md.aggregation === "sum")     return md.max_score * relays;
+    if (md.aggregation === "bestn")   return md.max_score * Math.min(md.best_n || relays, relays);
+    return md.max_score;              // best, or average, of single relays
+  };
+  const maxAvailable = availableFor();
 
   const stmts = [
     env.DB.prepare("DELETE FROM results WHERE event_id = ? AND discipline = ?")
@@ -683,12 +704,17 @@ async function publish(request, env, H, body) {
 
   for (const [i, r] of scored.entries()) {
     const shooterId = await H.resolveShooter(env, r.name);
+    // r.value is hits in stage mode and the aggregated score in direct mode —
+    // in both cases it is the number that sits over the maximum.
+    const hits = maxAvailable !== null && typeof r.value === "number" ? r.value : null;
+
     stmts.push(env.DB.prepare(
       `INSERT INTO results (event_id, discipline, place, competitor, score, class,
-                            sort_order, shooter_id, points, field_size)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`
+                            sort_order, shooter_id, points, field_size, hits, available)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(ev.id, md.discipline, r.place, r.name, r.display, r.class,
-           i + 1, shooterId, H.pointsForPlace(r.place), scored.length));
+           i + 1, shooterId, H.pointsForPlace(r.place), scored.length,
+           hits, hits === null ? null : maxAvailable));
   }
 
   stmts.push(env.DB.prepare(

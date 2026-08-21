@@ -496,16 +496,53 @@ function parseResultRows(text) {
     const competitor = (rest[0] || "").slice(0, 120);
     if (!competitor) { errors.push(`Line ${i + 1}: no competitor name found.`); return; }
 
+    const score = (rest[1] || "").slice(0, 60) || null;
     rows.push({
       place,
       competitor,
-      score: (rest[1] || "").slice(0, 60) || null,
-      class: (rest[2] || "").slice(0, 60) || null
+      score,
+      class: (rest[2] || "").slice(0, 60) || null,
+      ...readAccuracy(score)
     });
   });
 
   if (rows.length > 500) errors.push("More than 500 rows in one discipline.");
   return { rows, errors };
+}
+
+/**
+ * Pulls hits and targets-available out of a score a director already types.
+ *
+ * National rankings are built on season accuracy, so both numbers are needed.
+ * Directors already write them in the forms their sport uses, and reading those
+ * is far better than asking for a separate column that half of them would skip:
+ *
+ *   "45/60"      45 hits of 60          field target, silhouette
+ *   "248/250"    248 points of 250      bench rest
+ *   "248-6X"     248, ceiling unknown   bench rest, needs the max supplying
+ *   "0.245"      a group size           no ceiling exists; left alone
+ *
+ * Where only one number is present the maximum is filled in later from what the
+ * organizer states for that discipline. Anything unreadable is left null rather
+ * than guessed — a wrong denominator quietly distorts a whole season.
+ */
+function readAccuracy(score) {
+  const s = String(score || "").trim();
+  if (!s) return { hits: null, available: null };
+
+  // "45/60" or "45 / 60"
+  const pair = s.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
+  if (pair) {
+    const hits = Number(pair[1]), available = Number(pair[2]);
+    if (available > 0 && hits >= 0 && hits <= available) return { hits, available };
+    return { hits: null, available: null };
+  }
+
+  // "248-6X" or a bare "248" — a count with no ceiling stated here
+  const lone = s.match(/^(\d+(?:\.\d+)?)(?:\s*-\s*\d+\s*[xX])?$/);
+  if (lone) return { hits: Number(lone[1]), available: null };
+
+  return { hits: null, available: null };
 }
 
 /* ------------------------------------------------------------------ */
@@ -658,6 +695,12 @@ async function saveResults(request, env) {
   const disciplines = safeParse(ev.disciplines);
   const incoming = body.disciplines && typeof body.disciplines === "object" ? body.disciplines : {};
 
+  /* An optional ceiling per discipline: "how many targets were there to hit?"
+     It fills the denominator for scores written as a bare number, so a bench
+     rest sheet of 248, 246, 241 can still contribute to season accuracy. Scores
+     already written as 45/60 carry their own and ignore this. */
+  const maxima = body.available && typeof body.available === "object" ? body.available : {};
+
   const statements = [];
   let total = 0;
   const problems = [];
@@ -670,17 +713,29 @@ async function saveResults(request, env) {
     const { rows, errors } = parseResultRows(text);
     errors.forEach(e => problems.push(`${discipline} — ${e}`));
 
+    const stated = Number(maxima[discipline]);
+    const ceiling = Number.isFinite(stated) && stated > 0 ? stated : null;
+
     const fieldSize = rows.length;
     for (const [idx, r] of rows.entries()) {
       const place = r.place !== null ? r.place : idx + 1;
       const shooterId = await resolveShooter(env, r.competitor);
+
+      // a score of "45/60" brings its own ceiling; a bare "248" borrows the
+      // organizer's, and anything above that ceiling is treated as unusable
+      // rather than quietly capped
+      let hits = r.hits, available = r.available;
+      if (hits !== null && available === null && ceiling !== null) available = ceiling;
+      if (available !== null && (hits === null || hits > available)) { hits = null; available = null; }
+
       statements.push(
         env.DB.prepare(
           `INSERT INTO results (event_id, discipline, place, competitor, score, class,
-                                sort_order, shooter_id, points, field_size)
-           VALUES (?,?,?,?,?,?,?,?,?,?)`
+                                sort_order, shooter_id, points, field_size, hits, available)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
         ).bind(ev.id, discipline, r.place, r.competitor, r.score, r.class,
-               place, shooterId, pointsForPlace(place), fieldSize)
+               place, shooterId, pointsForPlace(place), fieldSize,
+               available === null ? null : hits, available)
       );
       total++;
     }
@@ -701,61 +756,141 @@ async function saveResults(request, env) {
 
 /* Standings over a rolling 12 months. Points come from finishing place, so
    every discipline and course of fire contributes on the same scale. */
+/**
+ * Standings, one ranking class per discipline.
+ *
+ * WHAT THE NUMBER MEANS. A shooter's standing is their season accuracy: every
+ * target they hit, over every target that was there to be hit. Shoot 85 of 100
+ * at one match and 170 of 200 at the next, and you stand at 255/300 — 85%.
+ * It measures shooting rather than who else turned up that day, which is why a
+ * strong club shooter and a travelling competitor can be compared honestly.
+ *
+ * WHY THERE IS A THRESHOLD. A rate on its own hands first place to anyone who
+ * shot one perfect card and stopped. So a shooter joins the table only once
+ * they have faced MIN_TARGETS in that discipline — a few matches' worth. Below
+ * that they are listed separately, with their rate shown, as not yet qualified.
+ * Volume decides whether you are ranked; accuracy decides where.
+ *
+ * DISCIPLINES ARE NEVER COMBINED. Field target and PRS on the same weekend are
+ * two results in two classes. Adding them would be adding different currencies.
+ *
+ * NOT EVERY DISCIPLINE HAS A CEILING. A group size of 0.245 inches has no
+ * "available", so those classes fall back to finishing position, weighted by
+ * how large a field was beaten. Each class reports which basis it used, because
+ * a standing nobody can explain is a standing people argue with.
+ */
+const MIN_TARGETS = 300;
+
+const FIELD_WEIGHT =
+  `CASE WHEN r.field_size >= 2
+        THEN MIN(2.0, MAX(0.6, 0.6 + 0.4 * log2(r.field_size / 10.0)))
+        ELSE 1.0 END`;
+
 async function getRankings(request, env) {
   const url = new URL(request.url);
-  const discipline = url.searchParams.get("discipline");
   const since = new Date(Date.now() - 365 * 86400_000).toISOString().slice(0, 10);
 
-  const where = ["e.status = 'approved'", "e.start_date >= ?", "r.shooter_id IS NOT NULL"];
-  const binds = [since];
-  if (discipline) { where.push("r.discipline = ?"); binds.push(discipline); }
-
-  const { results } = await env.DB.prepare(
-    `SELECT s.id                       AS shooter_id,
-            s.display_name             AS name,
-            s.first_name, s.last_name,
-            SUM(r.points)              AS points,
-            COUNT(DISTINCT r.event_id) AS events,
-            SUM(CASE WHEN r.place = 1 THEN 1 ELSE 0 END) AS wins,
-            SUM(CASE WHEN r.place <= 3 THEN 1 ELSE 0 END) AS podiums,
-            MIN(r.place)               AS best_place,
-            MAX(e.start_date)          AS last_event,
-            GROUP_CONCAT(DISTINCT r.discipline) AS disciplines
-       FROM results r
-       JOIN events e   ON e.id = r.event_id
-       JOIN shooters s ON s.id = r.shooter_id
-      WHERE ${where.join(" AND ")}
-      GROUP BY s.id
-      ORDER BY points DESC, wins DESC, events DESC, s.display_name ASC
-      LIMIT 300`
-  ).bind(...binds).all();
-
-  const standings = (results || []).map((r, i) => ({
-    rank: i + 1,
-    shooter_id: r.shooter_id,
-    name: r.name,
-    first_name: r.first_name,
-    last_name: r.last_name,
-    points: r.points,
-    events: r.events,
-    wins: r.wins,
-    podiums: r.podiums,
-    best_place: r.best_place,
-    last_event: r.last_event,
-    disciplines: (r.disciplines || "").split(",").filter(Boolean)
-  }));
-
-  // Which disciplines actually have ranked results, for the filter
+  /* Which classes exist, and whether each one can be scored on accuracy.
+     A class qualifies for accuracy when most of its results carry a ceiling;
+     a stray result without one shouldn't drag a whole discipline back to
+     placement scoring, and a stray one *with* one shouldn't promote it. */
   const discRows = await env.DB.prepare(
-    `SELECT r.discipline, COUNT(DISTINCT r.shooter_id) AS shooters
+    `SELECT r.discipline,
+            COUNT(DISTINCT r.shooter_id) AS shooters,
+            COUNT(DISTINCT r.event_id)   AS events,
+            SUM(CASE WHEN r.available > 0 THEN 1 ELSE 0 END) AS with_targets,
+            COUNT(*) AS total_results
        FROM results r JOIN events e ON e.id = r.event_id
       WHERE e.status = 'approved' AND e.start_date >= ? AND r.shooter_id IS NOT NULL
-      GROUP BY r.discipline ORDER BY r.discipline`
+      GROUP BY r.discipline
+      ORDER BY shooters DESC, r.discipline ASC`
   ).bind(since).all();
+
+  const classes = (discRows.results || []).map(c => ({
+    discipline: c.discipline,
+    shooters: c.shooters,
+    events: c.events,
+    basis: c.total_results > 0 && c.with_targets >= c.total_results / 2 ? "accuracy" : "placement"
+  }));
+
+  const asked = url.searchParams.get("discipline");
+  const chosen = classes.find(c => c.discipline === asked) || classes[0] || null;
+
+  if (!chosen) {
+    return json({ standings: [], unqualified: [], disciplines: [], discipline: null,
+                  basis: null, min_targets: MIN_TARGETS,
+                  window: { since, description: "Rolling 12 months" } },
+                200, { "cache-control": "public, max-age=300" });
+  }
+
+  const rows = chosen.basis === "accuracy"
+    ? (await env.DB.prepare(
+        `SELECT s.id AS shooter_id, s.display_name AS name, s.first_name, s.last_name,
+                SUM(r.hits)                AS hits,
+                SUM(r.available)           AS available,
+                COUNT(DISTINCT r.event_id) AS events,
+                SUM(CASE WHEN r.place = 1 THEN 1 ELSE 0 END) AS wins,
+                SUM(CASE WHEN r.place <= 3 THEN 1 ELSE 0 END) AS podiums,
+                MIN(r.place)               AS best_place,
+                MAX(e.start_date)          AS last_event
+           FROM results r
+           JOIN events e   ON e.id = r.event_id
+           JOIN shooters s ON s.id = r.shooter_id
+          WHERE e.status = 'approved' AND e.start_date >= ?
+            AND r.shooter_id IS NOT NULL AND r.discipline = ?
+            AND r.available > 0 AND r.hits IS NOT NULL
+          GROUP BY s.id
+          ORDER BY (SUM(r.hits) * 1.0 / SUM(r.available)) DESC, SUM(r.available) DESC
+          LIMIT 500`
+      ).bind(since, chosen.discipline).all()).results || []
+    : (await env.DB.prepare(
+        `SELECT s.id AS shooter_id, s.display_name AS name, s.first_name, s.last_name,
+                SUM(r.points * (${FIELD_WEIGHT})) AS points,
+                COUNT(DISTINCT r.event_id) AS events,
+                SUM(CASE WHEN r.place = 1 THEN 1 ELSE 0 END) AS wins,
+                SUM(CASE WHEN r.place <= 3 THEN 1 ELSE 0 END) AS podiums,
+                MIN(r.place)               AS best_place,
+                MAX(r.field_size)          AS biggest_field,
+                MAX(e.start_date)          AS last_event
+           FROM results r
+           JOIN events e   ON e.id = r.event_id
+           JOIN shooters s ON s.id = r.shooter_id
+          WHERE e.status = 'approved' AND e.start_date >= ?
+            AND r.shooter_id IS NOT NULL AND r.discipline = ?
+          GROUP BY s.id
+          ORDER BY points DESC, wins DESC, events DESC, s.display_name ASC
+          LIMIT 300`
+      ).bind(since, chosen.discipline).all()).results || [];
+
+  const shape = r => ({
+    shooter_id: r.shooter_id, name: r.name,
+    first_name: r.first_name, last_name: r.last_name,
+    events: r.events, wins: r.wins, podiums: r.podiums,
+    best_place: r.best_place, last_event: r.last_event,
+    ...(chosen.basis === "accuracy"
+        ? { hits: Math.round(r.hits), available: Math.round(r.available),
+            rate: Math.round((r.hits / r.available) * 1000) / 10 }
+        : { points: Math.round(r.points), biggest_field: r.biggest_field })
+  });
+
+  let standings = [], unqualified = [];
+  if (chosen.basis === "accuracy") {
+    const all = rows.map(shape);
+    standings   = all.filter(r => r.available >= MIN_TARGETS).map((r, i) => ({ rank: i + 1, ...r }));
+    unqualified = all.filter(r => r.available <  MIN_TARGETS)
+                     .sort((a, b) => b.available - a.available)
+                     .map(r => ({ ...r, needs: MIN_TARGETS - r.available }));
+  } else {
+    standings = rows.map((r, i) => ({ rank: i + 1, ...shape(r) }));
+  }
 
   return json({
     standings,
-    disciplines: discRows.results || [],
+    unqualified,
+    discipline: chosen.discipline,
+    basis: chosen.basis,
+    min_targets: MIN_TARGETS,
+    disciplines: classes,
     window: { since, description: "Rolling 12 months" }
   }, 200, { "cache-control": "public, max-age=300, stale-while-revalidate=900" });
 }
