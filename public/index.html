@@ -31,7 +31,7 @@
   a{color:var(--navy-2)}
   .wrap{max-width:1060px;margin:0 auto;padding:0 20px}
 
-  header.site{background:linear-gradient(160deg,var(--navy),var(--navy-2));color:#fff;padding:24px 0 22px}
+  header.site{background:linear-gradient(160deg,var(--navy),var(--navy-2));color:#fff;padding:14px 0 12px}
   .brandrow{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
   .brand{display:flex;align-items:center;gap:13px}
   .brand svg{flex:none}
@@ -265,7 +265,7 @@
   }
 
   /* ---------- brand ---------- */
-  .brandlogo{display:block;height:88px;width:auto;flex:none}
+  .brandlogo{display:block;height:176px;width:auto;flex:none}
   .brandlink{display:inline-flex;align-items:center;text-decoration:none;flex:none}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
     clip:rect(0 0 0 0);white-space:nowrap;border:0}
@@ -278,7 +278,10 @@
   <div class="wrap brandrow">
     <div class="brand">
       <a class="brandlink" href="/"><img class="brandlogo" id="brandlogo"
-         src="/img/logo-gun.png" alt="GunMatches.com" width="208" height="192"></a>
+         src="/img/logo-gun-lg.png"
+         srcset="/img/logo-gun.png 208w, /img/logo-gun-lg.png 381w"
+         sizes="(max-width:620px) 60px, 176px"
+         alt="GunMatches.com" width="381" height="352"></a>
       <script>
         /* airgunmatches.com keeps its own logo. This does nothing while that
            domain redirects here — it simply means the day the redirect is
