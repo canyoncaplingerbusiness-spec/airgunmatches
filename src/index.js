@@ -765,11 +765,16 @@ async function saveResults(request, env) {
  * It measures shooting rather than who else turned up that day, which is why a
  * strong club shooter and a travelling competitor can be compared honestly.
  *
- * WHY THERE IS A THRESHOLD. A rate on its own hands first place to anyone who
- * shot one perfect card and stopped. So a shooter joins the table only once
- * they have faced MIN_TARGETS in that discipline — a few matches' worth. Below
- * that they are listed separately, with their rate shown, as not yet qualified.
- * Volume decides whether you are ranked; accuracy decides where.
+ * WHY TOTAL HITS AND NOT A PERCENTAGE. A rate on its own hands first place to
+ * anyone who shot one perfect card and stopped, and no amount of shooting after
+ * that can beat 100%. Counting hits solves it without excluding anybody: five
+ * matches at 92% is 460 hits and outranks one match at 92%, which is 92. Every
+ * competitor appears from their first result.
+ *
+ * Turning out helps, but only while you are hitting. Five hundred targets at
+ * 92% is 460 hits and beats a thousand targets at 40%, which is 400. Accuracy
+ * is shown beside every total so the two numbers can be read together, and it
+ * separates shooters who finish level on hits.
  *
  * DISCIPLINES ARE NEVER COMBINED. Field target and PRS on the same weekend are
  * two results in two classes. Adding them would be adding different currencies.
@@ -779,8 +784,6 @@ async function saveResults(request, env) {
  * how large a field was beaten. Each class reports which basis it used, because
  * a standing nobody can explain is a standing people argue with.
  */
-const MIN_TARGETS = 300;
-
 const FIELD_WEIGHT =
   `CASE WHEN r.field_size >= 2
         THEN MIN(2.0, MAX(0.6, 0.6 + 0.4 * log2(r.field_size / 10.0)))
@@ -817,8 +820,7 @@ async function getRankings(request, env) {
   const chosen = classes.find(c => c.discipline === asked) || classes[0] || null;
 
   if (!chosen) {
-    return json({ standings: [], unqualified: [], disciplines: [], discipline: null,
-                  basis: null, min_targets: MIN_TARGETS,
+    return json({ standings: [], disciplines: [], discipline: null, basis: null,
                   window: { since, description: "Rolling 12 months" } },
                 200, { "cache-control": "public, max-age=300" });
   }
@@ -840,7 +842,9 @@ async function getRankings(request, env) {
             AND r.shooter_id IS NOT NULL AND r.discipline = ?
             AND r.available > 0 AND r.hits IS NOT NULL
           GROUP BY s.id
-          ORDER BY (SUM(r.hits) * 1.0 / SUM(r.available)) DESC, SUM(r.available) DESC
+          ORDER BY SUM(r.hits) DESC,
+                   (SUM(r.hits) * 1.0 / SUM(r.available)) DESC,
+                   s.display_name ASC
           LIMIT 500`
       ).bind(since, chosen.discipline).all()).results || []
     : (await env.DB.prepare(
@@ -873,23 +877,13 @@ async function getRankings(request, env) {
         : { points: Math.round(r.points), biggest_field: r.biggest_field })
   });
 
-  let standings = [], unqualified = [];
-  if (chosen.basis === "accuracy") {
-    const all = rows.map(shape);
-    standings   = all.filter(r => r.available >= MIN_TARGETS).map((r, i) => ({ rank: i + 1, ...r }));
-    unqualified = all.filter(r => r.available <  MIN_TARGETS)
-                     .sort((a, b) => b.available - a.available)
-                     .map(r => ({ ...r, needs: MIN_TARGETS - r.available }));
-  } else {
-    standings = rows.map((r, i) => ({ rank: i + 1, ...shape(r) }));
-  }
+  // Everyone who has posted a result appears, from their first one.
+  const standings = rows.map((r, i) => ({ rank: i + 1, ...shape(r) }));
 
   return json({
     standings,
-    unqualified,
     discipline: chosen.discipline,
     basis: chosen.basis,
-    min_targets: MIN_TARGETS,
     disciplines: classes,
     window: { since, description: "Rolling 12 months" }
   }, 200, { "cache-control": "public, max-age=300, stale-while-revalidate=900" });

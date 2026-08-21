@@ -160,18 +160,20 @@
 
 <footer class="site">
   <div class="wrap">
-    <strong>How points work.</strong> Points come from where you finish, scaled by how many
-    people you beat — winning a 130-shooter championship is worth roughly double winning a
-    field of eight. Every result from the last twelve months counts; there is no cap, so
-    turning out across a season builds a total. Each discipline is ranked separately, because
-    a field target card and a bench rest group were never the same currency.
+    <strong>How the ranking works.</strong> Your standing is the number of targets you have
+    actually hit over the last twelve months. Every competitor appears from their first
+    result. Turning out builds your total, but only while you are hitting &mdash; 500 targets
+    at 92% is 460 hits and beats 1,000 targets at 40%, which is 400. Each discipline is ranked
+    separately, because a field target card and a bench rest group were never the same
+    currency. Disciplines with no fixed number of targets, such as group size, are ranked on
+    finishing position instead.
     <a href="/">Browse upcoming matches →</a>
   </div>
 </footer>
 
 <script type="module">
 const API = "/api";
-let STANDINGS = [], UNQUALIFIED = [], BASIS = null, MINT = 0;
+let STANDINGS = [], BASIS = null;
 
 const esc = s => String(s == null ? "" : s)
   .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
@@ -202,9 +204,8 @@ async function load(){
     return;
   }
 
-  STANDINGS  = data.standings || [];
-  UNQUALIFIED = data.unqualified || [];
-  BASIS = data.basis; MINT = data.min_targets || 0;
+  STANDINGS = data.standings || [];
+  BASIS = data.basis;
 
   /* Each discipline is its own ranking class, so one is always selected —
      there is no combined view to fall back to. The server names the class it
@@ -247,8 +248,10 @@ function render(){
     `${STANDINGS.length} shooter${STANDINGS.length === 1 ? "" : "s"} ranked over the last twelve months`
     + (q ? ` · showing ${rows.length} matching "${q}"` : "")) +
     (BASIS === "accuracy"
-      ? ` <span class="basis">Ranked on targets hit &divide; targets available. ${MINT}
-          targets needed to qualify.</span>`
+      ? ` <span class="basis">Ranked on targets hit across the season. Five matches at 92%
+          is 460 hits and outranks one match at 92%, which is 92 &mdash; but shooting more only
+          helps while you are hitting. Accuracy is shown alongside and separates shooters level
+          on hits.</span>`
       : ` <span class="basis">Ranked on finishing position, weighted by field size &mdash;
           this discipline has no fixed number of targets.</span>`);
 
@@ -265,31 +268,26 @@ function render(){
       <th class="hide-sm" style="text-align:center">Events</th>
       <th class="hide-sm" style="text-align:center">Wins</th>
       <th class="hide-sm" style="text-align:center">Podiums</th>
-      <th style="text-align:right">${BASIS === "accuracy" ? "Hit rate" : "Points"}</th>
+      <th class="hide-sm" style="text-align:right">${BASIS === "accuracy" ? "Accuracy" : ""}</th>
+      <th style="text-align:right">${BASIS === "accuracy" ? "Hits" : "Points"}</th>
     </tr>
     ${rows.map(s => `<tr class="row" data-shooter="${s.shooter_id}">
       <td class="rank ${s.rank <= 3 ? "g" + s.rank : ""}">${s.rank}</td>
       <td class="who">${esc(s.name)}
         <small>${s.events} event${s.events===1?"":"s"}${
-          BASIS === "accuracy" ? ` · ${s.hits} of ${s.available} targets`
+          BASIS === "accuracy" ? ` · ${s.hits} of ${s.available} targets · ${s.rate.toFixed(1)}%`
                                : (s.biggest_field ? ` · biggest field ${s.biggest_field}` : "")}</small></td>
       <td class="num hide-sm"><b>${s.events}</b></td>
       <td class="num hide-sm">${s.wins ? `<b>${s.wins}</b>` : "—"}</td>
       <td class="num hide-sm">${s.podiums ? `<b>${s.podiums}</b>` : "—"}</td>
-      <td class="pts">${BASIS === "accuracy" ? s.rate.toFixed(1) + "%" : s.points}</td>
+      <td class="num hide-sm">${BASIS === "accuracy" ? s.rate.toFixed(1) + "%" : ""}</td>
+      <td class="pts">${BASIS === "accuracy" ? s.hits : s.points}</td>
     </tr>`).join("")}
   </table>` +
   /* Shown, not hidden. Someone who has shot two brilliant cards should be able
      to see exactly how much further they have to go rather than wondering why
-     they are missing from the table. */
-  (UNQUALIFIED.length && !q ? `<div class="waiting">
-    <h3>Not yet qualified &mdash; fewer than ${MINT} targets this season</h3>
-    <table>${UNQUALIFIED.slice(0, 25).map(u => `<tr>
-      <td>${esc(u.name)}<div class="need">${u.hits} of ${u.available} targets &middot;
-        ${u.needs} more to qualify</div></td>
-      <td class="r">${u.rate.toFixed(1)}%</td>
-    </tr>`).join("")}</table>
-  </div>` : "");
+     they are missing from the table. */;
+
 }
 
 /* ---------- Shooter detail ---------- */
