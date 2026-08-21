@@ -200,10 +200,19 @@
 
   /* ---------- recurring dates ---------- */
   .repeatchk{font-size:14.5px;font-weight:600;color:var(--navy-2)}
+  .repbtn{font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;
+    padding:10px 16px;border-radius:8px;background:#fff;color:var(--navy-2);
+    border:1px solid var(--steel);white-space:nowrap}
+  .repbtn:hover{background:var(--navy-2);color:#fff;border-color:var(--navy-2)}
+  .repbtn.primary{background:var(--navy-2);color:#fff;border-color:var(--navy-2)}
+  .repbtn.primary:hover{background:var(--navy)}
+  .repbtn:active{transform:translateY(1px)}
+  .repmsg{margin:8px 0 0;font-size:13.5px;font-weight:600;color:#8f2419;
+    background:#fdecea;border:1px solid #f5c2bd;border-radius:7px;padding:9px 11px}
   .repeatbox{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:16px}
   .rgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;align-items:end}
   .rgrid .rbtn{display:flex;align-items:flex-end}
-  .rgrid .rbtn .btn{width:100%}
+  .rgrid .rbtn .repbtn{width:100%}
   .datelist{display:flex;flex-wrap:wrap;gap:7px;margin:14px 0 12px}
   /* Each generated date is removable — the pattern gets you close, and the
      club closes for a range weekend or skips December. */
@@ -371,15 +380,16 @@
             <input type="date" id="f-rep-until">
           </div>
           <div class="rbtn">
-            <button type="button" class="btn ghost" id="f-rep-go">Add these dates</button>
+            <button type="button" class="repbtn primary" id="f-rep-go">Add these dates</button>
           </div>
         </div>
         <p class="hint" id="f-rep-hint"></p>
+        <p class="repmsg" id="f-rep-msg" hidden></p>
 
         <div id="f-datelist" class="datelist" hidden></div>
         <div class="row addone">
           <input type="date" id="f-rep-one">
-          <button type="button" class="btn ghost sm" id="f-rep-add">Add one more date</button>
+          <button type="button" class="repbtn" id="f-rep-add">Add one more date</button>
         </div>
       </div>
       <div>
@@ -1100,6 +1110,18 @@ function initForm(){
 
 let SERIES_DATES = [];
 
+/* Deliberately not the form's own val() and showError() — those are private to
+   initForm(), and reaching for them from out here is what made the first
+   version of this panel do nothing at all when clicked. */
+const fieldVal = id => (document.getElementById(id)?.value || "").trim();
+
+function repeatError(msg){
+  const el = document.getElementById("f-rep-msg");
+  if(!el) return;
+  el.textContent = msg || "";
+  el.hidden = !msg;
+}
+
 const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const fromIso = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); };
@@ -1120,13 +1142,13 @@ function nthWeekdayOf(year, month, weekday, nth){
 }
 
 function generateSeriesDates(){
-  const startVal = val("f-start");
-  const untilVal = val("f-rep-until");
-  if(!startVal){ showError("Set the first date before generating the rest."); return; }
-  if(!untilVal){ showError("Set the date the season finishes."); return; }
+  const startVal = fieldVal("f-start");
+  const untilVal = fieldVal("f-rep-until");
+  if(!startVal){ repeatError("Set the first date before generating the rest."); return; }
+  if(!untilVal){ repeatError("Set the date the season finishes."); return; }
 
   const first = fromIso(startVal), until = fromIso(untilVal);
-  if(until < first){ showError("The finish date is before the first match."); return; }
+  if(until < first){ repeatError("The finish date is before the first match."); return; }
 
   const every = document.getElementById("f-rep-every").value;
   const which = document.getElementById("f-rep-which").value;
@@ -1156,7 +1178,8 @@ function generateSeriesDates(){
     }
   }
 
-  if(!out.length){ showError("That pattern doesn't produce any dates. Check the finish date."); return; }
+  if(!out.length){ repeatError("That pattern doesn't produce any dates. Check the finish date."); return; }
+  repeatError("");
   SERIES_DATES = [...new Set([...SERIES_DATES, ...out])].sort();
   renderSeriesDates();
 }
@@ -1183,7 +1206,7 @@ function renderSeriesDates(){
 
 function repeatHint(){
   const el = document.getElementById("f-rep-hint");
-  const startVal = val("f-start");
+  const startVal = fieldVal("f-start");
   const every = document.getElementById("f-rep-every").value;
   const which = document.getElementById("f-rep-which").value;
   document.getElementById("f-rep-whichwrap").hidden = every !== "monthly";
@@ -1210,7 +1233,7 @@ function initRepeat(){
   document.getElementById("f-start").addEventListener("change", repeatHint);
   document.getElementById("f-rep-go").addEventListener("click", generateSeriesDates);
   document.getElementById("f-rep-add").addEventListener("click", () => {
-    const d = val("f-rep-one");
+    const d = fieldVal("f-rep-one");
     if(!d) return;
     SERIES_DATES.push(d);
     document.getElementById("f-rep-one").value = "";
