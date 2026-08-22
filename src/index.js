@@ -468,6 +468,22 @@ async function resolveShooter(env, name) {
 /** Accepts rows pasted from a spreadsheet. Splits on tabs, commas or runs
  *  of spaces, tolerates a header row, and treats a leading number as the
  *  finishing place. Anything unparseable is reported rather than guessed at. */
+/* Which disciplines may be posted by pasting a finished sheet.
+ *
+ * Bench rest is a points discipline: the card is the record, one number per
+ * competitor, and a director can reasonably type it up afterwards. Hit-or-miss
+ * disciplines — field target, PRS, silhouette — are counted target by target as
+ * they are shot, and their denominator exists only because the scorer's phone
+ * counted it. Letting those in by paste is how a season of results arrives with
+ * no "available" and quietly falls out of the rankings, so they are sent to
+ * live scoring instead.
+ *
+ * Matched on the name, because that is what directors actually type:
+ * "Bench Rest", "N50 Benchrest", "100-Yard Benchrest", "Rimfire Benchrest". */
+function isPasteable(discipline) {
+  return /bench\s*rest/i.test(String(discipline || ""));
+}
+
 function parseResultRows(text) {
   const errors = [], rows = [];
   const lines = String(text || "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
@@ -679,7 +695,8 @@ async function getResultsEvent(request, env) {
     event: {
       name: ev.name, start_date: ev.start_date, end_date: ev.end_date,
       venue: ev.venue, city: ev.city, state: ev.state,
-      disciplines: safeParse(ev.disciplines)
+      disciplines: safeParse(ev.disciplines),
+      pasteable: safeParse(ev.disciplines).filter(isPasteable)
     },
     results: existing.results || []
   }, 200, { "cache-control": "no-store" });
@@ -708,6 +725,13 @@ async function saveResults(request, env) {
   for (const [discipline, text] of Object.entries(incoming)) {
     if (!disciplines.includes(discipline)) {
       problems.push(`"${discipline}" is not one of this event's disciplines.`);
+      continue;
+    }
+    /* Enforced here and not only in the page, because the page can be edited. */
+    if (!isPasteable(discipline)) {
+      problems.push(
+        `${discipline} is scored target by target, so it has to be scored live rather ` +
+        `than pasted in — open the scoring page and set it up there.`);
       continue;
     }
     const { rows, errors } = parseResultRows(text);

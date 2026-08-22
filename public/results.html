@@ -73,6 +73,8 @@
   .example{background:var(--bg);border:1px solid var(--line);border-radius:8px;
     padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
     font-size:12.5px;color:var(--muted);white-space:pre;overflow-x:auto;margin:10px 0 0}
+  .disc.liveonly{background:var(--bg);border-style:dashed}
+  .disc.liveonly h3{color:var(--muted);font-size:15px}
   .maxrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px}
   .maxrow label{margin:0;font-size:12.5px;font-weight:700;white-space:nowrap}
   .maxrow input{width:110px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:14px}
@@ -159,7 +161,7 @@
 
 <script type="module">
 const API = "/api/results";
-let EVENT = null, CODE = "";
+let EVENT = null, CODE = "", PASTEABLE = [];
 
 const esc = s => String(s == null ? "" : s)
   .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
@@ -240,7 +242,15 @@ document.getElementById("codeform").addEventListener("submit", async e => {
     );
   });
 
-  document.getElementById("disciplines").innerHTML = EVENT.disciplines.map((d, i) => `
+  /* Only bench rest can be posted this way. A hit-or-miss discipline's
+     denominator exists because a scorer counted it target by target, so those
+     are sent to live scoring rather than silently accepted without one. The
+     server refuses them too — this is the courtesy, not the control. */
+  const pasteable = EVENT.pasteable || EVENT.disciplines.filter(d => /bench\s*rest/i.test(d));
+  const liveOnly  = EVENT.disciplines.filter(d => !pasteable.includes(d));
+  PASTEABLE = pasteable;
+
+  document.getElementById("disciplines").innerHTML = pasteable.map((d, i) => `
     <div class="disc">
       <h3>${esc(d)}</h3>
       <p class="hint">Paste the finishing order for ${esc(d)}, or leave blank.</p>
@@ -257,9 +267,28 @@ document.getElementById("codeform").addEventListener("submit", async e => {
       <textarea data-discipline="${esc(d)}" id="d${i}" placeholder="1&#9;Competitor Name&#9;Score&#9;Class"
       >${esc((existing[d] || []).join("\n"))}</textarea>
       <div id="p${i}"></div>
-    </div>`).join("");
+    </div>`).join("") + (liveOnly.length ? `
+    <div class="disc liveonly">
+      <h3>Scored live, not pasted</h3>
+      <p class="hint">${liveOnly.map(esc).join(", ")} ${liveOnly.length === 1 ? "is" : "are"}
+        scored target by target as ${liveOnly.length === 1 ? "it is" : "they are"} shot. The
+        scorer's phone counts the hits and the targets available, which is what the national
+        rankings are built on — so ${liveOnly.length === 1 ? "it goes" : "they go"} through live
+        scoring instead.</p>
+      <p class="hint"><a href="/match.html">Set up live scoring for this event →</a></p>
+    </div>` : "");
 
-  EVENT.disciplines.forEach((d, i) => {
+  /* Nothing here can be pasted — say so plainly instead of showing an empty form. */
+  if(!pasteable.length){
+    document.getElementById("resultsform").hidden = true;
+    setMsg("savemsg",
+      "This event has no bench rest discipline. Everything on it is scored target by target, " +
+      "so results come from live scoring rather than a pasted sheet.", "info");
+  } else {
+    document.getElementById("resultsform").hidden = false;
+  }
+
+  pasteable.forEach((d, i) => {
     const ta = document.getElementById("d" + i), box = document.getElementById("p" + i);
     ta.addEventListener("input", () => renderPreview(box, ta.value));
     renderPreview(box, ta.value);
