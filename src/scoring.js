@@ -710,11 +710,13 @@ async function publish(request, env, H, body) {
 
     stmts.push(env.DB.prepare(
       `INSERT INTO results (event_id, discipline, place, competitor, score, class,
-                            sort_order, shooter_id, points, field_size, hits, available)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+                            sort_order, shooter_id, points, field_size, hits, available,
+                            x_count)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(ev.id, md.discipline, r.place, r.name, r.display, r.class,
            i + 1, shooterId, H.pointsForPlace(r.place), scored.length,
-           hits, hits === null ? null : maxAvailable));
+           hits, hits === null ? null : maxAvailable,
+           Number.isFinite(r.x_count) ? r.x_count : null));
   }
 
   stmts.push(env.DB.prepare(

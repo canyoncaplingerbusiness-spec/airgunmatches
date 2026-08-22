@@ -136,6 +136,16 @@
   details>summary::before{content:"▸ ";color:var(--muted)}
   details[open]>summary::before{content:"▾ "}
   details .inner{padding:0 15px 15px;border-top:1px solid var(--line);padding-top:14px}
+  .pdisc{border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin:16px 0}
+  .pdisc h4{margin:0 0 4px;font-size:15.5px}
+  .pdisc textarea{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px;
+    min-height:150px;margin-top:10px}
+  .pdisc.liveonly{background:var(--bg);border-style:dashed}
+  .pdisc.liveonly h4{color:var(--muted);font-size:14.5px}
+  .pmax{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .pmax label{margin:0;white-space:nowrap}
+  .pmax input{width:110px}
+  .pmax .hint{flex:1;min-width:210px;margin:0}
   .empty{text-align:center;color:var(--muted);font-size:14.5px;padding:26px 16px}
   footer.site{color:var(--muted);font-size:13px;text-align:center;padding:28px 0}
   footer.site a{color:var(--navy-2)}
@@ -191,9 +201,30 @@
       <div class="tabs" id="tabs"></div>
       <div id="panel"></div>
     </div>
+
+    <!-- Scored on paper? Post the sheet without leaving the console. Hidden
+         unless the event has a discipline that can be posted this way. -->
+    <div class="card" id="pastecard" hidden>
+      <button class="btn ghost wide" id="pastetoggle" type="button"
+              aria-expanded="false" aria-controls="pastebody">
+        Paste a finished score sheet
+      </button>
+      <div id="pastebody" hidden>
+        <p class="hint" style="margin:16px 0 0">
+          For a match scored on paper. Paste the finishing order straight out of a
+          spreadsheet — one competitor per line, place first if you have it.
+        </p>
+        <div id="pastemsg"></div>
+        <div id="pastediscs"></div>
+        <button class="btn wide" id="pastesave" type="button">Publish these results</button>
+        <p class="hint" style="margin-top:10px">
+          Publishing replaces anything posted before, so a corrected sheet is safe to re-send.
+        </p>
+      </div>
+    </div>
+
     <footer class="site">
       <span id="whoami"></span> ·
-      <a href="/results.html">Upload finished results instead</a> ·
       <a href="#" id="signout">Finish</a>
     </footer>
   </div>
@@ -293,7 +324,127 @@ function render() {
 
   renderTabs();
   renderPanel();
+  renderPaste();
 }
+
+/* ================================================================ */
+/* Paste a finished sheet                                           */
+/* ================================================================ */
+/* The same endpoint the standalone upload page uses, reached with the code
+   the director is already signed in with — so posting a paper sheet no longer
+   means leaving the console and typing the code a second time.
+
+   Only bench rest can arrive this way. Hit-or-miss disciplines are counted
+   target by target as they are shot, and their denominator exists only because
+   a scorer's phone counted it; the server refuses them either way. */
+
+const isPasteable = d => /bench\s*rest/i.test(String(d || ""));
+let pasteLoaded = false;
+
+function renderPaste() {
+  const all = DATA.event.disciplines || [];
+  const paste = all.filter(isPasteable);
+  $("pastecard").hidden = !paste.length;
+}
+
+$("pastetoggle").onclick = async () => {
+  const body = $("pastebody"), btn = $("pastetoggle");
+  const opening = body.hidden;
+  body.hidden = !opening;
+  btn.setAttribute("aria-expanded", String(opening));
+  btn.textContent = opening ? "Hide the score sheet" : "Paste a finished score sheet";
+  if (opening && !pasteLoaded) await buildPaste();
+};
+
+async function buildPaste() {
+  const box = $("pastediscs");
+  box.innerHTML = `<p class="hint">Loading…</p>`;
+
+  let out;
+  try {
+    out = await api(`/api/results?code=${encodeURIComponent(CODE)}`);
+  } catch (err) {
+    box.innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
+    return;
+  }
+
+  // Start from whatever is already published, so an edit is a correction
+  const existing = {};
+  (out.results || []).forEach(r => {
+    (existing[r.discipline] ||= []).push(
+      [r.place ?? "", r.competitor, r.score || "", r.class || ""]
+        .filter(x => x !== "").join("\t")
+    );
+  });
+
+  const all = out.event.disciplines || [];
+  const paste = out.event.pasteable || all.filter(isPasteable);
+  const live = all.filter(d => !paste.includes(d));
+
+  box.innerHTML = paste.map((d, i) => `
+    <div class="pdisc">
+      <h4>${esc(d)}</h4>
+      <p class="hint">Place, competitor, score, class — or leave blank to skip.
+        Write X counts the way you always do: <b>248-6X</b>.</p>
+      <div class="pmax">
+        <label for="pm${i}">Perfect score for this match</label>
+        <input type="number" id="pm${i}" data-pmax="${esc(d)}" min="1" step="1"
+               placeholder="e.g. 250" inputmode="numeric">
+        <span class="hint">What a clean card is worth. Entered once, applied to
+          everyone in ${esc(d)}.</span>
+      </div>
+      <textarea data-pdisc="${esc(d)}"
+        placeholder="1&#9;Competitor Name&#9;248-6X&#9;Hunter">${
+        esc((existing[d] || []).join("\n"))}</textarea>
+    </div>`).join("") + (live.length ? `
+    <div class="pdisc liveonly">
+      <h4>Scored live, not pasted</h4>
+      <p class="hint">${live.map(esc).join(", ")} ${live.length === 1 ? "is" : "are"} counted
+        target by target as ${live.length === 1 ? "it is" : "they are"} shot, so
+        ${live.length === 1 ? "it belongs" : "they belong"} in live scoring above rather
+        than on a pasted sheet.</p>
+    </div>` : "");
+
+  pasteLoaded = true;
+}
+
+$("pastesave").onclick = async () => {
+  const btn = $("pastesave");
+  $("pastemsg").innerHTML = "";
+
+  const disciplines = {};
+  document.querySelectorAll("[data-pdisc]").forEach(ta => {
+    if (ta.value.trim()) disciplines[ta.dataset.pdisc] = ta.value;
+  });
+  if (!Object.keys(disciplines).length) {
+    $("pastemsg").innerHTML =
+      `<div class="msg err">Paste results into at least one discipline first.</div>`;
+    return;
+  }
+
+  const available = {};
+  document.querySelectorAll("[data-pmax]").forEach(el => {
+    const n = Number(el.value);
+    if (Number.isFinite(n) && n > 0) available[el.dataset.pmax] = n;
+  });
+
+  btn.disabled = true; btn.textContent = "Publishing…";
+  try {
+    const res = await fetch("/api/results", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: CODE, disciplines, available })
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || "Those results couldn't be saved.");
+    $("pastemsg").innerHTML =
+      `<div class="msg ok">${out.saved} result${out.saved === 1 ? "" : "s"} published.
+       They are on the event page and counting towards the national rankings.</div>`;
+  } catch (err) {
+    $("pastemsg").innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = "Publish these results";
+  }
+};
 
 function renderTabs() {
   const box = $("tabs");
@@ -333,8 +484,8 @@ function renderPanel() {
   if (!DATA.match_disciplines.length && typeof current !== "string") {
     panel.innerHTML = `<div class="empty">
       Choose a discipline above to set it up for live scoring.<br>
-      <span style="font-size:13.5px">You can also just
-      <a href="/results.html">upload finished results</a> if you scored on paper.</span></div>`;
+      <span style="font-size:13.5px">Scored on paper? Paste the sheet
+      using the button at the foot of this page.</span></div>`;
     return;
   }
 

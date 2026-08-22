@@ -275,7 +275,8 @@ function render(){
       <td class="rank ${s.rank <= 3 ? "g" + s.rank : ""}">${s.rank}</td>
       <td class="who">${esc(s.name)}
         <small>${s.events} event${s.events===1?"":"s"}${
-          BASIS === "accuracy" ? ` · ${s.hits} of ${s.available} targets · ${s.rate.toFixed(1)}%`
+          BASIS === "accuracy" ? ` · ${s.hits} of ${s.available} · ${s.rate.toFixed(1)}%${
+                                     s.x ? ` · ${s.x}X` : ""}`
                                : (s.biggest_field ? ` · biggest field ${s.biggest_field}` : "")}</small></td>
       <td class="num hide-sm"><b>${s.events}</b></td>
       <td class="num hide-sm">${s.wins ? `<b>${s.wins}</b>` : "—"}</td>

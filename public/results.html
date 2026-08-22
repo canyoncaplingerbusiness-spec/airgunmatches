@@ -141,6 +141,9 @@
     <p class="count" style="margin-bottom:18px">
       Place, competitor, score, class. Place is optional — if you leave it off, the order you
       paste is the order shown. Tabs, commas or two spaces all work as separators.
+      <br><b>X count</b> is read straight out of the score the way you already write it
+      (<b>248-6X</b>). If your sheet keeps X's in their own column, put that column between
+      the score and the class and it will be read from there instead.
     </p>
 
     <form id="resultsform">
@@ -254,15 +257,16 @@ document.getElementById("codeform").addEventListener("submit", async e => {
     <div class="disc">
       <h3>${esc(d)}</h3>
       <p class="hint">Paste the finishing order for ${esc(d)}, or leave blank.</p>
-      <!-- The national rankings are built on targets hit over targets available,
-           so a ceiling is needed. Scores written as 45/60 carry their own and
-           this can stay empty; a column of bare numbers needs it stating once. -->
+      <!-- Stated once by the director and applied to every competitor in this
+           discipline. The rankings compare a season's points against the points
+           that were on offer, so a 248 needs to know it was out of 250. -->
       <div class="maxrow">
-        <label for="m${i}">Targets available to each competitor</label>
+        <label for="m${i}">Perfect score for this match</label>
         <input type="number" id="m${i}" data-max="${esc(d)}" min="1" step="1"
-               placeholder="e.g. 60" inputmode="numeric">
-        <span class="maxhint">Leave blank if your scores already read like
-          <b>45/60</b>. Needed for a bare score such as <b>248</b>.</span>
+               placeholder="e.g. 250" inputmode="numeric">
+        <span class="maxhint">What a clean card is worth. Entered once and applied to
+          every competitor in ${esc(d)}. Leave blank only if your scores are already
+          written as <b>248/250</b>, or if this is a group-size match.</span>
       </div>
       <textarea data-discipline="${esc(d)}" id="d${i}" placeholder="1&#9;Competitor Name&#9;Score&#9;Class"
       >${esc((existing[d] || []).join("\n"))}</textarea>

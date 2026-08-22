@@ -771,9 +771,11 @@ document.getElementById("rows").addEventListener("click", async e => {
   if(cc){ await navigator.clipboard.writeText(cc.dataset.copycode);
           cc.textContent = "Copied"; setTimeout(()=>cc.textContent="Copy code",1500); return; }
 
+  /* The console is the one door now: live scoring and pasting a paper sheet
+     both live behind it, so the emailed link opens there. */
   const cl = e.target.closest("button[data-copylink]");
   if(cl){ await navigator.clipboard.writeText(
-            `${location.origin}/results.html?code=${cl.dataset.copylink}`);
+            `${location.origin}/match.html?code=${cl.dataset.copylink}`);
           cl.textContent = "Copied"; setTimeout(()=>cl.textContent="Copy link",1500); return; }
 
   const nc = e.target.closest("button[data-newcode]");

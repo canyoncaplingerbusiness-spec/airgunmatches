@@ -513,12 +513,23 @@ function parseResultRows(text) {
     if (!competitor) { errors.push(`Line ${i + 1}: no competitor name found.`); return; }
 
     const score = (rest[1] || "").slice(0, 60) || null;
+
+    /* Some clubs keep X count in its own spreadsheet column rather than
+       writing "248-6X". A cell that is nothing but an X count is read as one,
+       and the class carries on from the cell after it. */
+    const X_CELL = /^(?:(\d{1,3})\s*[xX]|[xX]\s*(\d{1,3}))$/;
+    let next = 2, columnX = null;
+    const xm = String(rest[2] || "").trim().match(X_CELL);
+    if (xm) { columnX = Number(xm[1] ?? xm[2]); next = 3; }
+
+    const read = readAccuracy(score);
     rows.push({
       place,
       competitor,
       score,
-      class: (rest[2] || "").slice(0, 60) || null,
-      ...readAccuracy(score)
+      class: (rest[next] || "").slice(0, 60) || null,
+      ...read,
+      x: read.x ?? columnX
     });
   });
 
@@ -544,21 +555,26 @@ function parseResultRows(text) {
  */
 function readAccuracy(score) {
   const s = String(score || "").trim();
-  if (!s) return { hits: null, available: null };
+  const none = { hits: null, available: null, x: null };
+  if (!s) return none;
+
+  // X count, wherever it sits: "248-6X", "248/250-6X", "97-3x"
+  const xm = s.match(/[-\s](\d{1,3})\s*[xX]\b/);
+  const x = xm ? Number(xm[1]) : null;
 
   // "45/60" or "45 / 60"
   const pair = s.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
   if (pair) {
     const hits = Number(pair[1]), available = Number(pair[2]);
-    if (available > 0 && hits >= 0 && hits <= available) return { hits, available };
-    return { hits: null, available: null };
+    if (available > 0 && hits >= 0 && hits <= available) return { hits, available, x };
+    return none;
   }
 
   // "248-6X" or a bare "248" — a count with no ceiling stated here
   const lone = s.match(/^(\d+(?:\.\d+)?)(?:\s*-\s*\d+\s*[xX])?$/);
-  if (lone) return { hits: Number(lone[1]), available: null };
+  if (lone) return { hits: Number(lone[1]), available: null, x };
 
-  return { hits: null, available: null };
+  return none;
 }
 
 /* ------------------------------------------------------------------ */
@@ -755,11 +771,13 @@ async function saveResults(request, env) {
       statements.push(
         env.DB.prepare(
           `INSERT INTO results (event_id, discipline, place, competitor, score, class,
-                                sort_order, shooter_id, points, field_size, hits, available)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+                                sort_order, shooter_id, points, field_size, hits, available,
+                                x_count)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
         ).bind(ev.id, discipline, r.place, r.competitor, r.score, r.class,
                place, shooterId, pointsForPlace(place), fieldSize,
-               available === null ? null : hits, available)
+               available === null ? null : hits, available,
+               Number.isFinite(r.x) ? r.x : null)
       );
       total++;
     }
@@ -854,6 +872,7 @@ async function getRankings(request, env) {
         `SELECT s.id AS shooter_id, s.display_name AS name, s.first_name, s.last_name,
                 SUM(r.hits)                AS hits,
                 SUM(r.available)           AS available,
+                SUM(COALESCE(r.x_count,0)) AS x,
                 COUNT(DISTINCT r.event_id) AS events,
                 SUM(CASE WHEN r.place = 1 THEN 1 ELSE 0 END) AS wins,
                 SUM(CASE WHEN r.place <= 3 THEN 1 ELSE 0 END) AS podiums,
@@ -868,6 +887,7 @@ async function getRankings(request, env) {
           GROUP BY s.id
           ORDER BY SUM(r.hits) DESC,
                    (SUM(r.hits) * 1.0 / SUM(r.available)) DESC,
+                   SUM(COALESCE(r.x_count,0)) DESC,
                    s.display_name ASC
           LIMIT 500`
       ).bind(since, chosen.discipline).all()).results || []
@@ -897,7 +917,8 @@ async function getRankings(request, env) {
     best_place: r.best_place, last_event: r.last_event,
     ...(chosen.basis === "accuracy"
         ? { hits: Math.round(r.hits), available: Math.round(r.available),
-            rate: Math.round((r.hits / r.available) * 1000) / 10 }
+            rate: Math.round((r.hits / r.available) * 1000) / 10,
+            x: r.x ? Math.round(r.x) : 0 }
         : { points: Math.round(r.points), biggest_field: r.biggest_field })
   });
 
