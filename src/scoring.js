@@ -689,11 +689,11 @@ async function publish(request, env, H, body) {
   const availableFor = () => {
     if (md.mode === "stages") return possible || null;
     if (md.score_type !== "points" || !md.max_score) return null;
-    // direct entry: the ceiling depends on how the relays are combined
-    const relays = md.relays || 1;
-    if (md.aggregation === "sum")     return md.max_score * relays;
-    if (md.aggregation === "bestn")   return md.max_score * Math.min(md.best_n || relays, relays);
-    return md.max_score;              // best, or average, of single relays
+    /* max_score is the perfect score for the whole match, stated once by the
+       director — not a per-relay figure to be multiplied up. A director who
+       adds three relays together enters the total the three are worth, and the
+       settings panel says so when relays are in play. */
+    return md.max_score;
   };
   const maxAvailable = availableFor();
 

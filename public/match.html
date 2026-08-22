@@ -685,19 +685,23 @@ function renderDirectSettings(panel, md) {
             <option value="lowest">The lowest number</option>
           </select>
         </div>
-        <div>
-          <label for="ds-dec">Decimal places</label>
-          <input type="number" id="ds-dec" min="0" max="4" step="1" value="${md.decimals || 0}">
-        </div>
-        <div>
-          <label for="ds-max">Highest possible score</label>
+        <div id="ds-maxwrap">
+          <label for="ds-max">Perfect score for this match</label>
           <input type="number" id="ds-max" min="1" step="1" value="${md.max_score ?? ""}" placeholder="e.g. 250">
-          <p class="hint">Per relay. Needed for the national rankings &mdash; without it
-            a 248 has no denominator and this discipline is ranked on finishing place only.</p>
+          <p class="hint" id="ds-maxhint"></p>
         </div>
-        <div>
-          <label for="ds-shots">Shots fired</label>
-          <input type="number" id="ds-shots" min="1" step="1" value="${md.shots_fired ?? ""}" placeholder="e.g. 25">
+        <!-- Optional, because every director runs it differently. Off unless
+             it is wanted, and remembered as on for anyone who already set it. -->
+        <div class="full">
+          <label class="winner" style="margin-bottom:0">
+            <input type="checkbox" id="ds-useshots" ${md.shots_fired ? "checked" : ""}>
+            <span>Record shots fired</span>
+          </label>
+          <div id="ds-shotswrap" style="margin-top:10px" ${md.shots_fired ? "" : "hidden"}>
+            <label for="ds-shots">Shots fired</label>
+            <input type="number" id="ds-shots" min="1" step="1"
+                   value="${md.shots_fired ?? ""}" placeholder="e.g. 25" style="max-width:170px">
+          </div>
         </div>
         <div>
           <label for="ds-relays">Relays</label>
@@ -735,7 +739,9 @@ function renderDirectSettings(panel, md) {
   const paintExample = () => {
     const type = $("ds-type").value;
     const low = $("ds-winner").value === "lowest";
-    const dec = Math.min(Math.max(parseInt($("ds-dec").value, 10) || 0, 0), 4);
+    /* Decimals follow the format rather than being asked for: a points card is
+       whole numbers, a group is measured to thousandths, a time to tenths. */
+    const dec = decimalsFor(type);
     const relays = Math.max(parseInt($("ds-relays").value, 10) || 1, 1);
     const agg = $("ds-agg").value;
 
@@ -763,7 +769,21 @@ function renderDirectSettings(panel, md) {
     $("ds-bestnwrap").hidden = agg !== "bestn";
     $("ds-aggwrap").hidden = relays <= 1;
     if (relays <= 1) $("ds-bestnwrap").hidden = true;
+
+    /* Only a points score has a perfect card. A group size has no ceiling, so
+       asking for one would invite a number that means nothing. */
+    $("ds-maxwrap").hidden = type !== "points";
+    $("ds-maxhint").innerHTML = relays > 1 && agg === "sum"
+      ? `The total for all ${relays} relays together, since that is what you are ranking on.
+         Needed for the national rankings — without it a 248 has nothing to be out of.`
+      : `What a clean card is worth. Needed for the national rankings — without it a 248
+         has nothing to be out of, and this discipline falls back to finishing place.`;
   };
+
+  /* One place decides how many decimals a format shows. */
+  function decimalsFor(type) {
+    return type === "group" ? 3 : type === "time" ? 1 : 0;
+  }
 
   /* Choosing "group size" almost always means lowest wins. Nudge the default
      rather than silently getting it wrong, but leave the director in charge. */
@@ -771,10 +791,15 @@ function renderDirectSettings(panel, md) {
     const t = $("ds-type").value;
     if (t === "group" || t === "time") $("ds-winner").value = "lowest";
     if (t === "points") $("ds-winner").value = "highest";
-    if (t === "group" && (parseInt($("ds-dec").value, 10) || 0) < 3) $("ds-dec").value = 3;
     paintExample();
   };
-  ["ds-winner","ds-dec","ds-relays","ds-agg","ds-bestn"].forEach(id => {
+  $("ds-useshots").onchange = () => {
+    const on = $("ds-useshots").checked;
+    $("ds-shotswrap").hidden = !on;
+    if (!on) $("ds-shots").value = "";
+  };
+
+  ["ds-winner","ds-relays","ds-agg","ds-bestn"].forEach(id => {
     $(id).onchange = paintExample; $(id).oninput = paintExample;
   });
   paintExample();
@@ -783,9 +808,10 @@ function renderDirectSettings(panel, md) {
     discipline: md.discipline, mode: "direct",
     score_type: $("ds-type").value,
     winner: $("ds-winner").value,
-    decimals: parseInt($("ds-dec").value, 10) || 0,
+    decimals: decimalsFor($("ds-type").value),
     max_score: $("ds-max").value ? parseInt($("ds-max").value, 10) : null,
-    shots_fired: $("ds-shots").value ? parseInt($("ds-shots").value, 10) : null,
+    shots_fired: $("ds-useshots").checked && $("ds-shots").value
+      ? parseInt($("ds-shots").value, 10) : null,
     relays: parseInt($("ds-relays").value, 10) || 1,
     aggregation: $("ds-agg").value,
     best_n: $("ds-agg").value === "bestn" ? parseInt($("ds-bestn").value, 10) : null,
