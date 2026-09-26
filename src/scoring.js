@@ -50,7 +50,13 @@ const clean = (v, max = 120) => {
   return s ? s.slice(0, max) : null;
 };
 
+/* Absent is not zero. Number(null) and Number("") are both 0, so an optional
+   field left empty used to arrive as a real 0 — "shots fired: none" became
+   "shots fired: 0", and a cleared perfect score became a ceiling of zero. Every
+   caller guards with ?? or rejects falsy values, so returning null is safe and
+   says what is actually true. */
 const asInt = v => {
+  if (v === null || v === undefined || String(v).trim() === "") return null;
   const n = Number(v);
   return Number.isInteger(n) ? n : null;
 };
@@ -647,6 +653,76 @@ async function declarePlace(request, env, H, body) {
   return H.json({ ok: true, declared: true, place });
 }
 
+/**
+ * One score, typed by the director in the console.
+ *
+ * Squad sync is scoped to a squad code and a director does not hold one — they
+ * hold the event code — so a small bench rest match with no squad scorers had
+ * no way in at all. This is that way in: same validation as sync, same history
+ * trail, but authoritative. The director is one person at one keyboard looking
+ * at the standings, so a version clash is not a real risk and last write wins
+ * rather than raising a conflict nobody else could resolve.
+ */
+async function enterScore(request, env, H, body) {
+  const ev = await asDirector(env, body.code, H);
+  if (!ev) return H.fail("That code isn't recognised.", 404);
+  const md = await ownedDiscipline(env, ev.id, body.md_id);
+  if (!md) return H.fail("That discipline isn't part of this event.", 404);
+  if (md.mode !== "direct") return H.fail("This discipline is scored stage by stage.");
+  if (md.state === "setup") return H.fail("Open the match before entering scores.", 409);
+
+  const entrantId = asInt(body.entrant_id);
+  const entrant = await env.DB.prepare(
+    "SELECT id FROM entrants WHERE id = ? AND md_id = ?"
+  ).bind(entrantId, md.id).first();
+  if (!entrant) return H.fail("That competitor isn't in this discipline.", 404);
+
+  const relay = Math.min(Math.max(asInt(body.relay) ?? 1, 1), md.relays || 1);
+
+  const score = body.score === null || body.score === undefined || String(body.score).trim() === ""
+    ? null : Number(body.score);
+  if (score !== null && !Number.isFinite(score)) return H.fail("That score isn't a number.");
+  if (score !== null && score < 0) return H.fail("A score can't be negative.");
+  if (score !== null && md.max_score && md.score_type === "points" && score > md.max_score)
+    return H.fail(`The perfect score for this match is ${md.max_score}.`);
+
+  const x = body.x_count === null || body.x_count === undefined || String(body.x_count).trim() === ""
+    ? null : asInt(body.x_count);
+  if (x !== null && (x < 0 || (md.shots_fired && x > md.shots_fired)))
+    return H.fail("That X count isn't possible for this course of fire.");
+
+  const who = clean(body.by, 80) || "Match director";
+  const existing = await env.DB.prepare(
+    "SELECT * FROM direct_scores WHERE entrant_id = ? AND relay = ?"
+  ).bind(entrantId, relay).first();
+
+  let refId, version;
+  if (existing) {
+    refId = existing.id;
+    version = existing.version + 1;
+    await env.DB.prepare(
+      `UPDATE direct_scores SET score=?, x_count=?, version=?, scored_by=?,
+              scored_at=strftime('%Y-%m-%dT%H:%M:%SZ','now'), device_id='console'
+        WHERE id=?`
+    ).bind(score, x, version, who, refId).run();
+  } else {
+    refId = crypto.randomUUID();
+    version = 1;
+    await env.DB.prepare(
+      `INSERT INTO direct_scores (id, md_id, entrant_id, relay, score, x_count,
+                                  version, scored_by, device_id)
+       VALUES (?,?,?,?,?,?,1,?,'console')`
+    ).bind(refId, md.id, entrantId, relay, score, x, who).run();
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO score_history (kind, ref_id, md_id, version, payload, actor_name, via_code, device_id)
+     VALUES ('direct',?,?,?,?,?,'console','console')`
+  ).bind(refId, md.id, version, JSON.stringify({ relay, score, x_count: x }), who).run();
+
+  return H.json({ ok: true, version });
+}
+
 async function directorStandings(request, env, H) {
   const url = new URL(request.url);
   const ev = await asDirector(env, url.searchParams.get("code"), H);
@@ -1051,6 +1127,7 @@ export async function handleScoring(request, env, path, method, H) {
       if (path === "/api/scoring/entrants")   return await entrantAction(request, env, H, body);
       if (path === "/api/scoring/state")      return await setState(request, env, H, body);
       if (path === "/api/scoring/declare")    return await declarePlace(request, env, H, body);
+      if (path === "/api/scoring/enter")      return await enterScore(request, env, H, body);
       if (path === "/api/scoring/publish")    return await publish(request, env, H, body);
       if (path === "/api/scoring/sync")       return await sync(request, env, H, body);
     } catch (err) {

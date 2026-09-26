@@ -954,6 +954,218 @@ async function getShooter(request, env, id) {
 }
 
 /* Names that look like the same person, for the merge screen. */
+/* ------------------------------------------------------------------ */
+/* Bulk import                                                         */
+/* ------------------------------------------------------------------ */
+
+const MAX_IMPORT_EVENTS = 200;
+
+/** A loose key for "is this the same match?" — lowercase, no punctuation, and
+ *  with the words clubs pad names with stripped out, so "NSC Grand Prix 2026"
+ *  and "N.S.C. Grand-Prix" collapse to the same thing. */
+function matchKey(name) {
+  return String(name || "")
+    .toLowerCase()
+    // Apostrophes are dropped, not spaced: club names are full of them, and
+    // "Sportsman's" must stay one word so it can match "Sportsmans".
+    .replace(/['\u2019]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\b(the|a|an|20\d\d|annual|match|shoot|event|club|grand|prix|gp)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const words = name => String(name || "")
+  .toLowerCase().replace(/['\u2019]/g, "")
+  .replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+
+/** The letters a name would be abbreviated to: "Nenameseck Sportsmens Club
+ *  Grand Prix" -> "nscgp". Stop words are kept, because the C in NSC stands
+ *  for Club. */
+const initials = name => words(name).map(w => w[0]).join("");
+
+/** Things in a name that might themselves be an acronym.
+ *
+ *  Two shapes: a short all-letter token that survived stop-word removal
+ *  ("NSC"), and a run of single letters from a dotted form ("N.S.C." arrives
+ *  as n, s, c). Drawn from the stripped key rather than the raw name so that
+ *  "Grand" and "Prix" — short, common, and in half the names on the calendar —
+ *  can't match everything they touch. */
+function acronyms(name) {
+  const out = new Set();
+  for (const w of words(matchKey(name)))
+    if (w.length >= 2 && w.length <= 6 && /^[a-z]+$/.test(w)) out.add(w);
+
+  let run = "";
+  for (const w of words(name)) {
+    if (w.length === 1) run += w;
+    else { if (run.length >= 2) out.add(run); run = ""; }
+  }
+  if (run.length >= 2) out.add(run);
+  return out;
+}
+
+/** Whether two event names plausibly describe the same match. Deliberately
+ *  generous: this only ever causes an event to be held back and shown in the
+ *  preview, and a duplicate that reaches the calendar costs more to undo than
+ *  a real event costs to add by hand. */
+function looksLikeSameMatch(a, b) {
+  const ka = matchKey(a), kb = matchKey(b);
+  if (!ka || !kb) return false;
+  if (ka === kb || ka.includes(kb) || kb.includes(ka)) return true;
+
+  // "NSC" against "Nenameseck Sportsmens Club" — an acronym on one side
+  // matching the initials of the other
+  const ia = initials(a), ib = initials(b);
+  for (const c of acronyms(a)) if (c.length >= 2 && ib.startsWith(c)) return true;
+  for (const c of acronyms(b)) if (c.length >= 2 && ia.startsWith(c)) return true;
+  for (const c of acronyms(a)) if (acronyms(b).has(c)) return true;
+  return false;
+}
+
+/**
+ * Takes a batch of events from the scout and puts them straight on the
+ * calendar, approved.
+ *
+ * Behind the admin session, so no Turnstile and no per-address rate limit —
+ * both of those exist to keep strangers honest, and this is the owner pasting
+ * their own research.
+ *
+ * Duplicate detection runs against the database rather than any ledger file.
+ * The scout re-finds the same matches every run, and its own record of what it
+ * submitted lives on one computer and knows nothing about what has been edited
+ * or deleted here since. Two passes:
+ *
+ *   exact  — same name, same venue, same start date. Silently skipped.
+ *   likely — same start date, same city and state, and a fuzzy name match.
+ *            Reported rather than skipped quietly, because two genuinely
+ *            different matches can share a club and a Saturday.
+ *
+ * dry_run returns exactly what a real run would do and writes nothing, which
+ * is what the admin page shows you before you commit.
+ */
+async function adminImport(request, env, reviewer) {
+  let body;
+  try { body = await request.json(); } catch { return fail("Malformed request."); }
+
+  const dryRun = body.dry_run !== false;          // preview unless told otherwise
+  const incoming = Array.isArray(body.events) ? body.events : null;
+  if (!incoming) return fail('Expected { "events": [ ... ] }.');
+  if (!incoming.length) return fail("That file has no events in it.");
+  if (incoming.length > MAX_IMPORT_EVENTS)
+    return fail(`No more than ${MAX_IMPORT_EVENTS} events in one import.`);
+
+  // Everything already on the calendar, at any status — a rejected event is
+  // still a decision, and re-importing it would quietly overturn it.
+  const existing = (await env.DB.prepare(
+    "SELECT name, venue, city, state, start_date, status FROM events"
+  ).all()).results || [];
+
+  const exact = new Set(existing.map(r =>
+    `${String(r.name).trim().toLowerCase()}|${String(r.venue).trim().toLowerCase()}|${r.start_date}`));
+  const byDatePlace = new Map();
+  for (const r of existing) {
+    const k = `${r.start_date}|${String(r.city).trim().toLowerCase()}|${String(r.state).toUpperCase()}`;
+    if (!byDatePlace.has(k)) byDatePlace.set(k, []);
+    byDatePlace.get(k).push(r);
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const report = [];
+  const stmts = [];
+  // Guards against one file containing the same match twice
+  const seenThisRun = new Set();
+
+  for (const [i, raw] of incoming.entries()) {
+    const label = str(raw && raw.name, 160) || `row ${i + 1}`;
+
+    const { errors, row, occurrences } = validateSubmission({
+      ...raw,
+      submitter_name: str(raw.submitter_name, 120) || "Airgun Match Scout",
+      submitter_email: str(raw.submitter_email, 200) || "canyoncaplinger@gmail.com"
+    });
+
+    if (errors.length) {
+      report.push({ name: label, action: "rejected", reason: errors.join(" ") });
+      continue;
+    }
+
+    const fresh = [];
+    for (const o of occurrences) {
+      if (o.start <= today) {
+        report.push({ name: label, date: o.start, action: "skipped", reason: "Date has already passed." });
+        continue;
+      }
+      const ek = `${row.name.trim().toLowerCase()}|${row.venue.trim().toLowerCase()}|${o.start}`;
+      if (exact.has(ek)) {
+        report.push({ name: label, date: o.start, action: "skipped",
+                      reason: "Already on the calendar." });
+        continue;
+      }
+      if (seenThisRun.has(ek)) {
+        report.push({ name: label, date: o.start, action: "skipped",
+                      reason: "This file lists the same match twice." });
+        continue;
+      }
+
+      /* Anything already on the calendar in the same town on the same day.
+         A name match makes it near-certain; without one it is still held back
+         and shown, because two matches in one town on one day is unusual
+         enough to be worth a human glance. */
+      const sameDayPlace = byDatePlace.get(
+        `${o.start}|${row.city.trim().toLowerCase()}|${row.state.toUpperCase()}`) || [];
+      if (sameDayPlace.length) {
+        const named = sameDayPlace.find(r => looksLikeSameMatch(r.name, row.name));
+        report.push(named
+          ? { name: label, date: o.start, action: "skipped",
+              reason: `Already listed as "${named.name}".` }
+          : { name: label, date: o.start, action: "skipped", check: true,
+              reason: `"${sameDayPlace[0].name}" is already listed in ${row.city} that day — ` +
+                      `skipped in case it is the same match under another name.` });
+        continue;
+      }
+
+      seenThisRun.add(ek);
+      fresh.push(o);
+    }
+
+    if (!fresh.length) continue;
+
+    const seriesId = fresh.length > 1 ? crypto.randomUUID() : null;
+    for (const o of fresh) {
+      const id = crypto.randomUUID();
+      report.push({
+        name: row.name, date: o.start, end: o.end, venue: row.venue,
+        city: row.city, state: row.state,
+        disciplines: safeParse(row.disciplines),
+        gun_types: safeParse(row.gun_types),
+        action: "created"
+      });
+      stmts.push(env.DB.prepare(
+        `INSERT INTO events (id, name, start_date, end_date, venue, city, state, gun_types,
+                             disciplines, org, juniors, url, video_url, note,
+                             submitter_name, submitter_email, status, series_id,
+                             reviewed_at, reviewed_by, review_note)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'approved', ?,
+                 strftime('%Y-%m-%dT%H:%M:%SZ','now'), ?, ?)`
+      ).bind(
+        id, row.name, o.start, o.end, row.venue, row.city, row.state,
+        row.gun_types, row.disciplines, row.org, row.juniors, row.url, row.video_url, row.note,
+        row.submitter_name, row.submitter_email, seriesId, reviewer,
+        `Bulk import ${today}`
+      ));
+    }
+  }
+
+  const counts = report.reduce((a, r) => (a[r.action] = (a[r.action] || 0) + 1, a), {});
+
+  if (dryRun) return json({ ok: true, dry_run: true, counts, report });
+  if (!stmts.length) return json({ ok: true, dry_run: false, counts, report, imported: 0 });
+
+  await env.DB.batch(stmts);
+  return json({ ok: true, dry_run: false, counts, report, imported: stmts.length });
+}
+
 async function adminDuplicates(env) {
   const { results } = await env.DB.prepare(
     `SELECT s.id, s.display_name, s.first_name, s.last_name, s.name_key,
@@ -1284,6 +1496,7 @@ export default {
           if (path === "/api/admin/merge" && method === "POST") return await adminMerge(request, env);
           if (path === "/api/admin/export" && method === "GET")  return await adminExport(request, env);
           if (path === "/api/admin/series" && method === "PATCH") return await adminUpdateSeries(request, env, auth.email);
+          if (path === "/api/admin/import" && method === "POST") return await adminImport(request, env, auth.email);
 
           const m = path.match(/^\/api\/admin\/events\/([0-9a-fA-F-]{36})$/);
           if (m && method === "PATCH")  return await adminUpdate(request, env, m[1], auth.email);

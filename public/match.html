@@ -136,6 +136,8 @@
   details>summary::before{content:"▸ ";color:var(--muted)}
   details[open]>summary::before{content:"▾ "}
   details .inner{padding:0 15px 15px;border-top:1px solid var(--line);padding-top:14px}
+  input.cell{width:100%;padding:7px 9px;font-size:14.5px;text-align:center;
+    font-variant-numeric:tabular-nums}
   .pdisc{border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin:16px 0}
   .pdisc h4{margin:0 0 4px;font-size:15.5px}
   .pdisc textarea{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px;
@@ -986,18 +988,38 @@ function renderStandings(panel, md) {
 
   const anyDeclared = s.standings.some(r => r.declared);
 
+  /* A small bench rest match often has no squad scorers at all — the director
+     is the only person entering anything. So the score column is typed into
+     directly here, rather than only from a scorer's phone. Stage scoring stays
+     read-only: those numbers are a tally of individual taps, not one figure. */
+  const typeable = md.mode === "direct" && md.state !== "setup";
+  const hasX = typeable && (md.score_type || "points") === "points";
+  const relays = md.relays || 1;
+
   el.innerHTML = `
     <h3 style="margin-top:24px">Standings</h3>
-    <p class="sub">Ties are left as ties — the system won't break one for you. If two competitors
+    <p class="sub">${typeable
+      ? `Type each competitor's score straight into the table${hasX ? ", with their X count beside it" : ""}. ` +
+        `It saves as you go. `
+      : ""}Ties are left as ties — the system won't break one for you. If two competitors
       finish level, tick the one who won and everyone below moves down.</p>
+    ${typeable && relays > 1 ? `<div class="row" style="margin-bottom:12px">
+      <label for="std-relay" style="margin:0">Relay</label>
+      <select id="std-relay" style="width:auto">${
+        Array.from({ length: relays }, (_, i) =>
+          `<option value="${i + 1}">${i + 1} of ${relays}</option>`).join("")}</select>
+      <span class="hint" style="margin:0">Scores are stored per relay. Switch relays to enter the next round.</span>
+    </div>` : ""}
     <div class="tblwrap"><table>
       <thead><tr>
         <th style="width:56px">#</th><th>Competitor</th>
-        <th style="width:120px">${md.mode === "stages" ? "Hits" : "Score"}</th>
+        <th style="width:${typeable ? 110 : 120}px">${md.mode === "stages" ? "Hits" : "Score"}</th>
+        ${hasX ? `<th style="width:90px">X's</th>` : ""}
         <th style="width:150px">Winner</th>
       </tr></thead>
       <tbody></tbody>
     </table></div>
+    <div id="std-msg"></div>
     ${anyDeclared ? `<p class="hint">Placings marked <span class="declared">declared</span>
       were set by you, not worked out from the scores.</p>` : ""}
     <div class="row" style="margin-top:16px">
@@ -1016,12 +1038,54 @@ function renderStandings(panel, md) {
       <td class="num">${r.place ?? "—"}</td>
       <td>${esc(r.name)}${r.squad_name ? ` <span style="color:var(--muted);font-size:13px">· ${esc(r.squad_name)}</span>` : ""}${
         r.declared ? `<span class="declared">declared</span>` : ""}</td>
+      ${typeable ? `
+      <td><input class="cell" type="number" inputmode="decimal" step="any" min="0"
+                 ${md.max_score ? `max="${md.max_score}"` : ""}
+                 data-score="${r.entrant_id}" placeholder="—"></td>
+      ${hasX ? `<td><input class="cell" type="number" inputmode="numeric" step="1" min="0"
+                 data-x="${r.entrant_id}" placeholder="—"></td>` : ""}
+      ` : `
       <td class="score">${esc(r.display)}${r.complete === false && md.state === "live"
-        ? ` <span style="color:var(--muted);font-weight:400;font-size:12px">still shooting</span>` : ""}</td>
+        ? ` <span style="color:var(--muted);font-weight:400;font-size:12px">still shooting</span>` : ""}</td>`}
       <td><label class="winner"><input type="checkbox" ${r.declared && r.place === 1 ? "checked" : ""}>
         <span>${r.declared && r.place === 1 ? "Declared winner" : "Declare winner"}</span></label></td>`;
 
-    tr.querySelector("input").onchange = ev => {
+    /* Fill the typed cells from what is already stored for the relay on show,
+       without putting the values in the HTML where a quote would break out. */
+    if (typeable) {
+      const relayNow = () => parseInt(el.querySelector("#std-relay")?.value || "1", 10);
+      const paintCells = () => {
+        const rel = (r.relays || []).find(x => x.relay === relayNow());
+        const sc = tr.querySelector("[data-score]");
+        const xc = tr.querySelector("[data-x]");
+        if (sc) sc.value = rel && rel.score !== null && rel.score !== undefined ? rel.score : "";
+        if (xc) xc.value = rel && rel.x_count !== null && rel.x_count !== undefined ? rel.x_count : "";
+      };
+      paintCells();
+      tr._paintCells = paintCells;
+
+      const send = async () => {
+        const sc = tr.querySelector("[data-score]");
+        const xc = tr.querySelector("[data-x]");
+        try {
+          await api("/api/scoring/enter", "POST", {
+            md_id: md.id, entrant_id: r.entrant_id, relay: relayNow(),
+            score: sc.value, x_count: xc ? xc.value : null, by: DIRECTOR
+          });
+          $("std-msg").innerHTML = "";
+          await loadStandings(md.id);
+          render();
+        } catch (err) {
+          $("std-msg").innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
+        }
+      };
+      tr.querySelectorAll(".cell").forEach(inp => {
+        inp.onchange = send;
+        inp.onkeydown = ev => { if (ev.key === "Enter") { ev.preventDefault(); inp.blur(); } };
+      });
+    }
+
+    tr.querySelector('input[type="checkbox"]').onchange = ev => {
       const on = ev.target.checked;
       if (on && !DIRECTOR) {
         const who = prompt("Your name — declarations are recorded against it:");
@@ -1039,6 +1103,10 @@ function renderStandings(panel, md) {
     };
     tb.appendChild(tr);
   }
+
+  const relaySel = el.querySelector("#std-relay");
+  if (relaySel) relaySel.onchange = () =>
+    tb.querySelectorAll("tr").forEach(tr => tr._paintCells && tr._paintCells());
 
   el.querySelector("#std-refresh").onclick = () =>
     act(async () => { await loadStandings(md.id); });

@@ -259,6 +259,7 @@
       <button class="tab" data-tab="denied">Denied<span class="n" id="n-denied">0</span></button>
       <button class="tab" data-tab="all">All<span class="n" id="n-all">0</span></button>
       <button class="tab" data-tab="merge">Duplicate shooters<span class="n" id="n-merge">·</span></button>
+      <button class="tab" data-tab="import">Import<span class="n" id="n-import">·</span></button>
     </div>
 
     <div class="toolbar">
@@ -267,9 +268,50 @@
     </div>
 
     <div id="rows"><div class="spinner"></div></div>
+
+    <!-- Bulk import. The scout agent writes a JSON file; this reads it, shows
+         what it would do, and only then writes. -->
+    <div id="importpanel" hidden>
+      <div class="card imp">
+        <h2>Import a scout file</h2>
+        <p class="sub">Pick the JSON file the match scout wrote. Nothing is saved until you
+          have seen what it would do — events that survive the check go straight on the
+          calendar, approved.</p>
+
+        <div class="row">
+          <input type="file" id="impfile" accept=".json,application/json">
+          <button class="refresh" id="impcheck" disabled>Check the file</button>
+        </div>
+        <div id="impmsg"></div>
+        <div id="impresult"></div>
+      </div>
+    </div>
   </div>
   <footer class="pad"></footer>
 </div>
+
+<style>
+  .card.imp{background:#fff;border:1px solid var(--line);border-radius:10px;padding:22px;margin:18px 0}
+  .card.imp h2{margin:0 0 6px;font-size:18px}
+  .card.imp .sub{margin:0 0 16px;color:var(--muted);font-size:14.5px;max-width:64ch}
+  .card.imp .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .card.imp input[type=file]{font:inherit;font-size:14px}
+  .imptable{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:16px}
+  .imptable th{text-align:left;padding:8px 10px;font-size:11px;letter-spacing:.6px;
+    text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}
+  .imptable td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  .imptable tr.created td{background:#f2f9f5}
+  .imptable tr.check td{background:#fff8ec}
+  .imptable tr.rejected td{background:#fdf1f0}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.4px}
+  .pill.created{background:#e6f5ec;color:#1f7a4d}
+  .pill.skipped{background:#eef1f5;color:#5b6570}
+  .pill.rejected{background:#fdecea;color:#b3261e}
+  .pill.check{background:#fdf0d5;color:#8a6116}
+  .impsum{margin:16px 0 0;font-size:14.5px}
+  .impgo{margin-top:16px}
+</style>
 
 <script type="module">
 /* Access sits in front of this page and the Worker re-verifies the Access
@@ -521,6 +563,14 @@ function render(){
   }
 
   const box = document.getElementById("rows");
+
+  /* Import is its own panel rather than a list of submissions, so the search
+     box and the rows area step aside for it. */
+  const importing = TAB === "import";
+  document.getElementById("importpanel").hidden = !importing;
+  box.hidden = importing;
+  document.querySelector(".toolbar").hidden = importing;
+  if(importing) return;
 
   if(TAB === "merge"){ renderMerge(box); return; }
 
@@ -848,6 +898,103 @@ document.getElementById("tabs").addEventListener("click", e => {
   [...document.querySelectorAll(".tab")].forEach(x => x.classList.toggle("on", x === t));
   render();
 });
+/* ---------------- bulk import ---------------- */
+
+let IMPORT_EVENTS = null;          // the parsed file, held for the commit step
+
+const impMsg = (text, kind = "err") => {
+  document.getElementById("impmsg").innerHTML =
+    text ? `<div class="msg ${kind}" style="margin-top:14px">${esc(text)}</div>` : "";
+};
+
+document.getElementById("impfile").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  document.getElementById("impresult").innerHTML = "";
+  IMPORT_EVENTS = null;
+  document.getElementById("impcheck").disabled = true;
+  if(!file) return impMsg("");
+
+  let parsed;
+  try {
+    parsed = JSON.parse(await file.text());
+  } catch (err) {
+    return impMsg(`That file isn't valid JSON — ${err.message}`);
+  }
+
+  // Accept either { events: [...] } or a bare array, because both are things
+  // a person reasonably ends up with.
+  const list = Array.isArray(parsed) ? parsed
+             : Array.isArray(parsed && parsed.events) ? parsed.events : null;
+  if(!list) return impMsg('Expected a JSON array of events, or { "events": [ ... ] }.');
+  if(!list.length) return impMsg("That file has no events in it.");
+
+  IMPORT_EVENTS = list;
+  document.getElementById("impcheck").disabled = false;
+  impMsg(`Read ${list.length} event${list.length === 1 ? "" : "s"} from ${file.name}. ` +
+         `Nothing has been saved yet.`, "info");
+});
+
+async function importRun(dryRun){
+  const btn = document.getElementById(dryRun ? "impcheck" : "impgo");
+  const was = btn.textContent;
+  btn.disabled = true; btn.textContent = dryRun ? "Checking…" : "Importing…";
+  try {
+    const res = await fetch(`${API}/import`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ events: IMPORT_EVENTS, dry_run: dryRun })
+    });
+    const out = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(out.error || `The server responded ${res.status}.`);
+    renderImport(out, dryRun);
+    if(!dryRun) await load();
+  } catch (err) {
+    impMsg(err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = was;
+  }
+}
+
+function renderImport(out, dryRun){
+  const c = out.counts || {};
+  const created = c.created || 0;
+  const rows = (out.report || []).slice().sort((a, b) =>
+    (a.action === "created" ? 0 : 1) - (b.action === "created" ? 0 : 1) ||
+    String(a.date || "").localeCompare(String(b.date || "")));
+
+  const summary = dryRun
+    ? `<b>${created}</b> would be added · ${c.skipped || 0} already listed or past · ${
+        c.rejected || 0} rejected`
+    : `<b>${out.imported || 0}</b> added to the calendar · ${c.skipped || 0} skipped · ${
+        c.rejected || 0} rejected`;
+
+  document.getElementById("impresult").innerHTML = `
+    <p class="impsum">${summary}</p>
+    ${rows.length ? `<table class="imptable">
+      <thead><tr><th style="width:96px">What</th><th>Event</th><th style="width:110px">Date</th>
+        <th>Where</th><th>Notes</th></tr></thead>
+      <tbody>${rows.map(r => `
+        <tr class="${r.action === "created" ? "created" : r.check ? "check" : r.action}">
+          <td><span class="pill ${r.check ? "check" : r.action}">${
+            r.check ? "check" : esc(r.action)}</span></td>
+          <td><b>${esc(r.name)}</b></td>
+          <td>${esc(r.date || "—")}</td>
+          <td>${r.city ? esc(`${r.city}, ${r.state}`) : "—"}</td>
+          <td>${esc(r.reason || (r.venue ? r.venue : ""))}</td>
+        </tr>`).join("")}</tbody>
+    </table>` : ""}
+    ${dryRun && created ? `<button class="refresh impgo" id="impgo">Import ${created} event${
+        created === 1 ? "" : "s"}</button>` : ""}
+    ${dryRun && !created ? `<p class="impsum" style="color:var(--muted)">
+        Nothing new to add — everything in that file is already on the calendar,
+        in the past, or unusable.</p>` : ""}`;
+
+  const go = document.getElementById("impgo");
+  if(go) go.addEventListener("click", () => importRun(false));
+  impMsg("");
+}
+
+document.getElementById("impcheck").addEventListener("click", () => importRun(true));
+
 document.getElementById("search").addEventListener("input", render);
 document.getElementById("refresh").addEventListener("click", load);
 
