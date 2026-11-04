@@ -1040,7 +1040,35 @@ const MAX_IMPORT_EVENTS = 200;
    points at gunmatches.com regardless of which domain served the request —
    that is the whole point: one address per page, whichever door you came in. */
 const CANONICAL_ORIGIN = "https://gunmatches.com";
-const CANONICAL_PAGES = new Set(["/rankings.html", "/organizers.html"]);
+const CANONICAL_PAGES = new Set([
+  "/rankings.html", "/rankings", "/organizers.html", "/organizers"
+]);
+
+/** The address we want indexed, given whichever spelling was requested.
+    Static assets are served with the extension stripped, so a visitor can
+    arrive at either and both must name the same canonical. */
+function canonicalPathFor(path) {
+  return path.endsWith(".html") ? path : path + ".html";
+}
+
+/**
+ * An HTML response built from scratch rather than cloned.
+ *
+ * The asset response carries content-encoding and content-length describing
+ * the *compressed* bytes it was going to send. Reading it as text decompresses
+ * it, so copying those headers onto the decoded string tells the browser to
+ * gunzip plain HTML — and it gets an empty page. Easier to state the few
+ * headers that are actually true than to remember which inherited ones lie.
+ */
+function htmlResponse(html, cacheControl) {
+  return new Response(html, {
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": cacheControl,
+      ...securityHeaders()
+    }
+  });
+}
 
 /** A 404 that still looks like the site and offers a way back. */
 function notFoundHtml(origin) {
@@ -1634,17 +1662,11 @@ export default {
          for JavaScript. */
       if ((path === "/" || path === "/index.html") && method === "GET") {
         const res = await env.ASSETS.fetch(new Request(origin + "/index.html", request));
+        if (!res.ok) return res;
         const html = await res.text();
         const events = await approvedEvents(env);
-        const headers = new Headers(res.headers);
-        for (const [k, v] of Object.entries(securityHeaders())) headers.set(k, v);
-        headers.set("content-type", "text/html; charset=utf-8");
-        headers.set("cache-control", "public, max-age=300, stale-while-revalidate=1800");
-        headers.delete("content-length");
-        headers.delete("etag");
-        return new Response(injectIntoCalendar(html, events, origin), {
-          status: res.status, headers
-        });
+        return htmlResponse(injectIntoCalendar(html, events, origin),
+          "public, max-age=300, stale-while-revalidate=1800");
       }
 
       // ---- static assets ----
@@ -1668,13 +1690,11 @@ export default {
       /* A canonical link on the handful of pages worth indexing. This is also
          what stops airgunmatches.com competing with gunmatches.com for the
          same content while the redirect switch is off. */
-      if (CANONICAL_PAGES.has(path) && res.status === 200) {
+      if (CANONICAL_PAGES.has(path) && res.status === 200 &&
+          (res.headers.get("content-type") || "").includes("text/html")) {
         const html = await res.text();
-        headers.delete("content-length");
-        headers.delete("etag");
-        return new Response(injectCanonical(html, CANONICAL_ORIGIN, path), {
-          status: res.status, headers
-        });
+        return htmlResponse(injectCanonical(html, CANONICAL_ORIGIN, canonicalPathFor(path)),
+          "public, max-age=300");
       }
 
       return new Response(res.body, { status: res.status, headers });
