@@ -1039,7 +1039,11 @@ const MAX_IMPORT_EVENTS = 200;
 /* Pages that should name themselves as the original. The canonical always
    points at gunmatches.com regardless of which domain served the request —
    that is the whole point: one address per page, whichever door you came in. */
-const CANONICAL_ORIGIN = "https://gunmatches.com";
+/* The www form, because that is what actually answers: the apex redirects to
+   it. A canonical pointing at a URL that 301s asks Google to trust a signpost
+   rather than the address, and it is the kind of thing nobody notices for
+   months. Change this if the redirect direction ever flips. */
+const CANONICAL_ORIGIN = "https://www.gunmatches.com";
 const CANONICAL_PAGES = new Set([
   "/rankings.html", "/rankings", "/organizers.html", "/organizers"
 ]);
@@ -1060,6 +1064,30 @@ function canonicalPathFor(path) {
  * gunzip plain HTML — and it gets an empty page. Easier to state the few
  * headers that are actually true than to remember which inherited ones lie.
  */
+/**
+ * The calendar's own HTML, fetched from the asset layer.
+ *
+ * Asking for "/index.html" is the obvious move and the wrong one: the asset
+ * layer treats "/" as the canonical address and answers the longer spelling
+ * with a redirect to it. Passing that redirect back to the browser sent it
+ * round to "/" again, which came back here — a loop that took the homepage
+ * down until a browser reported ERR_TOO_MANY_REDIRECTS.
+ *
+ * So ask for "/" first, and if the asset layer ever redirects anyway, follow
+ * it once rather than handing a redirect to the visitor. Looping is the one
+ * failure mode worth spending a few lines to make impossible.
+ */
+async function calendarAsset(request, env, origin) {
+  let res = await env.ASSETS.fetch(new Request(origin + "/", request));
+  if (res.status >= 300 && res.status < 400) {
+    const to = res.headers.get("location");
+    if (!to) return null;
+    res = await env.ASSETS.fetch(new Request(new URL(to, origin).toString(), request));
+    if (res.status >= 300 && res.status < 400) return null;   // never a second hop
+  }
+  return res;
+}
+
 function htmlResponse(html, cacheControl) {
   return new Response(html, {
     headers: {
@@ -1661,8 +1689,8 @@ export default {
          sees — it exists for the first pass of a crawler, which does not wait
          for JavaScript. */
       if ((path === "/" || path === "/index.html") && method === "GET") {
-        const res = await env.ASSETS.fetch(new Request(origin + "/index.html", request));
-        if (!res.ok) return res;
+        const res = await calendarAsset(request, env, origin);
+        if (!res || !res.ok) return res || fail("Not found", 404);
         const html = await res.text();
         const events = await approvedEvents(env);
         return htmlResponse(injectIntoCalendar(html, events, origin),
