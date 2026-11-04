@@ -38,6 +38,9 @@ import {
   eventPath, idFragmentFrom, eventPageHtml, sitemapXml,
   injectIntoCalendar, injectCanonical
 } from "./seo.js";
+import {
+  activeSponsor, countImpression, handleSponsorClick, injectSponsor
+} from "./sponsors.js";
 
 /* Columns the public may ever see. Submitter and review fields are absent
    by construction rather than filtered out afterwards. */
@@ -1320,6 +1323,98 @@ async function adminImport(request, env, reviewer) {
   return json({ ok: true, dry_run: false, counts, report, imported: stmts.length });
 }
 
+/* ------------------------------------------------------------------ */
+/* Sponsors                                                            */
+/* ------------------------------------------------------------------ */
+
+/** Every sponsor, with its running totals and whether it is live today. */
+async function adminSponsors(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT s.*,
+            COALESCE(SUM(t.impressions), 0) AS impressions,
+            COALESCE(SUM(t.clicks), 0)      AS clicks
+       FROM sponsors s
+       LEFT JOIN sponsor_stats t ON t.sponsor_id = s.id
+      GROUP BY s.id
+      ORDER BY s.created_at DESC`
+  ).all();
+
+  const d = new Date().toISOString().slice(0, 10);
+  const sponsors = (results || []).map(r => ({
+    ...r,
+    active: !!r.active,
+    live: !!r.active && (!r.starts_on || r.starts_on <= d) && (!r.ends_on || r.ends_on >= d)
+  }));
+  return json({ sponsors }, 200, { "cache-control": "no-store" });
+}
+
+/**
+ * Creates or updates one sponsor.
+ *
+ * The image has to be a path on this site. A logo hotlinked from the
+ * sponsor's own server puts a third party on every page of the calendar —
+ * able to see every visitor — which is the exact thing this site avoids by
+ * not running an ad network. It also breaks the day they reorganise their
+ * files. Upload the image to public/img/sponsors/ instead.
+ */
+async function adminSaveSponsor(request, env, id = null) {
+  let b;
+  try { b = await request.json(); } catch { return fail("Malformed request."); }
+
+  const name = str(b.name, 120);
+  const dest = str(b.dest_url, 500);
+  const image = str(b.image_url, 300);
+  const errs = [];
+
+  if (!name || name.length < 2) errs.push("A sponsor name is required.");
+  if (!dest || !/^https?:\/\/.+/i.test(dest))
+    errs.push("The destination link must start with http:// or https://");
+  if (image && !/^\/img\/sponsors\/[\w.-]+$/.test(image))
+    errs.push("The image must be a file in /img/sponsors/ on this site, not a link to another server.");
+  for (const [label, v] of [["Start", str(b.starts_on, 10)], ["End", str(b.ends_on, 10)]])
+    if (v && !isRealDate(v)) errs.push(`${label} date must be a real date in YYYY-MM-DD form.`);
+
+  const starts = str(b.starts_on, 10) || null;
+  const ends   = str(b.ends_on, 10) || null;
+  if (starts && ends && ends < starts) errs.push("The end date is before the start date.");
+  if (errs.length) return json({ error: errs.join(" ") }, 400);
+
+  const row = {
+    name, image_url: image || null, alt: str(b.alt, 160) || null,
+    tagline: str(b.tagline, 160) || null, dest_url: dest,
+    starts_on: starts, ends_on: ends,
+    active: b.active === false ? 0 : 1, note: str(b.note, 1000) || null
+  };
+
+  if (id) {
+    const found = await env.DB.prepare("SELECT id FROM sponsors WHERE id = ?").bind(id).first();
+    if (!found) return fail("That sponsor no longer exists.", 404);
+    await env.DB.prepare(
+      `UPDATE sponsors SET name=?, image_url=?, alt=?, tagline=?, dest_url=?,
+              starts_on=?, ends_on=?, active=?, note=? WHERE id=?`
+    ).bind(row.name, row.image_url, row.alt, row.tagline, row.dest_url,
+           row.starts_on, row.ends_on, row.active, row.note, id).run();
+    return json({ ok: true, id });
+  }
+
+  const newId = crypto.randomUUID().slice(0, 8);
+  await env.DB.prepare(
+    `INSERT INTO sponsors (id, name, image_url, alt, tagline, dest_url,
+                           starts_on, ends_on, active, note)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`
+  ).bind(newId, row.name, row.image_url, row.alt, row.tagline, row.dest_url,
+         row.starts_on, row.ends_on, row.active, row.note).run();
+  return json({ ok: true, id: newId }, 201);
+}
+
+/** Removes a sponsor and its counts. Retiring one by setting active to false
+ *  keeps the history; this is for a row created by mistake. */
+async function adminDeleteSponsor(env, id) {
+  const res = await env.DB.prepare("DELETE FROM sponsors WHERE id = ?").bind(id).run();
+  if (!res.meta?.changes) return fail("That sponsor no longer exists.", 404);
+  return json({ ok: true });
+}
+
 async function adminDuplicates(env) {
   const { results } = await env.DB.prepare(
     `SELECT s.id, s.display_name, s.first_name, s.last_name, s.name_key,
@@ -1651,6 +1746,11 @@ export default {
           if (path === "/api/admin/export" && method === "GET")  return await adminExport(request, env);
           if (path === "/api/admin/series" && method === "PATCH") return await adminUpdateSeries(request, env, auth.email);
           if (path === "/api/admin/import" && method === "POST") return await adminImport(request, env, auth.email);
+          if (path === "/api/admin/sponsors" && method === "GET")  return await adminSponsors(env);
+          if (path === "/api/admin/sponsors" && method === "POST") return await adminSaveSponsor(request, env);
+          const sp = path.match(/^\/api\/admin\/sponsors\/([a-zA-Z0-9-]{1,64})$/);
+          if (sp && method === "PATCH")  return await adminSaveSponsor(request, env, sp[1]);
+          if (sp && method === "DELETE") return await adminDeleteSponsor(env, sp[1]);
 
           const m = path.match(/^\/api\/admin\/events\/([0-9a-fA-F-]{36})$/);
           if (m && method === "PATCH")  return await adminUpdate(request, env, m[1], auth.email);
@@ -1675,6 +1775,16 @@ export default {
         });
       }
 
+      /* Sponsor click-through. The destination comes from the database by id;
+         nothing in the request names a URL, so this can never be turned into
+         an open redirect. */
+      const sm = path.match(/^\/s\/([a-zA-Z0-9-]{1,64})$/);
+      if (sm && (method === "GET" || method === "HEAD")) {
+        const out = await handleSponsorClick(env, sm[1], securityHeaders);
+        if (out) return out;
+        return Response.redirect(origin + "/", 302);
+      }
+
       if (path.startsWith("/event/") && (method === "GET" || method === "HEAD")) {
         const page = await serveEventPage(request, env, path, origin);
         if (page) return page;
@@ -1692,9 +1802,22 @@ export default {
         const res = await calendarAsset(request, env, origin);
         if (!res || !res.ok) return res || fail("Not found", 404);
         const html = await res.text();
-        const events = await approvedEvents(env);
-        return htmlResponse(injectIntoCalendar(html, events, origin),
-          "public, max-age=300, stale-while-revalidate=1800");
+        const [events, sponsor] = await Promise.all([
+          approvedEvents(env), activeSponsor(env)
+        ]);
+
+        /* Counted after the response goes out. A reader should never wait on a
+           tally, and a failed counter is worth losing rather than turning a
+           page view into an error. */
+        if (sponsor && ctx && ctx.waitUntil) {
+          ctx.waitUntil(countImpression(env, sponsor.id).catch(() => {}));
+        }
+
+        return htmlResponse(
+          injectSponsor(injectIntoCalendar(html, events, origin), sponsor),
+          /* An unsold slot caches for five minutes as before. A sold one is
+             kept briefly so the day's impression count means something. */
+          sponsor ? "public, max-age=60" : "public, max-age=300, stale-while-revalidate=1800");
       }
 
       // ---- static assets ----

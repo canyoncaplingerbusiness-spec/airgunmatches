@@ -260,6 +260,7 @@
       <button class="tab" data-tab="all">All<span class="n" id="n-all">0</span></button>
       <button class="tab" data-tab="merge">Duplicate shooters<span class="n" id="n-merge">·</span></button>
       <button class="tab" data-tab="import">Import<span class="n" id="n-import">·</span></button>
+      <button class="tab" data-tab="sponsors">Sponsors<span class="n" id="n-sponsors">·</span></button>
     </div>
 
     <div class="toolbar">
@@ -268,6 +269,44 @@
     </div>
 
     <div id="rows"><div class="spinner"></div></div>
+
+    <!-- Sponsorship. One slot at the foot of the calendar, sold directly. -->
+    <div id="sponsorpanel" hidden>
+      <div class="card imp">
+        <h2>Calendar sponsor</h2>
+        <p class="sub">One sponsor shows at the foot of the calendar, labelled as a sponsor.
+          It appears only between its start and end dates — nothing to switch off when a
+          booking ends. Leave both dates blank to run it until you stop it.</p>
+
+        <div id="spmsg"></div>
+        <div id="splist"></div>
+
+        <h3 style="margin:26px 0 12px;font-size:16px">Add a sponsor</h3>
+        <div class="fields">
+          <div><label for="sp-name">Business name</label>
+            <input type="text" id="sp-name" maxlength="120" placeholder="Acme Airguns"></div>
+          <div><label for="sp-dest">Link to</label>
+            <input type="text" id="sp-dest" maxlength="500" placeholder="https://example.com"></div>
+          <div class="full"><label for="sp-image">Logo file</label>
+            <input type="text" id="sp-image" maxlength="300" placeholder="/img/sponsors/acme.png">
+            <p class="hint">Put the image in <b>public/img/sponsors/</b> and upload it with the
+              site, then name it here. It must live on this site — a logo loaded from the
+              sponsor's own server would put a third party on every page.</p></div>
+          <div><label for="sp-alt">Image description</label>
+            <input type="text" id="sp-alt" maxlength="160" placeholder="Acme Airguns"></div>
+          <div><label for="sp-tag">Tagline (optional)</label>
+            <input type="text" id="sp-tag" maxlength="160" placeholder="PCP rifles and tuning"></div>
+          <div><label for="sp-start">Starts</label>
+            <input type="date" id="sp-start"></div>
+          <div><label for="sp-end">Ends</label>
+            <input type="date" id="sp-end"></div>
+          <div class="full"><label for="sp-note">Private note</label>
+            <input type="text" id="sp-note" maxlength="1000"
+                   placeholder="What they paid, who to invoice, renewal date"></div>
+        </div>
+        <button class="refresh" id="sp-save">Add sponsor</button>
+      </div>
+    </div>
 
     <!-- Bulk import. The scout agent writes a JSON file; this reads it, shows
          what it would do, and only then writes. -->
@@ -311,6 +350,18 @@
   .pill.check{background:#fdf0d5;color:#8a6116}
   .impsum{margin:16px 0 0;font-size:14.5px}
   .impgo{margin-top:16px}
+  .sprow{display:flex;gap:14px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);
+    border-radius:10px;padding:14px 16px;margin-bottom:10px;background:#fff}
+  .sprow.live{border-color:#b9dfc9;background:#f6fbf8}
+  .sprow img{max-height:40px;width:auto}
+  .spmain{flex:1;min-width:190px}
+  .spmain b{font-size:15.5px}
+  .spmain small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+  .spstat{text-align:right;font-size:12.5px;color:var(--muted);min-width:116px}
+  .spstat b{display:block;font-size:17px;color:var(--text)}
+  .spbadge{font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+    padding:2px 7px;border-radius:999px;background:#eef1f5;color:#5b6570}
+  .spbadge.on{background:#e6f5ec;color:#1f7a4d}
 </style>
 
 <script type="module">
@@ -567,9 +618,12 @@ function render(){
   /* Import is its own panel rather than a list of submissions, so the search
      box and the rows area step aside for it. */
   const importing = TAB === "import";
+  const sponsoring = TAB === "sponsors";
   document.getElementById("importpanel").hidden = !importing;
-  box.hidden = importing;
-  document.querySelector(".toolbar").hidden = importing;
+  document.getElementById("sponsorpanel").hidden = !sponsoring;
+  box.hidden = importing || sponsoring;
+  document.querySelector(".toolbar").hidden = importing || sponsoring;
+  if(sponsoring){ loadSponsors(); return; }
   if(importing) return;
 
   if(TAB === "merge"){ renderMerge(box); return; }
@@ -898,6 +952,98 @@ document.getElementById("tabs").addEventListener("click", e => {
   [...document.querySelectorAll(".tab")].forEach(x => x.classList.toggle("on", x === t));
   render();
 });
+/* ---------------- sponsors ---------------- */
+
+const spMsg = (t, kind = "err") => {
+  document.getElementById("spmsg").innerHTML =
+    t ? `<div class="msg ${kind}" style="margin-bottom:14px">${esc(t)}</div>` : "";
+};
+
+async function loadSponsors(){
+  const box = document.getElementById("splist");
+  box.innerHTML = '<div class="spinner"></div>';
+  let out;
+  try {
+    const r = await fetch(`${API}/sponsors`, { headers: { accept: "application/json" } });
+    if(!r.ok) throw new Error(`The server responded ${r.status}.`);
+    out = await r.json();
+  } catch (err) { box.innerHTML = `<div class="msg err">${esc(err.message)}</div>`; return; }
+
+  const list = out.sponsors || [];
+  document.getElementById("n-sponsors").textContent = list.filter(s => s.live).length || "·";
+
+  if(!list.length){
+    box.innerHTML = `<div class="empty"><strong>No sponsors yet.</strong>
+      The foot of the calendar shows nothing at all until you add one — no empty box,
+      no placeholder.</div>`;
+    return;
+  }
+
+  box.innerHTML = list.map(s => {
+    /* Click-through rate is the number a sponsor actually asks about at
+       renewal, so work it out here rather than making Canyon do it. */
+    const ctr = s.impressions ? ((s.clicks / s.impressions) * 100).toFixed(1) + "%" : "—";
+    const when = [s.starts_on, s.ends_on].filter(Boolean).join(" to ") || "no end date";
+    return `<div class="sprow ${s.live ? "live" : ""}">
+      ${s.image_url ? `<img src="${esc(s.image_url)}" alt="">` : ""}
+      <div class="spmain">
+        <b>${esc(s.name)}</b>
+        <span class="spbadge ${s.live ? "on" : ""}">${s.live ? "Live now" : (s.active ? "Scheduled" : "Paused")}</span>
+        <small>${esc(when)}${s.note ? " · " + esc(s.note) : ""}</small>
+      </div>
+      <div class="spstat"><b>${s.impressions}</b>shown</div>
+      <div class="spstat"><b>${s.clicks}</b>clicks · ${ctr}</div>
+      <div class="row">
+        <button class="act" data-sptoggle="${esc(s.id)}" data-spactive="${s.active}">${
+          s.active ? "Pause" : "Resume"}</button>
+        <button class="act destroy" data-spdel="${esc(s.id)}">Delete</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+document.getElementById("sp-save").addEventListener("click", async () => {
+  const btn = document.getElementById("sp-save");
+  const v = id => document.getElementById(id).value.trim();
+  const body = {
+    name: v("sp-name"), dest_url: v("sp-dest"), image_url: v("sp-image"),
+    alt: v("sp-alt"), tagline: v("sp-tag"),
+    starts_on: v("sp-start"), ends_on: v("sp-end"), note: v("sp-note")
+  };
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    const r = await fetch(`${API}/sponsors`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const out = await r.json().catch(() => ({}));
+    if(!r.ok) throw new Error(out.error || `The server responded ${r.status}.`);
+    ["sp-name","sp-dest","sp-image","sp-alt","sp-tag","sp-start","sp-end","sp-note"]
+      .forEach(id => document.getElementById(id).value = "");
+    spMsg("Sponsor added.", "ok");
+    await loadSponsors();
+  } catch (err) { spMsg(err.message); }
+  finally { btn.disabled = false; btn.textContent = "Add sponsor"; }
+});
+
+document.getElementById("splist").addEventListener("click", async e => {
+  const t = e.target.closest("button[data-sptoggle]");
+  if(t){
+    const on = t.dataset.spactive === "1" || t.dataset.spactive === "true";
+    await fetch(`${API}/sponsors/${t.dataset.sptoggle}`, {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ active: !on })
+    }).catch(()=>{});
+    return loadSponsors();
+  }
+  const d = e.target.closest("button[data-spdel]");
+  if(d){
+    if(!confirm("Delete this sponsor and its impression history? Pausing keeps the numbers.")) return;
+    await fetch(`${API}/sponsors/${d.dataset.spdel}`, { method: "DELETE" }).catch(()=>{});
+    return loadSponsors();
+  }
+});
+
 /* ---------------- bulk import ---------------- */
 
 let IMPORT_EVENTS = null;          // the parsed file, held for the commit step
