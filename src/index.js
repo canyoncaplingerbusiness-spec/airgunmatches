@@ -35,7 +35,7 @@ const ADMIN_PATH = "/admin.html";
    into the calendar's own HTML. Kept in its own module because none of it is
    application logic — it exists purely so a crawler sees what a visitor sees. */
 import {
-  eventPath, idFragmentFrom, eventPageHtml, sitemapXml,
+  eventPath, idFragmentFrom, eventPageHtml, liveEventPageHtml, sitemapXml,
   injectIntoCalendar, injectCanonical
 } from "./seo.js";
 import {
@@ -618,7 +618,12 @@ async function getPublicEvents(env) {
   /* The event's own address, computed here rather than in the browser. The
      slug rules live in one place, so a page the client links to and a page the
      sitemap lists can never disagree. */
-  events.forEach(e => { e.results = byEvent[e.id] || null; e.path = eventPath(e); });
+  const live = await liveEventIds(env);
+  events.forEach(e => {
+    e.results = byEvent[e.id] || null;
+    e.path = eventPath(e);
+    e.live = live.has(e.id);
+  });
 
   return json({ events }, 200, {
     // Short cache: approvals appear within a minute without a deploy.
@@ -713,15 +718,42 @@ async function createSubmission(request, env) {
   }, 201);
 }
 
+/**
+ * The events that are being shot right now.
+ *
+ * Three things all have to be true: the director opened a discipline, marked
+ * it public, and the calendar date has actually arrived and not passed. The
+ * date test is the one that matters in practice — a director packs up and
+ * drives home without closing the match, and without this the event would
+ * announce itself as live until somebody noticed. The database decides, not a
+ * forgotten checkbox.
+ *
+ * end_date is coalesced to start_date so a one-day match stops being live at
+ * the end of that day rather than never.
+ */
+async function liveEventIds(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT DISTINCT e.id
+       FROM events e
+       JOIN match_disciplines d ON d.event_id = e.id
+      WHERE e.status = 'approved'
+        AND d.live_public = 1
+        AND d.state = 'live'
+        AND date('now') BETWEEN date(e.start_date) AND date(COALESCE(e.end_date, e.start_date))`
+  ).all();
+  return new Set((results || []).map(r => r.id));
+}
+
 /* Every approved event, shaped the way the SEO module expects. One query
    serves the sitemap, the calendar injection and the ItemList alike. */
 async function approvedEvents(env) {
+  const live = await liveEventIds(env);
   const { results } = await env.DB.prepare(
     `SELECT id, name, start_date, end_date, venue, city, state, gun_types,
             disciplines, org, juniors, url, note, created_at, results_updated_at
        FROM events WHERE status = 'approved' ORDER BY start_date ASC`
   ).all();
-  return (results || []).map(parseRow);
+  return (results || []).map(parseRow).map(e => ({ ...e, live: live.has(e.id) }));
 }
 
 /**
@@ -746,11 +778,16 @@ async function serveEventPage(request, env, path, origin, host) {
   if (rows.length !== 1) return null;       // unknown, or an ambiguous prefix
 
   const ev = parseRow(rows[0]);
-  ev.results = await resultsFor(env, ev.id);
 
-  /* The results credit, on event pages that actually have results. */
+  /* Being shot right now changes what this page is for, so decide before
+     building anything else. */
+  const live = (await liveEventIds(env)).has(ev.id);
+  ev.results = live ? null : await resultsFor(env, ev.id);
+
+  /* The results credit, on event pages that actually have results. Not during
+     a match: the live page carries nothing but standings. */
   let credit = "";
-  if (ev.results) {
+  if (ev.results && !live) {
     const sponsor = await activeSponsor(env);
     credit = resultsCreditHtml(sponsor, host);
   }
@@ -761,6 +798,18 @@ async function serveEventPage(request, env, path, origin, host) {
     return new Response(null, {
       status: 301,
       headers: { location: origin + canonical, ...securityHeaders() }
+    });
+  }
+
+  if (live) {
+    /* Never cached. A standings page served from an edge cache is a page
+       showing somebody else's idea of the current order. */
+    return new Response(liveEventPageHtml(ev, origin), {
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        ...securityHeaders()
+      }
     });
   }
 

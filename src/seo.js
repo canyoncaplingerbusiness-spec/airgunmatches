@@ -219,6 +219,7 @@ export function listingsHtml(events) {
         <p class="meta">${esc(dateRange(ev.start_date, ev.end_date))}<span class="sep">|</span>${
           esc(ev.venue)} — ${esc(ev.city)}, ${esc(ev.state)}</p>
         <div class="tags">
+          ${ev.live ? `<a class="tag live" href="${esc(eventPath(ev))}"><span class="dot"></span>LIVE NOW</a>` : ""}
           <span class="tag state">${esc(STATE_NAMES[ev.state] || ev.state)}</span>
           ${tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}
           ${ev.org ? `<span class="tag org">${esc(ev.org)}</span>` : ""}
@@ -227,6 +228,196 @@ export function listingsHtml(events) {
     </article>`;
   }
   return html;
+}
+
+/**
+ * An event while it is being shot.
+ *
+ * Everything that is true on any other day — the date, the venue, the town,
+ * what it is shot with, the entry fee — is deliberately not here. Someone
+ * opening this page during a match is not deciding whether to enter; they are
+ * a competitor between lanes or somebody at home following a shooter, and the
+ * only thing either of them wants is the current order. Driving directions to
+ * a range they are standing in is noise.
+ *
+ * It comes back when the match closes, along with the final results.
+ *
+ * Standings arrive from the API rather than being baked in, because the page
+ * refreshes itself every twenty seconds and a server-rendered table would be
+ * stale the moment it was sent. The event's name and the fact that it is live
+ * are rendered server-side so a crawler and a slow connection still get
+ * something meaningful.
+ */
+export function liveEventPageHtml(ev, origin) {
+  const url = origin + eventPath(ev);
+  const stateName = STATE_NAMES[ev.state] || ev.state;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LIVE — ${esc(ev.name)} | GunMatches.com</title>
+<meta name="description" content="Live standings from ${esc(ev.name)}, updating as the match is scored.">
+<link rel="canonical" href="${esc(url)}">
+<link rel="icon" href="/img/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/img/icon-180.png">
+<meta property="og:title" content="LIVE — ${esc(ev.name)}">
+<meta property="og:description" content="Live standings, updating as the match is scored.">
+<meta property="og:url" content="${esc(url)}">
+<style>
+  :root{--navy:#121417;--navy-2:#1E2329;--amber:#B71D1C;--bg:#f5f6f8;--card:#fff;
+    --line:#e2e6ec;--text:#1d2733;--muted:#677280;--green:#1f7a4d}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:820px;margin:0 auto;padding:0 20px}
+  header.site{background:linear-gradient(160deg,var(--navy),var(--navy-2));padding:14px 0}
+  header.site .wrap{display:flex;align-items:center;gap:16px}
+  header.site img{height:48px;width:auto;display:block}
+  .livebar{background:var(--amber);color:#fff;padding:9px 0}
+  .livebar .wrap{display:flex;align-items:center;gap:10px;font-weight:700;
+    letter-spacing:.5px;font-size:13.5px;text-transform:uppercase}
+  .dot{width:9px;height:9px;border-radius:50%;background:#fff;
+    animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  h1{margin:22px 0 4px;font-size:25px;line-height:1.25;letter-spacing:-.3px}
+  .sub{color:var(--muted);margin:0 0 18px;font-size:14.5px}
+  .discbar{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}
+  .discbtn{background:#fff;border:1px solid var(--line);border-radius:999px;
+    padding:8px 16px;font:inherit;font-size:14px;font-weight:600;cursor:pointer;color:var(--text)}
+  .discbtn[aria-selected="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:0;margin:0 0 18px;overflow:hidden}
+  .card h2{margin:0;padding:15px 18px;font-size:16.5px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:10px}
+  .prog{font-size:12.5px;font-weight:400;color:var(--muted);margin-left:auto}
+  table{width:100%;border-collapse:collapse;font-size:15px}
+  th{text-align:left;padding:9px 18px;font-size:10.5px;text-transform:uppercase;
+    letter-spacing:.6px;color:var(--muted);background:var(--bg)}
+  td{padding:11px 18px;border-top:1px solid var(--line)}
+  td.p{width:54px;font-weight:700;font-variant-numeric:tabular-nums}
+  td.sc{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .g1{color:#9a7b16}.g2{color:#6c7580}.g3{color:#8a5a33}
+  .sq{color:var(--muted);font-size:13px}
+  .shooting{color:var(--muted);font-weight:400;font-size:12px}
+  .flag{display:inline-block;background:#eef1f5;color:#5b6570;border-radius:4px;
+    padding:1px 6px;font-size:10.5px;font-weight:700;text-transform:uppercase;margin-left:6px}
+  .foot{color:var(--muted);font-size:13px;text-align:center;padding:8px 0 40px}
+  .foot a{color:var(--navy-2)}
+  .empty{padding:30px 18px;text-align:center;color:var(--muted)}
+  .spin{width:18px;height:18px;border:2px solid var(--line);border-top-color:var(--amber);
+    border-radius:50%;display:inline-block;animation:sp .8s linear infinite;vertical-align:-4px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <a href="/"><img src="/img/logo-gun-lg.png" alt="GunMatches.com"
+       width="381" height="352" style="height:48px;width:auto"></a>
+  </div>
+</header>
+
+<div class="livebar"><div class="wrap"><span class="dot"></span>
+  <span>Live — being scored now</span></div></div>
+
+<div class="wrap">
+  <h1>${esc(ev.name)}</h1>
+  <p class="sub" id="sub">Standings update automatically. <span class="spin"></span></p>
+  <div class="discbar" id="discbar"></div>
+  <div id="board"><div class="card"><div class="empty">Loading standings…</div></div></div>
+</div>
+
+<p class="foot">
+  <a href="/">Match calendar</a> · Full event details return when the match closes.
+</p>
+
+<script>
+/* Poll rather than stream: a range has poor signal, a competitor's phone is in
+   a pocket, and a dropped WebSocket that silently stops updating is worse than
+   a table that is twenty seconds old and honest about it. */
+const EVENT_ID = ${JSON.stringify(ev.id)};
+let PICKED = null;
+
+const esc = s => String(s == null ? "" : s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+  .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+
+async function tick(){
+  let data;
+  try {
+    const r = await fetch("/api/scoring/live?event=" + encodeURIComponent(EVENT_ID));
+    if(!r.ok) throw new Error();
+    data = await r.json();
+  } catch {
+    document.getElementById("sub").innerHTML =
+      "Couldn't reach the scores just now — still trying. <span class=\"spin\"></span>";
+    return;
+  }
+
+  const discs = data.disciplines || [];
+  if(!discs.length){
+    document.getElementById("discbar").innerHTML = "";
+    document.getElementById("board").innerHTML =
+      '<div class="card"><div class="empty"><strong>No scores yet.</strong><br>' +
+      'Standings appear here as the squads report in.</div></div>';
+    return;
+  }
+
+  if(!PICKED || !discs.some(d => d.discipline === PICKED)) PICKED = discs[0].discipline;
+
+  /* The filter only earns its place when there is more than one thing to
+     filter. A single button that does nothing is just clutter on a phone. */
+  document.getElementById("discbar").innerHTML = discs.length > 1
+    ? discs.map(d => '<button class="discbtn" role="tab" data-d="' + esc(d.discipline) +
+        '" aria-selected="' + (d.discipline === PICKED) + '">' + esc(d.discipline) + '</button>').join("")
+    : "";
+
+  const d = discs.find(x => x.discipline === PICKED);
+  const rows = d.standings || [];
+  const scored = rows.filter(r => r.place !== null).length;
+
+  document.getElementById("board").innerHTML =
+    '<div class="card"><h2>' + esc(d.discipline) +
+      '<span class="prog">' + scored + ' of ' + rows.length + ' scored</span></h2>' +
+    (rows.length
+      ? '<table><tr><th>#</th><th>Competitor</th><th style="text-align:right">' +
+        (d.mode === "stages" ? "Hits" : "Score") + '</th></tr>' +
+        rows.map(r =>
+          '<tr><td class="p ' + (r.place && r.place <= 3 ? "g" + r.place : "") + '">' +
+            (r.place ?? "—") + '</td>' +
+          '<td>' + esc(r.name) +
+            (r.squad_name ? ' <span class="sq">· ' + esc(r.squad_name) + '</span>' : "") +
+            (r.declared ? '<span class="flag">declared</span>' : "") + '</td>' +
+          '<td class="sc">' + esc(r.display) +
+            (r.complete === false ? ' <span class="shooting">shooting</span>' : "") +
+          '</td></tr>').join("") +
+        '</table>'
+      : '<div class="empty">No competitors entered yet.</div>') +
+    '</div>';
+
+  const t = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  document.getElementById("sub").textContent = "Updated " + t + " · refreshes automatically";
+}
+
+document.getElementById("discbar").addEventListener("click", e => {
+  const b = e.target.closest("button[data-d]");
+  if(!b) return;
+  PICKED = b.dataset.d;
+  tick();
+});
+
+tick();
+setInterval(tick, 20000);
+/* Catch up straight away when somebody comes back to the tab, rather than
+   showing them whatever was on screen when they left. */
+document.addEventListener("visibilitychange", () => { if(!document.hidden) tick(); });
+</script>
+</body>
+</html>`;
 }
 
 /** One event, as its own page. */

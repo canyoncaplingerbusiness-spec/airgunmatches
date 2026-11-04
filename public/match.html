@@ -148,6 +148,11 @@
   .pmax label{margin:0;white-space:nowrap}
   .pmax input{width:110px}
   .pmax .hint{flex:1;min-width:210px;margin:0}
+  .autonote{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)}
+  .autodot{width:7px;height:7px;border-radius:50%;background:var(--green);flex:none;
+    animation:livepulse 1.8s ease-in-out infinite}
+  @keyframes livepulse{0%,100%{opacity:1}50%{opacity:.25}}
+  @media (prefers-reduced-motion:reduce){ .autodot{animation:none} }
   .empty{text-align:center;color:var(--muted);font-size:14.5px;padding:26px 16px}
   footer.site{color:var(--muted);font-size:13px;text-align:center;padding:28px 0}
   footer.site a{color:var(--navy-2)}
@@ -247,6 +252,7 @@ let DATA = null;          // { event, match_disciplines }
 let current = null;       // md id
 let standings = {};       // md id -> rows
 let busy = false;
+let standingsTimer = null;   // the auto-refresh, cleared whenever the panel is rebuilt
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
   ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -482,6 +488,12 @@ function renderTabs() {
 function renderPanel() {
   const panel = $("panel");
   panel.innerHTML = "";
+
+  /* Every rebuild drops the previous timer. Without this, switching
+     disciplines a few times leaves several pollers running at once, each
+     fighting to redraw the same table. */
+  clearInterval(standingsTimer);
+  standingsTimer = null;
 
   if (!DATA.match_disciplines.length && typeof current !== "string") {
     panel.innerHTML = `<div class="empty">
@@ -1023,7 +1035,10 @@ function renderStandings(panel, md) {
     ${anyDeclared ? `<p class="hint">Placings marked <span class="declared">declared</span>
       were set by you, not worked out from the scores.</p>` : ""}
     <div class="row" style="margin-top:16px">
-      <button class="btn ghost sm" id="std-refresh">Refresh</button>
+      <button class="btn ghost sm" id="std-refresh">Refresh now</button>
+      <span class="autonote" id="std-auto">${md.state === "live"
+        ? `<span class="autodot"></span>Updating every few seconds`
+        : "Match closed — these standings are final unless you reopen it."}</span>
       <span style="flex:1"></span>
       <button class="btn" id="std-publish">Publish these results</button>
     </div>
@@ -1110,6 +1125,55 @@ function renderStandings(panel, md) {
 
   el.querySelector("#std-refresh").onclick = () =>
     act(async () => { await loadStandings(md.id); });
+
+  /* ---- auto refresh ----
+   *
+   * A director watching a match should not have to keep pressing a button to
+   * find out what is happening. Every five seconds while the match is live.
+   *
+   * Three things make this safe rather than annoying:
+   *
+   *   It never redraws while a score is being typed. The standings table holds
+   *   editable cells now, and rebuilding the panel under someone's fingers
+   *   would throw away a half-entered score — the single worst thing this
+   *   feature could do.
+   *
+   *   It stops when the tab is hidden. A console left open on a laptop in a
+   *   clubhouse would otherwise poll all weekend for nobody.
+   *
+   *   It redraws only when the numbers actually changed, so the table does not
+   *   flicker, and a dropdown or a scroll position is not reset every five
+   *   seconds for no reason.
+   */
+  clearInterval(standingsTimer);
+  standingsTimer = null;
+
+  if (md.state === "live") {
+    const signature = rows => JSON.stringify(
+      (rows || []).map(r => [r.entrant_id, r.place, r.display, r.declared]));
+    let last = signature(s.standings);
+
+    standingsTimer = setInterval(async () => {
+      if (document.hidden) return;
+      if (busy) return;
+      if (document.activeElement && document.activeElement.classList &&
+          document.activeElement.classList.contains("cell")) return;
+      if (current !== md.id) return;      // director moved to another discipline
+
+      try {
+        const fresh = await api(
+          `/api/scoring/standings?code=${encodeURIComponent(CODE)}&md=${md.id}`);
+        const next = signature(fresh.standings);
+        if (next === last) return;        // nothing moved; leave the page alone
+        last = next;
+        standings[md.id] = fresh;
+        render();
+      } catch {
+        /* A missed poll is not worth a message. The next one is five seconds
+           away, and the director is probably standing in a field. */
+      }
+    }, 5000);
+  }
 
   el.querySelector("#std-publish").onclick = () => {
     const scored = s.standings.filter(r => r.place !== null).length;

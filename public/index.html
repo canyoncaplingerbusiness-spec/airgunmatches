@@ -109,12 +109,20 @@
   .rtable td{padding:7px 10px;border-top:1px solid var(--line)}
   .rtable td.pl{width:46px;font-weight:800;color:var(--navy)}
   .rtable tr:nth-child(2) td.pl{color:var(--amber-dk)}
-  .tag.results{background:var(--green-bg);border-color:var(--green-line);color:var(--red);
-    display:inline-flex;align-items:center;gap:5px;letter-spacing:.6px}
-  .tag.results .dot{width:7px;height:7px;border-radius:50%;background:var(--red);
-    display:inline-block;flex:none;animation:pulse 2s ease-in-out infinite}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-  @media (prefers-reduced-motion:reduce){ .tag.results .dot{animation:none} }
+  /* A finished match: a quiet badge, no pulse. It used to use the treatment
+     below and claim to be LIVE weeks after everyone had gone home. */
+  .tag.results{background:var(--green-bg);border-color:var(--green-line);color:var(--green);
+    letter-spacing:.4px}
+  /* Actually being shot right now. The only pulsing thing on the page, and a
+     link straight to the standings. */
+  .tag.live{background:var(--amber);border-color:var(--amber);color:#fff;
+    display:inline-flex;align-items:center;gap:5px;letter-spacing:.6px;
+    text-decoration:none}
+  .tag.live:hover{background:var(--amber-dk);border-color:var(--amber-dk);color:#fff}
+  .tag.live .dot{width:7px;height:7px;border-radius:50%;background:#fff;
+    display:inline-block;flex:none;animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  @media (prefers-reduced-motion:reduce){ .tag.live .dot{animation:none} }
 
   /* Results button, so a finished match reads differently from an upcoming one */
   .minibtn.res{background:var(--green);color:#fff;border-color:var(--green)}
@@ -711,7 +719,8 @@ async function loadEvents(){
     org: r.org || "",
     juniors: !!r.juniors, url: r.url || "", note: r.note || "",
     video: r.video_url || "",
-    path: r.path || ""
+    path: r.path || "",
+    live: !!r.live
   }));
 }
 
@@ -959,7 +968,8 @@ function render(){
           ${(ev.disciplines || []).map(d => `<span class="tag">${esc(d)}</span>`).join("")}
           ${ev.org ? `<span class="tag org">${esc(ev.org)}</span>` : ""}
           ${ev.juniors ? `<span class="tag">Junior eligible</span>` : ""}
-          ${ev.results ? `<span class="tag results"><span class="dot"></span>LIVE</span>` : ""}
+          ${ev.live ? `<a class="tag live" href="${esc(ev.path)}"><span class="dot"></span>LIVE NOW</a>`
+                    : ev.results ? `<span class="tag results">Results</span>` : ""}
         </div>
       </div>
       <div class="eactions">
