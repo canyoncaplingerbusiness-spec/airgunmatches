@@ -39,7 +39,8 @@ import {
   injectIntoCalendar, injectCanonical
 } from "./seo.js";
 import {
-  activeSponsor, countImpression, handleSponsorClick, injectSponsor
+  activeSponsor, countImpression, handleSponsorClick, injectSponsor,
+  injectScoringSponsor, resultsCreditHtml, SPONSOR_CSS
 } from "./sponsors.js";
 
 /* Columns the public may ever see. Submitter and review fields are absent
@@ -731,7 +732,7 @@ async function approvedEvents(env) {
  * calendar. The id fragment in the path is matched by prefix so the readable
  * slug can change — a club renaming its match should not break inbound links.
  */
-async function serveEventPage(request, env, path, origin) {
+async function serveEventPage(request, env, path, origin, host) {
   const frag = idFragmentFrom(path);
   if (!frag) return null;
 
@@ -747,6 +748,13 @@ async function serveEventPage(request, env, path, origin) {
   const ev = parseRow(rows[0]);
   ev.results = await resultsFor(env, ev.id);
 
+  /* The results credit, on event pages that actually have results. */
+  let credit = "";
+  if (ev.results) {
+    const sponsor = await activeSponsor(env);
+    credit = resultsCreditHtml(sponsor, host);
+  }
+
   // Keep one address per event: anything else 301s to the canonical slug.
   const canonical = eventPath(ev);
   if (path !== canonical) {
@@ -756,7 +764,14 @@ async function serveEventPage(request, env, path, origin) {
     });
   }
 
-  return new Response(eventPageHtml(ev, origin), {
+  let page = eventPageHtml(ev, origin);
+  if (credit) {
+    page = page
+      .replace("</head>", `<style>${SPONSOR_CSS}</style>\n</head>`)
+      .replace("</div>\n\n  <p class=\"crumb\">Is this your match", `${credit}</div>\n\n  <p class="crumb">Is this your match`);
+  }
+
+  return new Response(page, {
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "public, max-age=600, stale-while-revalidate=3600",
@@ -1764,9 +1779,16 @@ export default {
          addresses a crawler is given, and none of them exists as a file. */
       const origin = `${url.protocol}//${url.host}`;
 
+      /* Every page names gunmatches.com as the original, whichever domain
+         served it. Both domains serve the same calendar, so without this the
+         alias competes with the real site for identical content — and it was
+         doing exactly that: airgunmatches.com was declaring itself canonical.
+         Internal links are relative, so only the declared address changes. */
+      const canon = CANONICAL_ORIGIN;
+
       if (path === "/sitemap.xml" && (method === "GET" || method === "HEAD")) {
         const events = await approvedEvents(env);
-        return new Response(sitemapXml(events, origin), {
+        return new Response(sitemapXml(events, canon), {
           headers: {
             "content-type": "application/xml; charset=utf-8",
             "cache-control": "public, max-age=3600",
@@ -1780,13 +1802,13 @@ export default {
          an open redirect. */
       const sm = path.match(/^\/s\/([a-zA-Z0-9-]{1,64})$/);
       if (sm && (method === "GET" || method === "HEAD")) {
-        const out = await handleSponsorClick(env, sm[1], securityHeaders);
+        const out = await handleSponsorClick(env, sm[1], securityHeaders, url.host);
         if (out) return out;
         return Response.redirect(origin + "/", 302);
       }
 
       if (path.startsWith("/event/") && (method === "GET" || method === "HEAD")) {
-        const page = await serveEventPage(request, env, path, origin);
+        const page = await serveEventPage(request, env, path, canon, url.host);
         if (page) return page;
         return new Response(notFoundHtml(origin), {
           status: 404,
@@ -1814,10 +1836,21 @@ export default {
         }
 
         return htmlResponse(
-          injectSponsor(injectIntoCalendar(html, events, origin), sponsor),
+          injectSponsor(injectIntoCalendar(html, events, canon), sponsor, url.host),
           /* An unsold slot caches for five minutes as before. A sold one is
              kept briefly so the day's impression count means something. */
           sponsor ? "public, max-age=60" : "public, max-age=300, stale-while-revalidate=1800");
+      }
+
+      /* The scoring screen, with the sponsor logo in its header if one is
+         booked there. Kept out of the generic asset path because this page is
+         used offline and should change as little as possible. */
+      if ((path === "/score.html" || path === "/score") && method === "GET") {
+        const res = await env.ASSETS.fetch(request);
+        if (!res.ok || !(res.headers.get("content-type") || "").includes("text/html"))
+          return res;
+        const [html, sponsor] = await Promise.all([res.text(), activeSponsor(env)]);
+        return htmlResponse(injectScoringSponsor(html, sponsor), "public, max-age=300");
       }
 
       // ---- static assets ----
