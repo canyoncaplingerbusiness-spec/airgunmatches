@@ -1376,49 +1376,94 @@ async function adminSaveSponsor(request, env, id = null) {
   let b;
   try { b = await request.json(); } catch { return fail("Malformed request."); }
 
+  /* Pause and resume send nothing but {active}. Treat that as the small edit
+     it is rather than running it through full validation, which would reject
+     it for having no name and no link. */
+  if (id && Object.keys(b).length === 1 && typeof b.active === "boolean") {
+    const r = await env.DB.prepare("UPDATE sponsors SET active = ? WHERE id = ?")
+      .bind(b.active ? 1 : 0, id).run();
+    if (!r.meta?.changes) return fail("That sponsor no longer exists.", 404);
+    return json({ ok: true, id });
+  }
+
   const name = str(b.name, 120);
   const dest = str(b.dest_url, 500);
-  const image = str(b.image_url, 300);
+  const destAlt = str(b.dest_url_alt, 500);
   const errs = [];
+
+  /* Every image has to be a file on this site. Repeated for each of the three
+     because a sponsor kit arrives as three files and it only takes one of them
+     to be pasted as a link to the sponsor's own server. */
+  const ART = /^\/img\/sponsors\/[\w.-]+$/;
+  const art = {};
+  for (const [key, label] of [
+    ["image_url", "desktop banner"],
+    ["image_mobile_url", "mobile banner"],
+    ["badge_url", "round badge"]
+  ]) {
+    const v = str(b[key], 300);
+    if (v && !ART.test(v))
+      errs.push(`The ${label} must be a file in /img/sponsors/ on this site, not a link to another server.`);
+    art[key] = v || null;
+  }
 
   if (!name || name.length < 2) errs.push("A sponsor name is required.");
   if (!dest || !/^https?:\/\/.+/i.test(dest))
     errs.push("The destination link must start with http:// or https://");
-  if (image && !/^\/img\/sponsors\/[\w.-]+$/.test(image))
-    errs.push("The image must be a file in /img/sponsors/ on this site, not a link to another server.");
+  if (destAlt && !/^https?:\/\/.+/i.test(destAlt))
+    errs.push("The airgunmatches.com link must start with http:// or https://");
   for (const [label, v] of [["Start", str(b.starts_on, 10)], ["End", str(b.ends_on, 10)]])
     if (v && !isRealDate(v)) errs.push(`${label} date must be a real date in YYYY-MM-DD form.`);
 
   const starts = str(b.starts_on, 10) || null;
   const ends   = str(b.ends_on, 10) || null;
   if (starts && ends && ends < starts) errs.push("The end date is before the start date.");
+
+  const on = k => b[k] === true || b[k] === 1 || b[k] === "1" ? 1 : 0;
+  const placements = {
+    on_calendar: on("on_calendar"), on_results: on("on_results"), on_scoring: on("on_scoring")
+  };
+  if (!placements.on_calendar && !placements.on_results && !placements.on_scoring)
+    errs.push("Pick at least one placement — otherwise the sponsor appears nowhere.");
+
   if (errs.length) return json({ error: errs.join(" ") }, 400);
 
   const row = {
-    name, image_url: image || null, alt: str(b.alt, 160) || null,
-    tagline: str(b.tagline, 160) || null, dest_url: dest,
+    name, ...art, alt: str(b.alt, 160) || null,
+    tagline: str(b.tagline, 160) || null,
+    dest_url: dest, dest_url_alt: destAlt || null,
+    results_line: str(b.results_line, 160) || null,
     starts_on: starts, ends_on: ends,
-    active: b.active === false ? 0 : 1, note: str(b.note, 1000) || null
+    active: b.active === false ? 0 : 1, note: str(b.note, 1000) || null,
+    ...placements
   };
 
   if (id) {
     const found = await env.DB.prepare("SELECT id FROM sponsors WHERE id = ?").bind(id).first();
     if (!found) return fail("That sponsor no longer exists.", 404);
     await env.DB.prepare(
-      `UPDATE sponsors SET name=?, image_url=?, alt=?, tagline=?, dest_url=?,
-              starts_on=?, ends_on=?, active=?, note=? WHERE id=?`
-    ).bind(row.name, row.image_url, row.alt, row.tagline, row.dest_url,
-           row.starts_on, row.ends_on, row.active, row.note, id).run();
+      `UPDATE sponsors SET name=?, image_url=?, image_mobile_url=?, badge_url=?, alt=?,
+              tagline=?, dest_url=?, dest_url_alt=?, results_line=?,
+              starts_on=?, ends_on=?, active=?, note=?,
+              on_calendar=?, on_results=?, on_scoring=? WHERE id=?`
+    ).bind(row.name, row.image_url, row.image_mobile_url, row.badge_url, row.alt,
+           row.tagline, row.dest_url, row.dest_url_alt, row.results_line,
+           row.starts_on, row.ends_on, row.active, row.note,
+           row.on_calendar, row.on_results, row.on_scoring, id).run();
     return json({ ok: true, id });
   }
 
   const newId = crypto.randomUUID().slice(0, 8);
   await env.DB.prepare(
-    `INSERT INTO sponsors (id, name, image_url, alt, tagline, dest_url,
-                           starts_on, ends_on, active, note)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`
-  ).bind(newId, row.name, row.image_url, row.alt, row.tagline, row.dest_url,
-         row.starts_on, row.ends_on, row.active, row.note).run();
+    `INSERT INTO sponsors (id, name, image_url, image_mobile_url, badge_url, alt,
+                           tagline, dest_url, dest_url_alt, results_line,
+                           starts_on, ends_on, active, note,
+                           on_calendar, on_results, on_scoring)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(newId, row.name, row.image_url, row.image_mobile_url, row.badge_url, row.alt,
+         row.tagline, row.dest_url, row.dest_url_alt, row.results_line,
+         row.starts_on, row.ends_on, row.active, row.note,
+         row.on_calendar, row.on_results, row.on_scoring).run();
   return json({ ok: true, id: newId }, 201);
 }
 

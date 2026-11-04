@@ -281,30 +281,65 @@
         <div id="spmsg"></div>
         <div id="splist"></div>
 
-        <h3 style="margin:26px 0 12px;font-size:16px">Add a sponsor</h3>
+        <h3 id="sp-heading" style="margin:26px 0 12px;font-size:16px">Add a sponsor</h3>
         <div class="fields">
           <div><label for="sp-name">Business name</label>
             <input type="text" id="sp-name" maxlength="120" placeholder="Acme Airguns"></div>
-          <div><label for="sp-dest">Link to</label>
-            <input type="text" id="sp-dest" maxlength="500" placeholder="https://example.com"></div>
-          <div class="full"><label for="sp-image">Logo file</label>
-            <input type="text" id="sp-image" maxlength="300" placeholder="/img/sponsors/acme.png">
-            <p class="hint">Put the image in <b>public/img/sponsors/</b> and upload it with the
-              site, then name it here. It must live on this site — a logo loaded from the
-              sponsor's own server would put a third party on every page.</p></div>
           <div><label for="sp-alt">Image description</label>
-            <input type="text" id="sp-alt" maxlength="160" placeholder="Acme Airguns"></div>
+            <input type="text" id="sp-alt" maxlength="160"
+                   placeholder="Acme Airguns: PCP rifles and tuning"></div>
+
+          <div class="full"><label for="sp-dest">Link to — on gunmatches.com</label>
+            <input type="text" id="sp-dest" maxlength="500"
+                   placeholder="https://example.com/?ref=gunmatches"></div>
+          <div class="full"><label for="sp-destalt">Link to — on airgunmatches.com (optional)</label>
+            <input type="text" id="sp-destalt" maxlength="500"
+                   placeholder="https://example.com/?ref=airgunmatches">
+            <p class="hint">Both domains serve the same calendar. Give a different tracked link
+              here and the sponsor can tell which site sent the visitor. Leave it blank to use
+              the same link on both.</p></div>
+
+          <div class="full"><p class="hint" style="margin:6px 0 0"><b>Artwork.</b>
+            Put the files in <b>public/img/sponsors/</b> and upload them with the site, then name
+            them here. They must live on this site — a logo loaded from the sponsor's own server
+            would put a third party on every page of your calendar.</p></div>
+          <div><label for="sp-image">Banner — desktop (728×90)</label>
+            <input type="text" id="sp-image" maxlength="300" placeholder="/img/sponsors/acme-728x90.png"></div>
+          <div><label for="sp-imagemob">Banner — mobile (320×50)</label>
+            <input type="text" id="sp-imagemob" maxlength="300" placeholder="/img/sponsors/acme-320x50.png"></div>
+          <div><label for="sp-badge">Round badge</label>
+            <input type="text" id="sp-badge" maxlength="300" placeholder="/img/sponsors/acme-badge.png"></div>
           <div><label for="sp-tag">Tagline (optional)</label>
-            <input type="text" id="sp-tag" maxlength="160" placeholder="PCP rifles and tuning"></div>
+            <input type="text" id="sp-tag" maxlength="160" placeholder="Precision bore care"></div>
+
+          <div class="full"><label for="sp-resline">Line shown above match results</label>
+            <input type="text" id="sp-resline" maxlength="160"
+                   placeholder="Match results presented by Acme Airguns">
+            <p class="hint">Only appears on events that actually have published results.</p></div>
+
+          <div class="full"><label>Where it appears</label>
+            <div class="row" style="gap:18px;margin-top:4px">
+              <label class="winner"><input type="checkbox" id="sp-oncal" checked>
+                <span>Calendar banner</span></label>
+              <label class="winner"><input type="checkbox" id="sp-onres">
+                <span>Above match results</span></label>
+              <label class="winner"><input type="checkbox" id="sp-onsco">
+                <span>Live scoring screen</span></label>
+            </div></div>
+
           <div><label for="sp-start">Starts</label>
             <input type="date" id="sp-start"></div>
           <div><label for="sp-end">Ends</label>
-            <input type="date" id="sp-end"></div>
+            <input type="date" id="sp-end">
+            <p class="hint">Leave blank to run until you pause it.</p></div>
           <div class="full"><label for="sp-note">Private note</label>
             <input type="text" id="sp-note" maxlength="1000"
                    placeholder="What they paid, who to invoice, renewal date"></div>
         </div>
-        <button class="refresh" id="sp-save">Add sponsor</button>
+        <div class="row">
+          <button class="refresh" id="sp-save">Add sponsor</button>
+          <button class="act" id="sp-cancel" hidden>Cancel edit</button>
+        </div>
       </div>
     </div>
 
@@ -954,6 +989,31 @@ document.getElementById("tabs").addEventListener("click", e => {
 });
 /* ---------------- sponsors ---------------- */
 
+/* One list of the form's fields, so adding, editing and clearing cannot drift
+   apart — the bug where an edit silently keeps a value from the sponsor you
+   edited last comes from maintaining three copies of this. */
+const SP_TEXT = {
+  "sp-name":"name", "sp-alt":"alt", "sp-dest":"dest_url", "sp-destalt":"dest_url_alt",
+  "sp-image":"image_url", "sp-imagemob":"image_mobile_url", "sp-badge":"badge_url",
+  "sp-tag":"tagline", "sp-resline":"results_line",
+  "sp-start":"starts_on", "sp-end":"ends_on", "sp-note":"note"
+};
+const SP_CHECK = { "sp-oncal":"on_calendar", "sp-onres":"on_results", "sp-onsco":"on_scoring" };
+
+let SP_EDITING = null;   // id being edited, or null when adding
+
+function spForm(values){
+  for(const id in SP_TEXT) document.getElementById(id).value = values ? (values[SP_TEXT[id]] ?? "") : "";
+  for(const id in SP_CHECK)
+    document.getElementById(id).checked = values ? !!values[SP_CHECK[id]] : (id === "sp-oncal");
+  SP_EDITING = values ? values.id : null;
+  document.getElementById("sp-heading").textContent =
+    values ? `Editing ${values.name}` : "Add a sponsor";
+  document.getElementById("sp-save").textContent = values ? "Save changes" : "Add sponsor";
+  document.getElementById("sp-cancel").hidden = !values;
+  if(values) document.getElementById("sp-heading").scrollIntoView({ behavior:"smooth", block:"center" });
+}
+
 const spMsg = (t, kind = "err") => {
   document.getElementById("spmsg").innerHTML =
     t ? `<div class="msg ${kind}" style="margin-bottom:14px">${esc(t)}</div>` : "";
@@ -969,7 +1029,7 @@ async function loadSponsors(){
     out = await r.json();
   } catch (err) { box.innerHTML = `<div class="msg err">${esc(err.message)}</div>`; return; }
 
-  const list = out.sponsors || [];
+  const list = SPONSORS = out.sponsors || [];
   document.getElementById("n-sponsors").textContent = list.filter(s => s.live).length || "·";
 
   if(!list.length){
@@ -984,16 +1044,20 @@ async function loadSponsors(){
        renewal, so work it out here rather than making Canyon do it. */
     const ctr = s.impressions ? ((s.clicks / s.impressions) * 100).toFixed(1) + "%" : "—";
     const when = [s.starts_on, s.ends_on].filter(Boolean).join(" to ") || "no end date";
+    const where = [
+      s.on_calendar && "calendar", s.on_results && "results", s.on_scoring && "scoring"
+    ].filter(Boolean).join(", ") || "nowhere — no placement ticked";
     return `<div class="sprow ${s.live ? "live" : ""}">
       ${s.image_url ? `<img src="${esc(s.image_url)}" alt="">` : ""}
       <div class="spmain">
         <b>${esc(s.name)}</b>
         <span class="spbadge ${s.live ? "on" : ""}">${s.live ? "Live now" : (s.active ? "Scheduled" : "Paused")}</span>
-        <small>${esc(when)}${s.note ? " · " + esc(s.note) : ""}</small>
+        <small>${esc(when)} · shows on ${esc(where)}${s.note ? " · " + esc(s.note) : ""}</small>
       </div>
       <div class="spstat"><b>${s.impressions}</b>shown</div>
       <div class="spstat"><b>${s.clicks}</b>clicks · ${ctr}</div>
       <div class="row">
+        <button class="act" data-spedit="${esc(s.id)}">Edit</button>
         <button class="act" data-sptoggle="${esc(s.id)}" data-spactive="${s.active}">${
           s.active ? "Pause" : "Resume"}</button>
         <button class="act destroy" data-spdel="${esc(s.id)}">Delete</button>
@@ -1002,31 +1066,43 @@ async function loadSponsors(){
   }).join("");
 }
 
+document.getElementById("sp-cancel").addEventListener("click", () => { spForm(null); spMsg(""); });
+
 document.getElementById("sp-save").addEventListener("click", async () => {
   const btn = document.getElementById("sp-save");
-  const v = id => document.getElementById(id).value.trim();
-  const body = {
-    name: v("sp-name"), dest_url: v("sp-dest"), image_url: v("sp-image"),
-    alt: v("sp-alt"), tagline: v("sp-tag"),
-    starts_on: v("sp-start"), ends_on: v("sp-end"), note: v("sp-note")
-  };
+  const was = btn.textContent;
+  const body = {};
+  for(const id in SP_TEXT)  body[SP_TEXT[id]]  = document.getElementById(id).value.trim();
+  for(const id in SP_CHECK) body[SP_CHECK[id]] = document.getElementById(id).checked;
+
+  if(!body.on_calendar && !body.on_results && !body.on_scoring){
+    return spMsg("Tick at least one placement, or the sponsor pays to appear nowhere.");
+  }
+
+  const editing = SP_EDITING;
   btn.disabled = true; btn.textContent = "Saving…";
   try {
-    const r = await fetch(`${API}/sponsors`, {
-      method: "POST", headers: { "content-type": "application/json" },
+    const r = await fetch(editing ? `${API}/sponsors/${editing}` : `${API}/sponsors`, {
+      method: editing ? "PATCH" : "POST",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify(body)
     });
     const out = await r.json().catch(() => ({}));
     if(!r.ok) throw new Error(out.error || `The server responded ${r.status}.`);
-    ["sp-name","sp-dest","sp-image","sp-alt","sp-tag","sp-start","sp-end","sp-note"]
-      .forEach(id => document.getElementById(id).value = "");
-    spMsg("Sponsor added.", "ok");
+    spForm(null);
+    spMsg(editing ? "Changes saved." : "Sponsor added.", "ok");
     await loadSponsors();
   } catch (err) { spMsg(err.message); }
-  finally { btn.disabled = false; btn.textContent = "Add sponsor"; }
+  finally { btn.disabled = false; btn.textContent = was; }
 });
 
 document.getElementById("splist").addEventListener("click", async e => {
+  const ed = e.target.closest("button[data-spedit]");
+  if(ed){
+    const row = SPONSORS.find(s => s.id === ed.dataset.spedit);
+    if(row){ spForm(row); spMsg(""); }
+    return;
+  }
   const t = e.target.closest("button[data-sptoggle]");
   if(t){
     const on = t.dataset.spactive === "1" || t.dataset.spactive === "true";
@@ -1047,6 +1123,7 @@ document.getElementById("splist").addEventListener("click", async e => {
 /* ---------------- bulk import ---------------- */
 
 let IMPORT_EVENTS = null;          // the parsed file, held for the commit step
+let SPONSORS = [];                 // last loaded, so Edit can fill the form without a refetch
 
 const impMsg = (text, kind = "err") => {
   document.getElementById("impmsg").innerHTML =
