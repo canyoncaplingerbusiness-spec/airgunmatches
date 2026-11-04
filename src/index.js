@@ -31,6 +31,14 @@ import { handleScoring } from "./scoring.js";
 
 const ADMIN_PATH = "/admin.html";
 
+/* Search-engine rendering: event pages, the sitemap, and the listings injected
+   into the calendar's own HTML. Kept in its own module because none of it is
+   application logic — it exists purely so a crawler sees what a visitor sees. */
+import {
+  eventPath, idFragmentFrom, eventPageHtml, sitemapXml,
+  injectIntoCalendar, injectCanonical
+} from "./seo.js";
+
 /* Columns the public may ever see. Submitter and review fields are absent
    by construction rather than filtered out afterwards. */
 const PUBLIC_COLUMNS =
@@ -603,7 +611,10 @@ async function getPublicEvents(env) {
       place: r.place, competitor: r.competitor, score: r.score, class: r.class
     });
   });
-  events.forEach(e => { e.results = byEvent[e.id] || null; });
+  /* The event's own address, computed here rather than in the browser. The
+     slug rules live in one place, so a page the client links to and a page the
+     sitemap lists can never disagree. */
+  events.forEach(e => { e.results = byEvent[e.id] || null; e.path = eventPath(e); });
 
   return json({ events }, 200, {
     // Short cache: approvals appear within a minute without a deploy.
@@ -696,6 +707,71 @@ async function createSubmission(request, env) {
     skipped,
     dates: made.map(o => o.start)
   }, 201);
+}
+
+/* Every approved event, shaped the way the SEO module expects. One query
+   serves the sitemap, the calendar injection and the ItemList alike. */
+async function approvedEvents(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT id, name, start_date, end_date, venue, city, state, gun_types,
+            disciplines, org, juniors, url, note, created_at, results_updated_at
+       FROM events WHERE status = 'approved' ORDER BY start_date ASC`
+  ).all();
+  return (results || []).map(parseRow);
+}
+
+/**
+ * One event, at its own address, rendered on the server.
+ *
+ * Google's event results require a page per event, and a page cannot be
+ * shared, linked or bookmarked if it only exists as a fragment of the
+ * calendar. The id fragment in the path is matched by prefix so the readable
+ * slug can change — a club renaming its match should not break inbound links.
+ */
+async function serveEventPage(request, env, path, origin) {
+  const frag = idFragmentFrom(path);
+  if (!frag) return null;
+
+  const row = await env.DB.prepare(
+    `SELECT * FROM events
+      WHERE status = 'approved' AND replace(id,'-','') LIKE ? || '%'
+      LIMIT 2`
+  ).bind(frag).all();
+
+  const rows = row.results || [];
+  if (rows.length !== 1) return null;       // unknown, or an ambiguous prefix
+
+  const ev = parseRow(rows[0]);
+  ev.results = await resultsFor(env, ev.id);
+
+  // Keep one address per event: anything else 301s to the canonical slug.
+  const canonical = eventPath(ev);
+  if (path !== canonical) {
+    return new Response(null, {
+      status: 301,
+      headers: { location: origin + canonical, ...securityHeaders() }
+    });
+  }
+
+  return new Response(eventPageHtml(ev, origin), {
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "public, max-age=600, stale-while-revalidate=3600",
+      ...securityHeaders()
+    }
+  });
+}
+
+/** Published results for one event, grouped by discipline, in finishing order. */
+async function resultsFor(env, id) {
+  const { results } = await env.DB.prepare(
+    `SELECT discipline, place, competitor, score, class
+       FROM results WHERE event_id = ? ORDER BY discipline, sort_order`
+  ).bind(id).all();
+  if (!results || !results.length) return null;
+  const out = {};
+  for (const r of results) (out[r.discipline] ||= []).push(r);
+  return out;
 }
 
 async function getResultsEvent(request, env) {
@@ -959,6 +1035,28 @@ async function getShooter(request, env, id) {
 /* ------------------------------------------------------------------ */
 
 const MAX_IMPORT_EVENTS = 200;
+
+/* Pages that should name themselves as the original. The canonical always
+   points at gunmatches.com regardless of which domain served the request —
+   that is the whole point: one address per page, whichever door you came in. */
+const CANONICAL_ORIGIN = "https://gunmatches.com";
+const CANONICAL_PAGES = new Set(["/rankings.html", "/organizers.html"]);
+
+/** A 404 that still looks like the site and offers a way back. */
+function notFoundHtml(origin) {
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Match not found — GunMatches.com</title>
+<style>body{margin:0;background:#f5f6f8;color:#1d2733;font:16px/1.6 -apple-system,
+BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;display:flex;min-height:100vh;
+align-items:center;justify-content:center;text-align:center}
+.b{max-width:460px;padding:30px}h1{font-size:23px;margin:0 0 10px}
+p{color:#677280}a{color:#B71D1C;font-weight:700}</style></head>
+<body><div class="b"><h1>That match isn't listed</h1>
+<p>It may have been removed, or the link may be out of date.</p>
+<p><a href="/">See every upcoming match →</a></p></div></body></html>`;
+}
 
 /** A loose key for "is this the same match?" — lowercase, no punctuation, and
  *  with the words clubs pad names with stripped out, so "NSC Grand Prix 2026"
@@ -1505,6 +1603,50 @@ export default {
         return fail("Not found", 404);
       }
 
+      /* ---- pages rendered from the database ----
+         These sit ahead of the static files deliberately: they are the
+         addresses a crawler is given, and none of them exists as a file. */
+      const origin = `${url.protocol}//${url.host}`;
+
+      if (path === "/sitemap.xml" && (method === "GET" || method === "HEAD")) {
+        const events = await approvedEvents(env);
+        return new Response(sitemapXml(events, origin), {
+          headers: {
+            "content-type": "application/xml; charset=utf-8",
+            "cache-control": "public, max-age=3600",
+            ...securityHeaders()
+          }
+        });
+      }
+
+      if (path.startsWith("/event/") && (method === "GET" || method === "HEAD")) {
+        const page = await serveEventPage(request, env, path, origin);
+        if (page) return page;
+        return new Response(notFoundHtml(origin), {
+          status: 404,
+          headers: { "content-type": "text/html; charset=utf-8", ...securityHeaders() }
+        });
+      }
+
+      /* The calendar, with its listings already in the HTML. The client script
+         replaces them the moment it runs, so this changes nothing a visitor
+         sees — it exists for the first pass of a crawler, which does not wait
+         for JavaScript. */
+      if ((path === "/" || path === "/index.html") && method === "GET") {
+        const res = await env.ASSETS.fetch(new Request(origin + "/index.html", request));
+        const html = await res.text();
+        const events = await approvedEvents(env);
+        const headers = new Headers(res.headers);
+        for (const [k, v] of Object.entries(securityHeaders())) headers.set(k, v);
+        headers.set("content-type", "text/html; charset=utf-8");
+        headers.set("cache-control", "public, max-age=300, stale-while-revalidate=1800");
+        headers.delete("content-length");
+        headers.delete("etag");
+        return new Response(injectIntoCalendar(html, events, origin), {
+          status: res.status, headers
+        });
+      }
+
       // ---- static assets ----
       // The admin page is additionally gated by Cloudflare Access at the edge;
       // this check means a misconfigured Access policy still cannot serve it.
@@ -1522,6 +1664,19 @@ export default {
       const res = await env.ASSETS.fetch(request);
       const headers = new Headers(res.headers);
       for (const [k, v] of Object.entries(securityHeaders())) headers.set(k, v);
+
+      /* A canonical link on the handful of pages worth indexing. This is also
+         what stops airgunmatches.com competing with gunmatches.com for the
+         same content while the redirect switch is off. */
+      if (CANONICAL_PAGES.has(path) && res.status === 200) {
+        const html = await res.text();
+        headers.delete("content-length");
+        headers.delete("etag");
+        return new Response(injectCanonical(html, CANONICAL_ORIGIN, path), {
+          status: res.status, headers
+        });
+      }
+
       return new Response(res.body, { status: res.status, headers });
 
     } catch (err) {

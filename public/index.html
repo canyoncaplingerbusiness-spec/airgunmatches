@@ -710,7 +710,8 @@ async function loadEvents(){
     disciplines: Array.isArray(r.disciplines) ? r.disciplines : [],
     org: r.org || "",
     juniors: !!r.juniors, url: r.url || "", note: r.note || "",
-    video: r.video_url || ""
+    video: r.video_url || "",
+    path: r.path || ""
   }));
 }
 
@@ -967,6 +968,7 @@ function render(){
                  : (hasResults ? "Results" : "View details")}
         </button>
         ${hasResults ? "" : `<button class="minibtn" type="button" data-ics="${i}">Add to calendar</button>`}
+        ${ev.path ? `<a class="minibtn" href="${esc(ev.path)}">Event page</a>` : ""}
       </div>
 
       ${open ? `<div class="details">
