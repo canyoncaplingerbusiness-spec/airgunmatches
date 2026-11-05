@@ -248,7 +248,7 @@ export function listingsHtml(events) {
  * are rendered server-side so a crawler and a slow connection still get
  * something meaningful.
  */
-export function liveEventPageHtml(ev, origin) {
+export function liveEventPageHtml(ev, origin, sp = null) {
   const url = origin + eventPath(ev);
   const stateName = STATE_NAMES[ev.state] || ev.state;
 
@@ -310,6 +310,7 @@ export function liveEventPageHtml(ev, origin) {
   .spin{width:18px;height:18px;border:2px solid var(--line);border-top-color:var(--amber);
     border-radius:50%;display:inline-block;animation:sp .8s linear infinite;vertical-align:-4px}
   @keyframes sp{to{transform:rotate(360deg)}}
+  ${sp ? sp.css : ""}
 </style>
 </head>
 <body>
@@ -323,13 +324,16 @@ export function liveEventPageHtml(ev, origin) {
 
 <div class="livebar"><div class="wrap"><span class="dot"></span>
   <span>Live — being scored now</span></div></div>
+${sp ? sp.top : ""}
 
 <div class="wrap">
   <h1>${esc(ev.name)}</h1>
   <p class="sub" id="sub">Standings update automatically. <span class="spin"></span></p>
   <div class="discbar" id="discbar"></div>
   <div id="board"><div class="card"><div class="empty">Loading standings…</div></div></div>
+  ${sp ? sp.credit : ""}
 </div>
+${sp ? sp.rails : ""}
 
 <p class="foot">
   <a href="/">Match calendar</a> · Full event details return when the match closes.

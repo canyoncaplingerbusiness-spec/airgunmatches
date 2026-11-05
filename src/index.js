@@ -40,7 +40,7 @@ import {
 } from "./seo.js";
 import {
   activeSponsor, countImpression, handleSponsorClick, injectSponsor,
-  injectScoringSponsor, resultsCreditHtml, SPONSOR_CSS
+  injectScoringSponsor, resultsCreditHtml, liveSponsorParts, SPONSOR_CSS
 } from "./sponsors.js";
 
 /* Columns the public may ever see. Submitter and review fields are absent
@@ -764,7 +764,7 @@ async function approvedEvents(env) {
  * calendar. The id fragment in the path is matched by prefix so the readable
  * slug can change — a club renaming its match should not break inbound links.
  */
-async function serveEventPage(request, env, path, origin, host) {
+async function serveEventPage(request, env, path, origin, host, ctx) {
   const frag = idFragmentFrom(path);
   if (!frag) return null;
 
@@ -804,7 +804,11 @@ async function serveEventPage(request, env, path, origin, host) {
   if (live) {
     /* Never cached. A standings page served from an edge cache is a page
        showing somebody else's idea of the current order. */
-    return new Response(liveEventPageHtml(ev, origin), {
+    const sponsor = await activeSponsor(env);
+    const parts = liveSponsorParts(sponsor);
+    if (parts && ctx && ctx.waitUntil)
+      ctx.waitUntil(countImpression(env, sponsor.id).catch(() => {}));
+    return new Response(liveEventPageHtml(ev, origin, parts), {
       headers: {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
@@ -1908,7 +1912,7 @@ export default {
       }
 
       if (path.startsWith("/event/") && (method === "GET" || method === "HEAD")) {
-        const page = await serveEventPage(request, env, path, canon, url.host);
+        const page = await serveEventPage(request, env, path, canon, url.host, ctx);
         if (page) return page;
         return new Response(notFoundHtml(origin), {
           status: 404,

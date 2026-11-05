@@ -272,6 +272,55 @@ export function railsHtml(s) {
   return card("l") + card("r");
 }
 
+/**
+ * The banner on the scoring screen, under the list of competitors.
+ *
+ * The header logo alone was too small to register, so the sponsor was paying
+ * for a placement nobody could see. This sits after the list, never above it,
+ * so a scorer reaches the shooters first and nothing moves under their thumb
+ * while they tap. It is a single lazy image, and if the phone has no signal
+ * and the image cannot load it simply collapses rather than leaving a broken
+ * picture on a screen somebody is trying to work.
+ */
+export function scoringBannerHtml(s) {
+  if (!s || !s.on_scoring || !s.image_url) return "";
+  const alt = esc(s.alt || s.name);
+  const img = s.image_mobile_url
+    ? `<picture>
+         <source media="(max-width:620px)" srcset="${esc(s.image_mobile_url)}">
+         <img src="${esc(s.image_url)}" alt="${alt}" width="728" height="90" loading="lazy"
+              onerror="this.closest('.spscorebanner').hidden=true">
+       </picture>`
+    : `<img src="${esc(s.image_url)}" alt="${alt}" width="728" height="90" loading="lazy"
+            onerror="this.closest('.spscorebanner').hidden=true">`;
+  return `<div class="spscorebanner">
+    <span class="splabel">Sponsor</span>
+    <a class="splink" href="/s/${esc(s.id)}" rel="sponsored nofollow noopener"
+       target="_blank">${img}</a>
+  </div>`;
+}
+
+/**
+ * Everything the live standings page needs from the sponsor, as ready strings.
+ *
+ * The live page is the one people stare at longest, so it carries the full
+ * set: a banner under the header on screens without room beside the page, the
+ * side panels where there is room, and the results credit under the standings.
+ * It is gated by the "results" placement, since live standings are results, not
+ * by the calendar one. Returned as plain strings so the page builder does not
+ * have to know anything about sponsors.
+ */
+export function liveSponsorParts(s) {
+  if (!s || !s.on_results) return null;
+  const asCalendar = { ...s, on_calendar: 1 };
+  return {
+    top: topBannerHtml(asCalendar),
+    rails: railsHtml(asCalendar),
+    credit: resultsCreditHtml(s),
+    css: SPONSOR_CSS + "\n  :root{--half:410px}"
+  };
+}
+
 /** Styles, injected with the strip so the calendar's own file stays untouched. */
 export const SPONSOR_CSS = `
   .sponsorstrip{background:#fff;border-top:1px solid #e2e6ec;
@@ -296,8 +345,8 @@ export const SPONSOR_CSS = `
   @media (min-width:1500px) and (min-height:760px){
     .sptop{display:none}
     .sprail{--rw:190px;display:block;position:fixed;top:80px;width:var(--rw);z-index:5}
-    .sprail-l{left:calc(50% - 530px - var(--rw) - 16px)}
-    .sprail-r{right:calc(50% - 530px - var(--rw) - 16px)}
+    .sprail-l{left:calc(50% - var(--half,530px) - var(--rw) - 16px)}
+    .sprail-r{right:calc(50% - var(--half,530px) - var(--rw) - 16px)}
     .sprail.spimg{--rw:160px}
     .sprail.spimg .splabel{display:block;width:max-content;margin:0 auto 6px;background:#fff}
     .sprail.spimg a{display:block;background:none;border:0;padding:0;border-radius:6px;
@@ -317,6 +366,9 @@ export const SPONSOR_CSS = `
   }
   @media (min-width:1760px) and (min-height:760px){ .sprail.sprail-wide{--rw:300px} }
   @media (prefers-reduced-motion:no-preference){ .sprail a{transition:transform .15s} }
+  .spscorebanner{display:flex;flex-direction:column;align-items:center;gap:6px;margin:18px 0 6px}
+  .spscorebanner[hidden]{display:none}
+  .spscorebanner .splink img{border-radius:6px;max-width:100%;height:auto}
   .spscoring{display:inline-flex;align-items:center;gap:7px;text-decoration:none;flex:none}
   .spscoring span{font-size:9.5px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;
     color:#8ea0b6}
@@ -341,9 +393,11 @@ export function injectSponsor(html, sponsor, host) {
 /** The scoring screen: logo into the header row, styles into the head. */
 export function injectScoringSponsor(html, sponsor) {
   const logo = scoringLogoHtml(sponsor);
-  if (!logo) return html;
+  const banner = scoringBannerHtml(sponsor);
+  if (!logo && !banner) return html;
   return html
     .replace("</head>", `<style>${SPONSOR_CSS}</style>\n</head>`)
     .replace('<span class="pill ok" id="pill" hidden>Saved</span>',
-             `${logo}\n      <span class="pill ok" id="pill" hidden>Saved</span>`);
+             `${logo}\n      <span class="pill ok" id="pill" hidden>Saved</span>`)
+    .replace('<div id="people"></div>', `<div id="people"></div>\n    ${banner}`);
 }
