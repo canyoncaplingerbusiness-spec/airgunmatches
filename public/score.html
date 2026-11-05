@@ -374,7 +374,7 @@ function mergeSnapshot(fresh) {
       if (queued.has(k)) { if (LOCAL[k]) LOCAL[k].serverVersion = c.version; continue; }
       LOCAL[k] = {
         id: c.id, hits: JSON.parse(c.hits || "[]"), version: c.version,
-        scored_by: c.scored_by, scored_at: c.scored_at, dirty: false
+        scored_by: c.scored_by, scored_at: c.scored_at, submitted: !!c.submitted_at, dirty: false
       };
     }
   } else {
@@ -383,7 +383,7 @@ function mergeSnapshot(fresh) {
       if (queued.has(k)) { if (LOCAL[k]) LOCAL[k].serverVersion = d.version; continue; }
       LOCAL[k] = {
         id: d.id, score: d.score, x_count: d.x_count, version: d.version,
-        scored_by: d.scored_by, scored_at: d.scored_at, dirty: false
+        scored_by: d.scored_by, scored_at: d.scored_at, submitted: !!d.submitted_at, dirty: false
       };
     }
   }
@@ -431,7 +431,8 @@ async function flush(manual) {
   const batch = QUEUE.slice(0, 100);
   const items = batch.map(q => {
     const l = LOCAL[q.key] || {};
-    const base = { id: l.id, entrant_id: q.entrant_id, base_version: q.base_version ?? 0 };
+    const base = { id: l.id, entrant_id: q.entrant_id, base_version: q.base_version ?? 0,
+                   final: q.final === true, witness: q.witness || "" };
     return isStages()
       ? { ...base, stage_id: q.stage_id, hits: l.hits }
       : { ...base, relay: q.relay, score: l.score ?? null, x_count: l.x_count ?? null };
@@ -460,20 +461,27 @@ async function flush(manual) {
     for (const a of body.accepted || []) {
       const q = byId.get(a.id); if (!q) continue;
       const l = LOCAL[q.key];
-      if (l) { l.version = a.version; l.dirty = false; l.scored_by = SCORER; }
-      QUEUE = QUEUE.filter(x => x.key !== q.key);
+      if (l) { l.version = a.version; l.scored_by = SCORER; if (q.final) l.submitted = true; }
+      /* Remove the exact item that was sent, not whatever is queued under the
+         same key now. A scorer who presses Done while an earlier tap is still
+         in flight has queued a newer item for that card, and dropping it here
+         would lose the Done (and the witness) without it ever being sent. */
+      QUEUE = QUEUE.filter(x => x !== q);
+      const newer = QUEUE.find(x => x.key === q.key);
+      if (newer) newer.base_version = a.version;
+      else if (l) l.dirty = false;
     }
 
     for (const c of body.conflicts || []) {
       const q = byId.get(c.id); if (!q) continue;
-      QUEUE = QUEUE.filter(x => x.key !== q.key);
+      QUEUE = QUEUE.filter(x => x !== q);
       CONFLICTS.push({ key: q.key, entrant_id: q.entrant_id, stage_id: q.stage_id,
                        relay: q.relay, yours: c.yours, theirs: c.theirs });
     }
 
     for (const r of body.rejected || []) {
       const q = byId.get(r.id); if (!q) continue;
-      QUEUE = QUEUE.filter(x => x.key !== q.key);
+      QUEUE = QUEUE.filter(x => x !== q);
       banner(r.reason || "One score couldn't be saved.", "err");
     }
 
@@ -493,6 +501,21 @@ async function flush(manual) {
     // Offline, or the request never landed. Everything stays queued.
     sending = false; paintPill(); scheduleFlush(8000);
   }
+}
+
+/**
+ * Sends everything now and waits for the answer. Used by Done: a scorer who
+ * has finished a shooter should know the server has it, not hope a timer
+ * gets there. Returns true only if nothing is left waiting.
+ */
+async function flushNow() {
+  clearTimeout(flushTimer);
+  for (let round = 0; round < 3; round++) {
+    for (let w = 0; sending && w < 100; w++) await new Promise(r => setTimeout(r, 100));
+    if (!QUEUE.length) return true;
+    await flush(true);
+  }
+  return QUEUE.length === 0;
 }
 
 /* ================================================================
@@ -627,7 +650,14 @@ function paint() {
 
 let openFor = null;
 
+let ABANDON = null;      // undoes an unfinished edit of a submitted score
+let WIT = {};            // witness names given in this sheet, by card key
+const HELD = new Set();  // submitted scores whose edit has already been set up
+
 function closeSheet() {
+  if (ABANDON) { try { ABANDON(); } catch {} ABANDON = null; }
+  WIT = {};
+  HELD.clear();
   openFor = null;
   document.getElementById("sheetroot").innerHTML = "";
   document.body.style.overflow = "";
@@ -652,6 +682,58 @@ function openSheet(p) {
   isStages() ? paintShotGrid(p) : paintDirectEntry(p);
 }
 
+/**
+ * Reopening a submitted score asks for a witness first. The edit itself is held
+ * on the phone until Done, so a half-finished change never reaches the server
+ * and Cancel puts the original back.
+ */
+function witnessGate(p, key, proceed) {
+  const body = document.getElementById("sheet-body");
+  body.innerHTML = `
+    <p class="legend" style="margin-top:0">This score was already submitted. To change it,
+      a witness has to be named. The change, the time and the witness are recorded
+      for the match director.</p>
+    <div class="entry"><div class="fld" style="flex:1">
+      <label for="wit">Witness name</label>
+      <input type="text" id="wit" maxlength="80" autocomplete="off" placeholder="Full name">
+    </div></div>
+    <p class="maxnote" id="witerr" style="color:var(--red,#b71d1c)"></p>
+    <div class="sheetfoot">
+      <span class="spread"></span>
+      <button class="btn ghost sm" id="wcancel" type="button">Cancel</button>
+      <button class="btn sm" id="wgo" type="button">Start editing</button>
+    </div>`;
+  const wit = document.getElementById("wit");
+  wit.focus();
+  document.getElementById("wcancel").onclick = closeSheet;
+  const go = () => {
+    const name = wit.value.trim().replace(/\s+/g, " ");
+    const err = document.getElementById("witerr");
+    if (name.length < 2) { err.textContent = "Enter the witness's name."; return; }
+    if (SCORER && name.toLowerCase() === SCORER.trim().toLowerCase()) {
+      err.textContent = "The witness has to be someone other than the scorer."; return;
+    }
+    WIT[key] = name;
+    proceed();
+  };
+  document.getElementById("wgo").onclick = go;
+  wit.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+}
+
+/** Done: mark the card submitted, send it, and say plainly whether it landed. */
+async function finishCard(key, payload, btn) {
+  const l = LOCAL[key];
+  if (l) { l.submitted = true; l.dirty = true; }
+  saveLocal();
+  enqueue(key, { ...payload, final: true, ...(WIT[key] ? { witness: WIT[key] } : {}) });
+  ABANDON = null;                       // the edit is being kept
+  btn.disabled = true; btn.textContent = "Saving…";
+  const ok = await flushNow();
+  if (ok) banner("Saved to the server.", "ok");
+  else banner("Saved on this phone. It will send as soon as there's signal.", "err");
+  closeSheet();
+}
+
 function paintShotGrid(p) {
   const st = SNAP.stages.find(s => s.id === stageId);
   const k = keyFor(p.id, st.id);
@@ -663,12 +745,20 @@ function paintShotGrid(p) {
   while (l.hits.length < st.shot_count) l.hits.push(null);
   if (l.hits.length > st.shot_count) l.hits = l.hits.slice(0, st.shot_count);
 
+  const editing = !!l.submitted;
+  if (editing && !WIT[k]) return witnessGate(p, k, () => paintShotGrid(p));
+  if (editing && !ABANDON) {
+    const keep = l.hits.slice(), keepDirty = l.dirty;
+    ABANDON = () => { l.hits = keep; l.dirty = keepDirty; saveLocal(); };
+  }
+
   const sub = document.getElementById("sheet-sub");
   sub.textContent = `${st.name} · ${st.shot_count} shots` +
     (l.scored_by ? ` · last scored by ${l.scored_by}` : "");
 
   const body = document.getElementById("sheet-body");
   body.innerHTML = `
+    ${editing ? `<p class="maxnote" style="margin-top:0">Editing a submitted score · witness: ${esc(WIT[k])}</p>` : ""}
     <div class="grid" id="grid"></div>
     <p class="legend">Tap a shot to cycle it: blank → hit → miss → blank.</p>
     <div class="sheetfoot">
@@ -690,7 +780,7 @@ function paintShotGrid(p) {
       b.onclick = () => {
         l.hits[i] = l.hits[i] === null ? 1 : l.hits[i] === 1 ? 0 : null;
         if (navigator.vibrate) navigator.vibrate(8);
-        commitCard(p, st, l); draw(); updateSub();
+        commitCard(p, st, l, editing); draw(); updateSub();
       };
       grid.appendChild(b);
     });
@@ -702,16 +792,18 @@ function paintShotGrid(p) {
   };
   draw(); updateSub();
 
-  document.getElementById("allhit").onclick  = () => { l.hits = l.hits.map(() => 1); commitCard(p, st, l); draw(); updateSub(); };
-  document.getElementById("allmiss").onclick = () => { l.hits = l.hits.map(() => 0); commitCard(p, st, l); draw(); updateSub(); };
-  document.getElementById("done").onclick    = closeSheet;
+  document.getElementById("allhit").onclick  = () => { l.hits = l.hits.map(() => 1); commitCard(p, st, l, editing); draw(); updateSub(); };
+  document.getElementById("allmiss").onclick = () => { l.hits = l.hits.map(() => 0); commitCard(p, st, l, editing); draw(); updateSub(); };
+  document.getElementById("done").onclick = e => finishCard(k,
+    { entrant_id: p.id, stage_id: st.id, base_version: l.version || 0 }, e.currentTarget);
 }
 
 /** Writes the tap to this device immediately, then queues it for sending. */
-function commitCard(p, st, l) {
+function commitCard(p, st, l, hold) {
   l.dirty = true;
   LOCAL[keyFor(p.id, st.id)] = l;
   saveLocal();
+  if (hold) return;     // editing a submitted score: nothing is sent until Done
   enqueue(keyFor(p.id, st.id), {
     entrant_id: p.id, stage_id: st.id, base_version: l.version || 0
   });
@@ -719,6 +811,12 @@ function commitCard(p, st, l) {
 
 function paintDirectEntry(p) {
   const d = SNAP.discipline;
+  {
+    const k0 = keyFor(p.id, relay);
+    const l0 = LOCAL[k0];
+    if (l0 && l0.submitted && !WIT[k0])
+      return witnessGate(p, k0, () => paintDirectEntry(p));
+  }
   const body = document.getElementById("sheet-body");
   const relays = d.relays || 1;
 
@@ -775,29 +873,52 @@ function paintDirectEntry(p) {
     }
   }
 
-  const commit = () => {
-    const k = keyFor(p.id, relay);
+  const k = keyFor(p.id, relay);
+  const editing = !!(LOCAL[k] && LOCAL[k].submitted);
+  if (editing && !HELD.has(k)) {
+    HELD.add(k);
+    const o = LOCAL[k], keep = { score: o.score, x_count: o.x_count, dirty: o.dirty };
+    const prev = ABANDON;
+    ABANDON = () => { if (prev) prev(); Object.assign(o, keep); saveLocal(); };
+  }
+  if (editing) {
+    const note = document.createElement("p");
+    note.className = "maxnote"; note.style.marginTop = "0";
+    note.textContent = "Editing a submitted score · witness: " + WIT[k];
+    body.insertBefore(note, body.firstChild);
+  }
+
+  const commit = (opts = {}) => {
     const l = LOCAL[k] || { id: uuid(), version: 0 };
     const raw = sc.value.trim();
-    if (raw === "") return;                     // an empty box is not a score of zero
+    if (raw === "") return null;               // an empty box is not a score of zero
     const n = Number(raw);
-    if (!Number.isFinite(n)) return;
+    if (!Number.isFinite(n)) return false;
     if (d.max_score && d.score_type === "points" && n > d.max_score) {
-      banner(`The highest possible score is ${d.max_score}.`, "err"); return;
+      banner(`The highest possible score is ${d.max_score}.`, "err"); return false;
     }
     l.score = n;
     l.x_count = xc && xc.value.trim() !== "" ? parseInt(xc.value, 10) : null;
     l.dirty = true;
     LOCAL[k] = l;
     saveLocal();
+    if (opts.hold) return true;       // editing a submitted score: held until Done
     enqueue(k, { entrant_id: p.id, relay, base_version: l.version || 0 });
+    return true;
   };
 
-  sc.addEventListener("change", commit);
-  sc.addEventListener("blur", commit);
-  if (xc) { xc.addEventListener("change", commit); xc.addEventListener("blur", commit); }
+  const held = () => commit({ hold: editing });
+  sc.addEventListener("change", held);
+  sc.addEventListener("blur", held);
+  if (xc) { xc.addEventListener("change", held); xc.addEventListener("blur", held); }
 
-  document.getElementById("done").onclick = () => { commit(); closeSheet(); };
+  document.getElementById("done").onclick = e => {
+    const r = commit({ hold: true });
+    if (r === false) return;                  // invalid entry: stay and let them fix it
+    if (r === null) { closeSheet(); return; } // nothing typed, nothing to send
+    finishCard(k, { entrant_id: p.id, relay, base_version: (LOCAL[k] || {}).version || 0 },
+      e.currentTarget);
+  };
   load();
 }
 
@@ -867,10 +988,17 @@ function paintConflicts() {
         // Re-send from the server's version, so this write lands on top
         // rather than being refused again.
         l.id = c.theirs.id; l.version = c.theirs.version;
+        // A submitted score can only be overwritten with a witness, as anywhere else.
+        let witness = "";
+        if (c.theirs.submitted_at || l.submitted) {
+          witness = (prompt("Name of the witness to this change:") || "").trim();
+          if (witness.length < 2) return;
+        }
         LOCAL[c.key] = l;
         enqueue(c.key, {
           entrant_id: c.entrant_id, stage_id: c.stage_id,
-          relay: c.relay, base_version: c.theirs.version
+          relay: c.relay, base_version: c.theirs.version,
+          ...(witness ? { witness, final: true } : {})
         });
       }
 

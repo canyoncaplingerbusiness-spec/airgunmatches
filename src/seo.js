@@ -354,7 +354,7 @@ async function tick(){
     data = await r.json();
   } catch {
     document.getElementById("sub").innerHTML =
-      "Couldn't reach the scores just now — still trying. <span class=\"spin\"></span>";
+      'Scores are not reachable just now, still trying. <span class="spin"></span>';
     return;
   }
 

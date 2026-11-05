@@ -731,9 +731,25 @@ async function directorStandings(request, env, H) {
   if (!md) return H.fail("That discipline isn't part of this event.", 404);
 
   const { rows, possible } = await buildStandings(env, md);
+
+  /* The witnessed-edit log rides along with the standings so the console's
+     five-second refresh picks up a new edit as it happens. */
+  const edits = ((await env.DB.prepare(
+    `SELECT x.id, x.kind, x.stage_id, x.relay, x.version, x.witness, x.edited_by,
+            x.before, x.after, x.edited_at, e.name AS competitor, st.name AS stage
+       FROM score_edits x
+       JOIN entrants e ON e.id = x.entrant_id
+       LEFT JOIN stages st ON st.id = x.stage_id
+      WHERE x.md_id = ? ORDER BY x.id DESC LIMIT 300`
+  ).bind(md.id).all()).results || []).map(r => ({
+    ...r,
+    before: (() => { try { return JSON.parse(r.before); } catch { return {}; } })(),
+    after:  (() => { try { return JSON.parse(r.after);  } catch { return {}; } })()
+  }));
+
   return H.json({
     discipline: md.discipline, mode: md.mode, state: md.state,
-    live_public: md.live_public, possible, standings: rows
+    live_public: md.live_public, possible, standings: rows, edits
   }, 200, { "cache-control": "no-store" });
 }
 
@@ -840,12 +856,12 @@ async function getSquad(request, env, H) {
     const marks = ids.map(() => "?").join(",");
     if (md.mode === "stages") {
       cards = (await env.DB.prepare(
-        `SELECT id, stage_id, entrant_id, hits, hit_count, recorded, version, scored_by, scored_at
+        `SELECT id, stage_id, entrant_id, hits, hit_count, recorded, version, scored_by, scored_at, submitted_at
            FROM score_cards WHERE entrant_id IN (${marks})`
       ).bind(...ids).all()).results || [];
     } else {
       direct = (await env.DB.prepare(
-        `SELECT id, entrant_id, relay, score, x_count, version, scored_by, scored_at
+        `SELECT id, entrant_id, relay, score, x_count, version, scored_by, scored_at, submitted_at
            FROM direct_scores WHERE entrant_id IN (${marks})`
       ).bind(...ids).all()).results || [];
     }
@@ -907,7 +923,20 @@ async function sync(request, env, H, body) {
 
   const accepted = [], conflicts = [], rejected = [];
 
+  /* A card or score is "submitted" once the scorer has pressed Done on it.
+     Changing it afterwards needs a witness, and the change is logged. */
+  const NEED_WITNESS = "This score was already submitted. Enter a witness's name to change it.";
+  const logEdit = (kind, ref, entrantId, stageId, relay, version, witness, before, after) =>
+    env.DB.prepare(
+      `INSERT INTO score_edits (md_id, kind, ref_id, entrant_id, stage_id, relay, version,
+                                witness, edited_by, device_id, before, after)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(md.id, kind, ref, entrantId, stageId, relay, version, witness, scorer, device,
+           JSON.stringify(before), JSON.stringify(after)).run();
+
   for (const item of items) {
+    const witness = clean(item.witness, 80);
+    const final = item.final === true;
     const entrantId = asInt(item.entrant_id);
     if (!members.has(entrantId)) {
       rejected.push({ id: item.id, reason: "That competitor isn't in this squad." });
@@ -937,8 +966,8 @@ async function sync(request, env, H, body) {
         const id = String(item.id || crypto.randomUUID()).slice(0, 64);
         await env.DB.prepare(
           `INSERT INTO score_cards (id, md_id, stage_id, entrant_id, hits, hit_count,
-                                    recorded, version, scored_by, squad_id, device_id)
-           VALUES (?,?,?,?,?,?,?,1,?,?,?)`
+                                    recorded, version, scored_by, squad_id, device_id, submitted_at)
+           VALUES (?,?,?,?,?,?,?,1,?,?,?,${final ? "strftime('%Y-%m-%dT%H:%M:%SZ','now')" : "NULL"})`
         ).bind(id, md.id, stageId, entrantId, JSON.stringify(norm), hitCount,
                recorded, scorer, sq.squad_id, device).run();
         await env.DB.prepare(
@@ -960,20 +989,34 @@ async function sync(request, env, H, body) {
             yours: { hits: norm, scored_by: scorer },
             theirs: {
               id: existing.id, hits: H.safeParse(existing.hits), version: existing.version,
-              scored_by: existing.scored_by, scored_at: existing.scored_at
+              scored_by: existing.scored_by, scored_at: existing.scored_at,
+              submitted_at: existing.submitted_at
             }
           });
         }
         continue;
       }
 
+      const oldHits = H.safeParse(existing.hits);
+      const changed = !sameHits(norm, oldHits);
+      if (existing.submitted_at && changed && !witness) {
+        rejected.push({ id: item.id, reason: NEED_WITNESS });
+        continue;
+      }
+
       const nextVersion = existing.version + 1;
       await env.DB.prepare(
         `UPDATE score_cards SET hits=?, hit_count=?, recorded=?, version=?, scored_by=?,
-                scored_at=strftime('%Y-%m-%dT%H:%M:%SZ','now'), device_id=?
+                scored_at=strftime('%Y-%m-%dT%H:%M:%SZ','now'), device_id=?,
+                submitted_at=${final ? "COALESCE(submitted_at, strftime('%Y-%m-%dT%H:%M:%SZ','now'))" : "submitted_at"}
           WHERE id=? AND version=?`
       ).bind(JSON.stringify(norm), hitCount, recorded, nextVersion, scorer, device,
              existing.id, existing.version).run();
+      if (existing.submitted_at && changed) {
+        await logEdit("card", existing.id, entrantId, stageId, null, nextVersion, witness,
+          { hits: oldHits, hit_count: existing.hit_count },
+          { hits: norm, hit_count: hitCount });
+      }
       await env.DB.prepare(
         `INSERT INTO score_history (kind, ref_id, md_id, version, payload, actor_name, via_code, device_id)
          VALUES ('card',?,?,?,?,?,?,?)`
@@ -1014,8 +1057,8 @@ async function sync(request, env, H, body) {
       const id = String(item.id || crypto.randomUUID()).slice(0, 64);
       await env.DB.prepare(
         `INSERT INTO direct_scores (id, md_id, entrant_id, relay, score, x_count,
-                                    version, scored_by, device_id)
-         VALUES (?,?,?,?,?,?,1,?,?)`
+                                    version, scored_by, device_id, submitted_at)
+         VALUES (?,?,?,?,?,?,1,?,?,${final ? "strftime('%Y-%m-%dT%H:%M:%SZ','now')" : "NULL"})`
       ).bind(id, md.id, entrantId, relay, score, x, scorer, device).run();
       await env.DB.prepare(
         `INSERT INTO score_history (kind, ref_id, md_id, version, payload, actor_name, via_code, device_id)
@@ -1036,19 +1079,32 @@ async function sync(request, env, H, body) {
           theirs: {
             id: existing.id, relay: existing.relay, score: existing.score,
             x_count: existing.x_count, version: existing.version,
-            scored_by: existing.scored_by, scored_at: existing.scored_at
+            scored_by: existing.scored_by, scored_at: existing.scored_at,
+            submitted_at: existing.submitted_at
           }
         });
       }
       continue;
     }
 
+    const changedD = existing.score !== score || (existing.x_count ?? null) !== x;
+    if (existing.submitted_at && changedD && !witness) {
+      rejected.push({ id: item.id, reason: NEED_WITNESS });
+      continue;
+    }
+
     const nextVersion = existing.version + 1;
     await env.DB.prepare(
       `UPDATE direct_scores SET score=?, x_count=?, version=?, scored_by=?,
-              scored_at=strftime('%Y-%m-%dT%H:%M:%SZ','now'), device_id=?
+              scored_at=strftime('%Y-%m-%dT%H:%M:%SZ','now'), device_id=?,
+              submitted_at=${final ? "COALESCE(submitted_at, strftime('%Y-%m-%dT%H:%M:%SZ','now'))" : "submitted_at"}
         WHERE id=? AND version=?`
     ).bind(score, x, nextVersion, scorer, device, existing.id, existing.version).run();
+    if (existing.submitted_at && changedD) {
+      await logEdit("direct", existing.id, entrantId, null, relay, nextVersion, witness,
+        { score: existing.score, x_count: existing.x_count },
+        { score, x_count: x });
+    }
     await env.DB.prepare(
       `INSERT INTO score_history (kind, ref_id, md_id, version, payload, actor_name, via_code, device_id)
        VALUES ('direct',?,?,?,?,?,?,?)`

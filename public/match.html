@@ -1043,7 +1043,8 @@ function renderStandings(panel, md) {
       <button class="btn" id="std-publish">Publish these results</button>
     </div>
     <p class="hint">Publishing puts this discipline on the event's public results page and
-      feeds the national rankings. You can publish again later if anything changes.</p>`;
+      feeds the national rankings. You can publish again later if anything changes.</p>
+    ${editsHtml(s.edits)}`;
   panel.appendChild(el);
 
   const tb = el.querySelector("tbody");
@@ -1151,7 +1152,7 @@ function renderStandings(panel, md) {
   if (md.state === "live") {
     const signature = rows => JSON.stringify(
       (rows || []).map(r => [r.entrant_id, r.place, r.display, r.declared]));
-    let last = signature(s.standings);
+    let last = signature(s.standings) + "|" + (s.edits || []).length;
 
     standingsTimer = setInterval(async () => {
       if (document.hidden) return;
@@ -1163,7 +1164,22 @@ function renderStandings(panel, md) {
       try {
         const fresh = await api(
           `/api/scoring/standings?code=${encodeURIComponent(CODE)}&md=${md.id}`);
-        const next = signature(fresh.standings);
+        /* The "show publicly" tick box is the director's say, and it is
+           re-asserted every cycle. If the server's copy ever disagrees with
+           what the box shows — a failed request, a second window, a
+           connection that dropped between the click and the save — the next
+           poll puts it right, so an unticked box can never leave standings
+           public for more than five seconds. */
+        const box = document.getElementById("hl-public");
+        if (box) {
+          const want = box.checked ? 1 : 0;
+          if ((fresh.live_public ? 1 : 0) !== want) {
+            await api("/api/scoring/state", "POST",
+              { md_id: md.id, state: "live", live_public: want });
+            md.live_public = want;
+          }
+        }
+        const next = signature(fresh.standings) + "|" + (fresh.edits || []).length;
         if (next === last) return;        // nothing moved; leave the page alone
         last = next;
         standings[md.id] = fresh;
@@ -1183,6 +1199,46 @@ function renderStandings(panel, md) {
     act(() => api("/api/scoring/publish", "POST", { md_id: md.id }),
       `${md.discipline} published.`);
   };
+}
+
+/* ---------------- witnessed edits ---------------- */
+
+/**
+ * Every change to a submitted score, newest first, with the witness and the
+ * time on the server's clock. This is the director's record if a competitor
+ * asks how a number came to be what it is.
+ */
+function editsHtml(edits) {
+  edits = edits || [];
+  const side = (e, v) => {
+    if (e.kind === "card") {
+      const h = (v.hits || []).filter(x => x === 1).length;
+      const n = (v.hits || []).filter(x => x !== null).length;
+      return `${h} hit${h === 1 ? "" : "s"} of ${n}`;
+    }
+    const sc = v.score === null || v.score === undefined ? "—" : v.score;
+    return v.x_count ? `${sc} (${v.x_count}X)` : String(sc);
+  };
+  const when = t => {
+    const d = new Date(t);
+    return isNaN(d) ? esc(t) : esc(d.toLocaleDateString([], { month: "short", day: "numeric" }) +
+      " " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }));
+  };
+  return `<details class="edits" ${edits.length ? "open" : ""} style="margin-top:18px">
+    <summary>Score changes after submission <span style="font-weight:400;color:var(--muted)">— ${
+      edits.length ? edits.length + " recorded" : "none"}</span></summary>
+    <div class="inner">${edits.length ? `<div class="tblwrap"><table>
+      <thead><tr><th>When</th><th>Competitor</th><th>Changed</th><th>Edited by</th><th>Witness</th></tr></thead>
+      <tbody>${edits.map(e => `<tr>
+        <td>${when(e.edited_at)}</td>
+        <td>${esc(e.competitor)}${e.stage ? `<br><span style="color:var(--muted);font-size:13px">${esc(e.stage)}</span>`
+          : e.relay > 1 ? `<br><span style="color:var(--muted);font-size:13px">Relay ${e.relay}</span>` : ""}</td>
+        <td>${esc(side(e, e.before))} → <strong>${esc(side(e, e.after))}</strong></td>
+        <td>${esc(e.edited_by || "—")}</td>
+        <td>${esc(e.witness)}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="sub" style="margin:0">Nothing has been changed after submission. When a scorer
+         reopens a submitted score, the witness, the time and the before and after appear here.</p>`}
+    </div></details>`;
 }
 
 /* ================================================================ */
