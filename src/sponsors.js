@@ -30,7 +30,8 @@ export const today = () => new Date().toISOString().slice(0, 10);
 export async function activeSponsor(env) {
   const d = today();
   return await env.DB.prepare(
-    `SELECT id, name, image_url, image_mobile_url, badge_url, alt, tagline,
+    `SELECT id, name, image_url, image_mobile_url, badge_url,
+            image_side_url, image_side_wide_url, alt, tagline,
             dest_url, dest_url_alt, results_line,
             on_calendar, on_results, on_scoring
        FROM sponsors
@@ -238,7 +239,23 @@ export function topBannerHtml(s) {
  * Both sides carry the same exclusive sponsor.
  */
 export function railsHtml(s) {
-  if (!s || !s.on_calendar || !(s.badge_url || s.image_url)) return "";
+  if (!s || !s.on_calendar || !(s.image_side_url || s.image_side_wide_url || s.badge_url || s.image_url)) return "";
+
+  /* Real tall artwork wins. The 160px file is the default and the 300px one
+     takes over where there is room for it. */
+  const tall = s.image_side_url || s.image_side_wide_url;
+  if (tall) {
+    const alt = esc(s.alt || s.name);
+    const pic = `<picture>${s.image_side_wide_url && s.image_side_url
+        ? `<source media="(min-width:1760px)" srcset="${esc(s.image_side_wide_url)}">` : ""}
+      <img src="${esc(s.image_side_url || s.image_side_wide_url)}" alt="${alt}" loading="lazy"></picture>`;
+    const cls = `sprail spimg${s.image_side_wide_url ? " sprail-wide" : ""}`;
+    const art = side => `<aside class="${cls} sprail-${side}" aria-label="Sponsor">
+      <span class="splabel">Sponsor</span>
+      <a href="/s/${esc(s.id)}" rel="sponsored nofollow noopener" target="_blank">${pic}</a>
+    </aside>`;
+    return art("l") + art("r");
+  }
   const line = s.tagline ||
     (s.alt && s.alt.includes(":") ? s.alt.split(":").slice(1).join(":").trim() : "");
   const text = line ? line.charAt(0).toUpperCase() + line.slice(1) : "";
@@ -276,11 +293,16 @@ export const SPONSOR_CSS = `
   /* The page column is 1060px; a 190px panel plus a gutter each side needs
      about 1500px of screen. Narrower than that the top banner is shown
      instead, so there is never both and never neither. */
-  @media (min-width:1500px) and (min-height:560px){
+  @media (min-width:1500px) and (min-height:760px){
     .sptop{display:none}
-    .sprail{display:block;position:fixed;top:104px;width:190px;z-index:5}
-    .sprail-l{left:calc(50% - 530px - 206px)}
-    .sprail-r{right:calc(50% - 530px - 206px)}
+    .sprail{--rw:190px;display:block;position:fixed;top:80px;width:var(--rw);z-index:5}
+    .sprail-l{left:calc(50% - 530px - var(--rw) - 16px)}
+    .sprail-r{right:calc(50% - 530px - var(--rw) - 16px)}
+    .sprail.spimg{--rw:160px}
+    .sprail.spimg .splabel{display:block;width:max-content;margin:0 auto 6px;background:#fff}
+    .sprail.spimg a{display:block;background:none;border:0;padding:0;border-radius:6px;
+      overflow:hidden;box-shadow:0 1px 2px rgba(18,38,63,.12),0 8px 24px rgba(18,38,63,.14)}
+    .sprail.spimg img{display:block;width:100%;height:auto;border-radius:0}
     .sprail a{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;
       background:#121417;color:#fff;text-decoration:none;border-radius:12px;
       border-bottom:5px solid #d92027;padding:18px 14px 16px;
@@ -293,6 +315,7 @@ export const SPONSOR_CSS = `
     .sprail .spcta{margin-top:4px;background:#d92027;color:#fff;font-weight:700;font-size:13px;
       padding:9px 12px;border-radius:999px;width:100%}
   }
+  @media (min-width:1760px) and (min-height:760px){ .sprail.sprail-wide{--rw:300px} }
   @media (prefers-reduced-motion:no-preference){ .sprail a{transition:transform .15s} }
   .spscoring{display:inline-flex;align-items:center;gap:7px;text-decoration:none;flex:none}
   .spscoring span{font-size:9.5px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;

@@ -309,6 +309,10 @@
             <input type="text" id="sp-imagemob" maxlength="300" placeholder="/img/sponsors/acme-320x50.png"></div>
           <div><label for="sp-badge">Round badge</label>
             <input type="text" id="sp-badge" maxlength="300" placeholder="/img/sponsors/acme-badge.png"></div>
+          <div><label for="sp-side">Side banner (160×600)</label>
+            <input type="text" id="sp-side" maxlength="300" placeholder="/img/sponsors/acme-160x600.png"></div>
+          <div><label for="sp-sidewide">Side banner — wide screens (300×600)</label>
+            <input type="text" id="sp-sidewide" maxlength="300" placeholder="/img/sponsors/acme-300x600.png"></div>
           <div><label for="sp-tag">Tagline (optional)</label>
             <input type="text" id="sp-tag" maxlength="160" placeholder="Precision bore care"></div>
 
@@ -995,6 +999,7 @@ document.getElementById("tabs").addEventListener("click", e => {
 const SP_TEXT = {
   "sp-name":"name", "sp-alt":"alt", "sp-dest":"dest_url", "sp-destalt":"dest_url_alt",
   "sp-image":"image_url", "sp-imagemob":"image_mobile_url", "sp-badge":"badge_url",
+  "sp-side":"image_side_url", "sp-sidewide":"image_side_wide_url",
   "sp-tag":"tagline", "sp-resline":"results_line",
   "sp-start":"starts_on", "sp-end":"ends_on", "sp-note":"note"
 };

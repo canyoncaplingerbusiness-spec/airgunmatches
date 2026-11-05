@@ -1448,7 +1448,9 @@ async function adminSaveSponsor(request, env, id = null) {
   for (const [key, label] of [
     ["image_url", "desktop banner"],
     ["image_mobile_url", "mobile banner"],
-    ["badge_url", "round badge"]
+    ["badge_url", "round badge"],
+    ["image_side_url", "160x600 side banner"],
+    ["image_side_wide_url", "300x600 side banner"]
   ]) {
     const v = str(b[key], 300);
     if (v && !ART.test(v))
@@ -1491,11 +1493,13 @@ async function adminSaveSponsor(request, env, id = null) {
     const found = await env.DB.prepare("SELECT id FROM sponsors WHERE id = ?").bind(id).first();
     if (!found) return fail("That sponsor no longer exists.", 404);
     await env.DB.prepare(
-      `UPDATE sponsors SET name=?, image_url=?, image_mobile_url=?, badge_url=?, alt=?,
+      `UPDATE sponsors SET name=?, image_url=?, image_mobile_url=?, badge_url=?,
+              image_side_url=?, image_side_wide_url=?, alt=?,
               tagline=?, dest_url=?, dest_url_alt=?, results_line=?,
               starts_on=?, ends_on=?, active=?, note=?,
               on_calendar=?, on_results=?, on_scoring=? WHERE id=?`
-    ).bind(row.name, row.image_url, row.image_mobile_url, row.badge_url, row.alt,
+    ).bind(row.name, row.image_url, row.image_mobile_url, row.badge_url,
+           row.image_side_url, row.image_side_wide_url, row.alt,
            row.tagline, row.dest_url, row.dest_url_alt, row.results_line,
            row.starts_on, row.ends_on, row.active, row.note,
            row.on_calendar, row.on_results, row.on_scoring, id).run();
@@ -1504,12 +1508,14 @@ async function adminSaveSponsor(request, env, id = null) {
 
   const newId = crypto.randomUUID().slice(0, 8);
   await env.DB.prepare(
-    `INSERT INTO sponsors (id, name, image_url, image_mobile_url, badge_url, alt,
+    `INSERT INTO sponsors (id, name, image_url, image_mobile_url, badge_url,
+                           image_side_url, image_side_wide_url, alt,
                            tagline, dest_url, dest_url_alt, results_line,
                            starts_on, ends_on, active, note,
                            on_calendar, on_results, on_scoring)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).bind(newId, row.name, row.image_url, row.image_mobile_url, row.badge_url, row.alt,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(newId, row.name, row.image_url, row.image_mobile_url, row.badge_url,
+         row.image_side_url, row.image_side_wide_url, row.alt,
          row.tagline, row.dest_url, row.dest_url_alt, row.results_line,
          row.starts_on, row.ends_on, row.active, row.note,
          row.on_calendar, row.on_results, row.on_scoring).run();
