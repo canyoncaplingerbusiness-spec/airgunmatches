@@ -195,6 +195,14 @@
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
     clip:rect(0 0 0 0);white-space:nowrap;border:0}
   @media (max-width:620px){ .brandlogo{height:60px} }
+
+  /* Thumb-sized controls. Scoring happens standing up, often in gloves or
+     with one hand, so nothing the scorer taps is smaller than 44px. */
+  .btn,.btn.sm{min-height:44px}
+  .chip{min-height:40px}
+  .sheetfoot .btn{min-height:48px}
+  .sheetfoot .btn:not(.ghost){min-width:110px}
+  .x{min-width:44px;min-height:44px}
 </style>
 </head>
 <body>
@@ -313,7 +321,15 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
    ================================================================ */
 
 let CODE   = localStorage.getItem(LS.code) || "";
-let SCORER = localStorage.getItem(LS.scorer) || "";
+/* The scorer's name belongs to a squad code, not to the phone. It used to be
+   one value per device, so a phone that had ever been used kept the previous
+   person's name and skipped the "Who's scoring?" screen, and every edit was
+   recorded against someone who was not holding it. */
+const readNames = () => { const v = read(LS.scorer, {}); return v && typeof v === "object" ? v : {}; };
+const rememberScorer = name => { const n = readNames(); n[CODE] = name; write(LS.scorer, n); };
+const forgetScorer = () => { const n = readNames(); delete n[CODE]; write(LS.scorer, n); SCORER = ""; };
+let SCORER = "";
+SCORER = readNames()[CODE] || "";
 let SNAP   = null;         // { event, squad, discipline, stages, entrants, cards, direct }
 let LOCAL  = {};           // key -> { id, hits|score,x_count, version, dirty }
 let QUEUE  = [];           // items waiting to be sent
@@ -1027,7 +1043,9 @@ function showScoring() {
 function showName() {
   document.getElementById("codecard").hidden = true;
   document.getElementById("namecard").hidden = false;
-  document.getElementById("scorer").focus();
+  const box = document.getElementById("scorer");
+  box.value = "";
+  box.focus();
 }
 
 function showCode(message) {
@@ -1067,7 +1085,8 @@ document.getElementById("codeform").addEventListener("submit", async e => {
     loadLocal();
     mergeSnapshot(fresh);
     document.getElementById("codemsg").innerHTML = "";
-    SCORER ? showScoring() : showName();
+    forgetScorer();          // a code entered fresh always asks who is scoring
+    showName();
   } catch (err) {
     document.getElementById("codemsg").innerHTML =
       `<div class="msg err">${esc(err.message)}</div>`;
@@ -1081,7 +1100,7 @@ document.getElementById("nameform").addEventListener("submit", e => {
   const v = document.getElementById("scorer").value.trim();
   if (!v) return;
   SCORER = v.slice(0, 80);
-  localStorage.setItem(LS.scorer, SCORER);
+  rememberScorer(SCORER);
   showScoring();
 });
 
@@ -1103,6 +1122,7 @@ document.getElementById("refresh").onclick = async () => {
 document.getElementById("signout").onclick = () => {
   if (QUEUE.length && !confirm(
     `${QUEUE.length} score${QUEUE.length === 1 ? "" : "s"} still to send. Finish anyway?`)) return;
+  forgetScorer();
   localStorage.removeItem(LS.code);
   CODE = ""; SNAP = null; LOCAL = {}; QUEUE = []; CONFLICTS = []; stageId = null;
   codeInput.value = "";
@@ -1127,6 +1147,7 @@ window.addEventListener("beforeunload", e => {
   if (fromLink) {
     CODE = fmtCode(fromLink);
     localStorage.setItem(LS.code, CODE);
+    forgetScorer();          // opening a scorer link always asks who is scoring
     history.replaceState(null, "", location.pathname);   // keep the code out of history
   }
 

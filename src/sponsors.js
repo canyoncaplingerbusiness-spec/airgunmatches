@@ -202,6 +202,59 @@ export function scoringLogoHtml(s) {
      alt="${esc(s.alt || s.name)}" height="22" loading="lazy"></a>`;
 }
 
+/**
+ * The top banner, for screens too narrow to have side panels.
+ *
+ * A strip at the foot of a long list is seen by whoever scrolls that far, which
+ * is not most visitors. This sits directly under the site header, where every
+ * visitor passes it. It is hidden on wide screens, where the side panels do the
+ * same job and a banner as well would be the same advert three times over.
+ */
+export function topBannerHtml(s) {
+  if (!s || !s.on_calendar || !s.image_url) return "";
+  const alt = esc(s.alt || s.name);
+  const img = s.image_mobile_url
+    ? `<picture>
+         <source media="(max-width:620px)" srcset="${esc(s.image_mobile_url)}">
+         <img src="${esc(s.image_url)}" alt="${alt}" width="728" height="90">
+       </picture>`
+    : `<img src="${esc(s.image_url)}" alt="${alt}" width="728" height="90">`;
+  return `<div class="sponsorstrip sptop">
+    <div class="wrap">
+      <span class="splabel">Sponsor</span>
+      <a class="splink" href="/s/${esc(s.id)}" rel="sponsored nofollow noopener"
+         target="_blank">${img}</a>
+    </div>
+  </div>`;
+}
+
+/**
+ * Side panels, one either side of the calendar, on wide screens.
+ *
+ * They are fixed to the viewport, so they stay in view however far down the
+ * list a visitor reads, which is the whole point. The sponsor's kit has a
+ * horizontal leaderboard and a round badge but no tall artwork, so the panel is
+ * built from the badge, the name and the tagline rather than a stretched image.
+ * Both sides carry the same exclusive sponsor.
+ */
+export function railsHtml(s) {
+  if (!s || !s.on_calendar || !(s.badge_url || s.image_url)) return "";
+  const line = s.tagline ||
+    (s.alt && s.alt.includes(":") ? s.alt.split(":").slice(1).join(":").trim() : "");
+  const text = line ? line.charAt(0).toUpperCase() + line.slice(1) : "";
+  const card = side => `<aside class="sprail sprail-${side}" aria-label="Sponsor">
+    <a href="/s/${esc(s.id)}" rel="sponsored nofollow noopener" target="_blank">
+      <span class="splabel">Sponsor</span>
+      ${s.badge_url ? `<img src="${esc(s.badge_url)}" alt="${esc(s.alt || s.name)}"
+           width="110" height="113" loading="lazy">` : ""}
+      <b>${esc(s.name)}</b>
+      ${text ? `<em>${esc(text)}</em>` : ""}
+      <span class="spcta">Visit ${esc(s.name)}</span>
+    </a>
+  </aside>`;
+  return card("l") + card("r");
+}
+
 /** Styles, injected with the strip so the calendar's own file stays untouched. */
 export const SPONSOR_CSS = `
   .sponsorstrip{background:#fff;border-top:1px solid #e2e6ec;
@@ -218,6 +271,29 @@ export const SPONSOR_CSS = `
   .sponsorcredit a{display:inline-flex;align-items:center;gap:10px;text-decoration:none;
     color:#1d2733;font-weight:600;font-size:14.5px}
   .sponsorcredit img{border-radius:50%;display:block}
+  .sptop{padding:10px 0;border-top:0}
+  .sprail{display:none}
+  /* The page column is 1060px; a 190px panel plus a gutter each side needs
+     about 1500px of screen. Narrower than that the top banner is shown
+     instead, so there is never both and never neither. */
+  @media (min-width:1500px) and (min-height:560px){
+    .sptop{display:none}
+    .sprail{display:block;position:fixed;top:104px;width:190px;z-index:5}
+    .sprail-l{left:calc(50% - 530px - 206px)}
+    .sprail-r{right:calc(50% - 530px - 206px)}
+    .sprail a{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;
+      background:#121417;color:#fff;text-decoration:none;border-radius:12px;
+      border-bottom:5px solid #d92027;padding:18px 14px 16px;
+      box-shadow:0 1px 2px rgba(18,38,63,.12),0 8px 24px rgba(18,38,63,.14)}
+    .sprail a:hover{transform:translateY(-2px)}
+    .sprail .splabel{color:#9aa6b4;border-color:#3a424c}
+    .sprail img{display:block;width:110px;height:auto;border-radius:50%}
+    .sprail b{font-size:16px;letter-spacing:.4px;text-transform:uppercase}
+    .sprail em{font-style:normal;font-size:13.5px;line-height:1.4;color:#c9d2dc}
+    .sprail .spcta{margin-top:4px;background:#d92027;color:#fff;font-weight:700;font-size:13px;
+      padding:9px 12px;border-radius:999px;width:100%}
+  }
+  @media (prefers-reduced-motion:no-preference){ .sprail a{transition:transform .15s} }
   .spscoring{display:inline-flex;align-items:center;gap:7px;text-decoration:none;flex:none}
   .spscoring span{font-size:9.5px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;
     color:#8ea0b6}
@@ -235,7 +311,8 @@ export function injectSponsor(html, sponsor, host) {
   if (!sponsor || !strip) return html;
   return html
     .replace("</head>", `<style>${SPONSOR_CSS}</style>\n</head>`)
-    .replace('<footer class="site">', `${strip}\n<footer class="site">`);
+    .replace("</header>", `</header>\n${topBannerHtml(sponsor)}`)
+    .replace('<footer class="site">', `${railsHtml(sponsor)}\n${strip}\n<footer class="site">`);
 }
 
 /** The scoring screen: logo into the header row, styles into the head. */
