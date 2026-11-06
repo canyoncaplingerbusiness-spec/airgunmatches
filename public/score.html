@@ -132,7 +132,7 @@
   .statelegend{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
   .stbadge{display:inline-block;font-style:normal;font-size:11px;font-weight:700;
     text-transform:uppercase;letter-spacing:.4px;padding:2px 9px;border-radius:999px;margin-left:0}
-  .nm .stbadge{margin-left:6px}
+  .nm .stbadge.sep{margin-left:6px}
   .stbadge.done{background:var(--green-bg);color:var(--green)}
   .stbadge.next{background:var(--amber);color:#fff}
   .stbadge.part{background:#fff1dc;color:#8a5a12}
@@ -307,7 +307,6 @@
 
     <footer class="site">
       <div class="foot-actions">
-        <button class="btn ghost sm" id="syncnow">Send now</button>
         <button class="btn ghost sm" id="refresh">Refresh from server</button>
         <button class="btn ghost sm" id="signout">Finish</button>
       </div>
@@ -715,7 +714,7 @@ function paintPeople() {
         <span class="nm">
           <b>${esc(p.name)}</b>
           <span>${esc(p.class || "")}${queued ? (p.class ? " · " : "") + "waiting to send" : ""}
-            <i class="stbadge ${role}">${role === "done" ? "&#10003; Scored" : role === "next" ? "Next up"
+            <i class="stbadge ${role}${p.class || queued ? " sep" : ""}">${role === "done" ? "&#10003; Scored" : role === "next" ? "Next up"
               : role === "part" ? "In progress" : "Not scored yet"}</i></span>
         </span>
         <span class="tally ${cls}">${esc(tally)}</span>
@@ -1284,12 +1283,6 @@ document.getElementById("nameform").addEventListener("submit", e => {
   rememberScorer(SCORER);
   showScoring();
 });
-
-document.getElementById("syncnow").onclick = () => {
-  if (!navigator.onLine) { banner("Still no connection. Everything is saved on this phone.", "info"); return; }
-  if (!QUEUE.length) { banner("Everything has been sent.", "ok"); return; }
-  flush(true);
-};
 
 document.getElementById("refresh").onclick = async () => {
   if (!navigator.onLine) { banner("No connection right now.", "info"); return; }
