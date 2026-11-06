@@ -112,6 +112,47 @@ async function asSquad(env, code) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Who is who                                                          */
+/* ------------------------------------------------------------------ */
+
+/** Names compared without case, accents or punctuation, so "Jay  O'Neil" and
+ *  "jay oneil" are the same name. */
+const normName = n => String(n || "").toLowerCase().normalize("NFKD")
+  .replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * Could these two names be the same person?
+ *
+ * Deliberately cautious. Every word of the shorter name appearing in the longer
+ * one counts, so a scorer who types just "Jay" is treated as possibly being
+ * "Jay Smith" and also "Jay Brown", and is kept away from both cards. A scorer
+ * typing "Jay Brown" is not blocked from "Jay Smith". The cost of a false match
+ * is that somebody else has to score that one card; the cost of a miss is a
+ * competitor scoring themselves, which is what this exists to prevent.
+ */
+function sameIdentity(a, b) {
+  const A = normName(a).split(" ").filter(Boolean);
+  const B = normName(b).split(" ").filter(Boolean);
+  if (!A.length || !B.length) return false;
+  const [short, long] = A.length <= B.length ? [A, B] : [B, A];
+  return short.every(t => long.includes(t));
+}
+
+/** Two entrants with the same name must still be told apart on screen. New
+ *  duplicates are refused when a roster is built; this covers any that already
+ *  exist. The first keeps the plain name, later ones are numbered. */
+function distinctNames(entrants) {
+  const seen = new Map(), out = new Map();
+  for (const e of [...entrants].sort((a, b) => a.id - b.id)) {
+    const k = normName(e.name);
+    const n = (seen.get(k) || 0) + 1;
+    seen.set(k, n);
+    out.set(e.id, n === 1 ? e.name : `${e.name} (${n})`);
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
 /* Standings                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -153,8 +194,10 @@ async function buildStandings(env, md) {
   const entrants = (await env.DB.prepare(
     `SELECT e.id, e.name, e.class, e.squad_id, s.name AS squad_name
        FROM entrants e LEFT JOIN squads s ON s.id = e.squad_id
-      WHERE e.md_id = ? ORDER BY e.name`
+      WHERE e.md_id = ? ORDER BY e.name, e.id`
   ).bind(md.id).all()).results || [];
+  const shown = distinctNames(entrants);
+  for (const e of entrants) e.name = shown.get(e.id);
 
   const declared = new Map(
     ((await env.DB.prepare(
@@ -550,6 +593,22 @@ async function entrantAction(request, env, H, body) {
       if (!ok) return H.fail("That squad isn't part of this discipline.", 404);
     } else squadId = null;
 
+    /* Two people with the same name cannot be told apart on a score card, in
+       the standings or in the published results, so the second is refused until
+       the director adds something that separates them. */
+    const taken = new Set(((await env.DB.prepare(
+      "SELECT name FROM entrants WHERE md_id = ?"
+    ).bind(md.id).all()).results || []).map(r => normName(r.name)));
+    const clashes = [];
+    for (const n of rows) {
+      const k = normName(n);
+      if (taken.has(k)) clashes.push(n); else taken.add(k);
+    }
+    if (clashes.length)
+      return H.fail(`${clashes.map(n => `"${n}"`).join(", ")} ${clashes.length === 1 ? "is" : "are"} already in this match. ` +
+        `If ${clashes.length === 1 ? "it's a different person" : "they're different people"}, add something to tell them apart — ` +
+        `a middle initial, "Jr." or a number — so scorers and the standings can too.`);
+
     await env.DB.batch(rows.map(name => env.DB.prepare(
       "INSERT INTO entrants (md_id, squad_id, name, class) VALUES (?,?,?,?)"
     ).bind(md.id, squadId, name, clean(body.class, 60))));
@@ -578,6 +637,11 @@ async function entrantAction(request, env, H, body) {
   if (action === "rename") {
     const name = clean(body.name, 120);
     if (!name) return H.fail("A name is required.");
+    const others = (await env.DB.prepare(
+      "SELECT name FROM entrants WHERE md_id = ? AND id <> ?"
+    ).bind(md.id, entrant.id).all()).results || [];
+    if (others.some(r => normName(r.name) === normName(name)))
+      return H.fail(`"${name}" is already in this match. Add something to tell them apart, like a middle initial or "Jr."`);
     await env.DB.prepare("UPDATE entrants SET name = ?, class = ? WHERE id = ?")
       .bind(name, clean(body.class, 60), entrant.id).run();
     return H.json({ ok: true });
@@ -858,6 +922,13 @@ async function getSquad(request, env, H) {
   const entrants = (await env.DB.prepare(
     "SELECT id, name, class FROM entrants WHERE squad_id = ? ORDER BY id"
   ).bind(sq.squad_id).all()).results || [];
+  {
+    const everyone = (await env.DB.prepare(
+      "SELECT id, name FROM entrants WHERE md_id = ?"
+    ).bind(md.id).all()).results || [];
+    const shown = distinctNames(everyone);
+    for (const e of entrants) e.name = shown.get(e.id) || e.name;
+  }
 
   const ids = entrants.map(e => e.id);
   let cards = [], direct = [];
@@ -923,9 +994,11 @@ async function sync(request, env, H, body) {
   if (!items.length) return H.json({ ok: true, accepted: [], conflicts: [], rejected: [] });
 
   // The two sets this squad is allowed to touch, read fresh from the server.
-  const members = new Set(((await env.DB.prepare(
-    "SELECT id FROM entrants WHERE squad_id = ?"
-  ).bind(sq.squad_id).all()).results || []).map(r => r.id));
+  const memberRows = (await env.DB.prepare(
+    "SELECT id, name FROM entrants WHERE squad_id = ?"
+  ).bind(sq.squad_id).all()).results || [];
+  const members = new Set(memberRows.map(r => r.id));
+  const nameById = new Map(memberRows.map(r => [r.id, r.name]));
 
   const stageMap = new Map(((await env.DB.prepare(
     "SELECT id, shot_count FROM stages WHERE md_id = ?"
@@ -950,6 +1023,20 @@ async function sync(request, env, H, body) {
     const entrantId = asInt(item.entrant_id);
     if (!members.has(entrantId)) {
       rejected.push({ id: item.id, reason: "That competitor isn't in this squad." });
+      continue;
+    }
+
+    /* Nobody scores their own card, and nobody witnesses their own change.
+       Checked here as well as on the phone: the phone only keeps an honest
+       scorer from making the mistake, this is what stops it being done on
+       purpose. */
+    const entrantName = nameById.get(entrantId);
+    if (sameIdentity(scorer, entrantName)) {
+      rejected.push({ id: item.id, reason: "You can't score your own card. Another member of the squad has to score you." });
+      continue;
+    }
+    if (witness && (sameIdentity(witness, scorer) || sameIdentity(witness, entrantName))) {
+      rejected.push({ id: item.id, reason: "The witness can't be the scorer or the competitor whose score is being changed." });
       continue;
     }
 
@@ -1369,4 +1456,4 @@ export async function handleScoring(request, env, path, method, H) {
   return null;   // not a scoring route
 }
 
-export const __test__ = { aggregate, buildStandings, sameHits, analyse };
+export const __test__ = { aggregate, buildStandings, sameHits, analyse, sameIdentity, normName, distinctNames };

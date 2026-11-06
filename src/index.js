@@ -730,6 +730,11 @@ async function createSubmission(request, env) {
  *
  * end_date is coalesced to start_date so a one-day match stops being live at
  * the end of that day rather than never.
+ *
+ * "Today" is the US date, not the UTC date: the server clock is UTC, which
+ * rolls to tomorrow at 7-8pm Eastern, and an evening match would drop off the
+ * homepage mid-shoot. Shifting the clock back 10 hours (Hawaii) keeps every US
+ * match live until the morning after, and a day-long grace is harmless.
  */
 async function liveEventIds(env) {
   const { results } = await env.DB.prepare(
@@ -739,7 +744,7 @@ async function liveEventIds(env) {
       WHERE e.status = 'approved'
         AND d.live_public = 1
         AND d.state = 'live'
-        AND date('now') BETWEEN date(e.start_date) AND date(COALESCE(e.end_date, e.start_date))`
+        AND date('now','-10 hours') BETWEEN date(e.start_date) AND date(COALESCE(e.end_date, e.start_date))`
   ).all();
   return new Set((results || []).map(r => r.id));
 }

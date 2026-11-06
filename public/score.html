@@ -137,6 +137,9 @@
   .stbadge.next{background:var(--amber);color:#fff}
   .stbadge.part{background:#fff1dc;color:#8a5a12}
   .stbadge.wait{background:#eef1f5;color:var(--muted)}
+  .stbadge.self{background:#e8eefb;color:#2c4a8a}
+  .who.s-self{background:#f6f8fd;border-style:dashed;box-shadow:none}
+  .who.s-self .nm b{color:var(--steel)}
   .who.s-next{border-color:var(--amber);box-shadow:0 0 0 3px rgba(183,29,28,.14),var(--shadow)}
   .who.s-done{border-color:var(--green-line)}
   .who.s-wait{background:#fafbfc;box-shadow:none}
@@ -287,8 +290,9 @@
     <h2>Who's scoring?</h2>
     <p class="sub">Every score is recorded against a name, so a question about a card can always be answered.</p>
     <form id="nameform">
-      <label for="scorer">Your name</label>
+      <label for="scorer">Your full name (first and last)</label>
       <input type="text" id="scorer" maxlength="80" autocomplete="name" placeholder="e.g. Pete Sandoval" required>
+      <div class="msg err" id="nameerr" hidden style="margin:10px 0 0"></div>
       <div style="height:14px"></div>
       <button class="btn wide" type="submit">Start scoring</button>
     </form>
@@ -421,9 +425,22 @@ function saveSnap() {
  * Everything else takes the server's value and version, which is how a card
  * another scorer corrected shows up here.
  */
-function mergeSnapshot(fresh) {
+/** A fingerprint of everything on screen that another device can change. */
+function snapSig(f) {
+  const rows = (f.discipline.mode === "stages" ? f.cards : f.direct) || [];
+  return JSON.stringify([
+    rows.map(c => c.id + ":" + c.version + ":" + (c.submitted_at ? 1 : 0)),
+    f.discipline.state, f.entrants.map(e => e.id + e.name),
+    (f.stages || []).map(x => x.id + ":" + x.shot_count + x.name)
+  ]);
+}
+let lastSig = "";
+
+function mergeSnapshot(fresh, skip = new Set()) {
   SNAP = fresh;
+  lastSig = snapSig(fresh);
   const queued = new Set(QUEUE.map(q => q.key));
+  for (const k of skip) queued.add(k);       // a card being edited right now is left alone
 
   if (isStages()) {
     for (const c of fresh.cards || []) {
@@ -472,6 +489,7 @@ function enqueue(key, payload) {
   scheduleFlush(700);
 }
 
+let syncEpoch = 0;       // bumped whenever a send starts, so a stale poll can be spotted
 let flushTimer = null;
 function scheduleFlush(ms) {
   clearTimeout(flushTimer);
@@ -482,7 +500,7 @@ async function flush(manual) {
   if (sending || !QUEUE.length) { if (manual) paintPill(); return; }
   if (!navigator.onLine) { paintPill(); return; }
 
-  sending = true; paintPill();
+  sending = true; syncEpoch++; paintPill();
 
   const before = QUEUE.length;
   const batch = QUEUE.slice(0, 100);
@@ -536,15 +554,22 @@ async function flush(manual) {
                        relay: q.relay, yours: c.yours, theirs: c.theirs });
     }
 
+    let refused = false;
     for (const r of body.rejected || []) {
       const q = byId.get(r.id); if (!q) continue;
       QUEUE = QUEUE.filter(x => x !== q);
       banner(r.reason || "One score couldn't be saved.", "err");
+      // Whatever was refused must not stay on this phone looking as if it saved.
+      const bad = LOCAL[q.key];
+      if (bad && !(bad.version > 0)) delete LOCAL[q.key];
+      refused = true;
     }
+    if (refused) fetchSquad(CODE).then(f => { mergeSnapshot(f); paint(); }).catch(() => {});
 
     lastSent = Date.now();
     saveLocal();
     sending = false;
+    setTimeout(pollSquad, 300);       // pick up whatever the others have saved meanwhile
     paintPill(); paintConflicts(); paint();
 
     /* Normally every item comes back in one of the three lists and leaves the
@@ -558,6 +583,73 @@ async function flush(manual) {
     // Offline, or the request never landed. Everything stays queued.
     sending = false; paintPill(); scheduleFlush(8000);
   }
+}
+
+/**
+ * Keeps this phone in step with the others on the squad.
+ *
+ * A squad code is shared: two people can be scoring the same squad at once,
+ * and what one of them saves has to show up on the other's phone without
+ * anyone pressing anything, or the second phone keeps saying a shooter is "next"
+ * after they have been scored. So every phone asks the server for the squad
+ * every few seconds while it is showing the scoring screen.
+ *
+ * Three things keep that safe:
+ *  - a card that is open in the shot sheet is never overwritten underneath the
+ *    scorer; if someone else has changed it, they are told instead;
+ *  - an answer is thrown away if this phone started sending while it was in
+ *    flight, so an older picture can never overwrite a newer local one;
+ *  - it is skipped when the tab is hidden or the phone is offline.
+ */
+let polling = false;
+async function pollSquad() {
+  if (polling || !SNAP || !CODE) return;
+  if (document.hidden || !navigator.onLine || sending) return;
+  if (document.getElementById("scorescreen").hidden) return;
+  polling = true;
+  const epoch = syncEpoch;
+  try {
+    const fresh = await fetchSquad(CODE);
+    if (syncEpoch !== epoch || sending) return;
+
+    const skip = new Set();
+    if (openFor) for (const k of Object.keys(LOCAL)) if (k.startsWith(openFor.id + ":")) skip.add(k);
+
+    const stages = isStages();
+    const rows = (stages ? fresh.cards : fresh.direct) || [];
+    const keyOf = c => stages ? keyFor(c.entrant_id, c.stage_id) : keyFor(c.entrant_id, c.relay);
+    let openChanged = false;
+    const others = [];
+    for (const c of rows) {
+      const k = keyOf(c), mine = LOCAL[k];
+      const newer = !mine || (mine.version || 0) < c.version;
+      if (skip.has(k)) { if (newer) openChanged = true; continue; }
+      if (newer && !QUEUE.some(q => q.key === k)) others.push(c.entrant_id);
+    }
+
+    const changed = snapSig(fresh) !== lastSig;
+    const stateBefore = SNAP.discipline.state;
+    mergeSnapshot(fresh, skip);
+    if (!changed) return;                              // nothing moved; leave the screen alone
+    paint();
+
+    if (stateBefore !== fresh.discipline.state)
+      banner(fresh.discipline.state === "complete"
+        ? "This match has been closed. Scores can no longer be changed."
+        : "The match state changed.", "info");
+    else if (others.length) {
+      const names = [...new Set(others.map(id => (fresh.entrants.find(e => e.id === id) || {}).name).filter(Boolean))];
+      banner(`Updated from another device: ${names.slice(0, 3).join(", ")}${names.length > 3 ? " and others" : ""}.`, "ok");
+    }
+    if (openChanged && openFor && !document.querySelector(".ooo.changed")) {
+      const body = document.getElementById("sheet-body");
+      const warn = document.createElement("div");
+      warn.className = "ooo changed";
+      warn.innerHTML = "<b>This card was just changed on another device.</b> Close it and reopen to see the latest before you continue.";
+      body.insertBefore(warn, body.firstChild);
+    }
+  } catch { /* the next poll is a few seconds away */ }
+  finally { polling = false; }
 }
 
 /**
@@ -630,9 +722,23 @@ function personState(p, forStage) {
   return l && l.score !== null && l.score !== undefined ? "done" : "none";
 }
 
+/* Same rule as the server's, so the phone and the server agree about who may
+   be the same person. Cautious on purpose: a scorer who might be a competitor
+   is kept away from that card. */
+const normName = n => String(n || "").toLowerCase().normalize("NFKD")
+  .replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+function sameIdentity(a, b) {
+  const A = normName(a).split(" ").filter(Boolean), B = normName(b).split(" ").filter(Boolean);
+  if (!A.length || !B.length) return false;
+  const [short, long] = A.length <= B.length ? [A, B] : [B, A];
+  return short.every(t => long.includes(t));
+}
+/** Is this competitor the person holding the phone? */
+const isSelf = p => !!SCORER && sameIdentity(SCORER, p.name);
+
 /** Squads shoot in roster order, so the next to be scored is the first
  *  competitor, in that order, who is not finished. */
-const nextPerson = () => SNAP.entrants.find(p => personState(p) !== "done") || null;
+const nextPerson = () => SNAP.entrants.find(p => !isSelf(p) && personState(p) !== "done") || null;
 
 function paintStages() {
   const bar = document.getElementById("stagebar");
@@ -688,7 +794,8 @@ function paintPeople() {
   for (const p of SNAP.entrants) {
     const row = document.createElement("div");
     const ps = personState(p);
-    const role = ps === "done" ? "done" : (upNext && upNext.id === p.id ? "next" : (ps === "part" ? "part" : "wait"));
+    const self = isSelf(p);
+    const role = self ? "self" : ps === "done" ? "done" : (upNext && upNext.id === p.id ? "next" : (ps === "part" ? "part" : "wait"));
     row.className = "who s-" + role;
 
     let tally = "—", cls = "";
@@ -714,13 +821,17 @@ function paintPeople() {
         <span class="nm">
           <b>${esc(p.name)}</b>
           <span>${esc(p.class || "")}${queued ? (p.class ? " · " : "") + "waiting to send" : ""}
-            <i class="stbadge ${role}${p.class || queued ? " sep" : ""}">${role === "done" ? "&#10003; Scored" : role === "next" ? "Next up"
+            <i class="stbadge ${role}${p.class || queued ? " sep" : ""}">${role === "self" ? "You &middot; scored by another member"
+              : role === "done" ? "&#10003; Scored" : role === "next" ? "Next up"
               : role === "part" ? "In progress" : "Not scored yet"}</i></span>
         </span>
         <span class="tally ${cls}">${esc(tally)}</span>
         <span class="chev">›</span>
       </button>`;
-    row.querySelector("button").onclick = () => openSheet(p);
+    if (self) {
+      const b = row.querySelector("button");
+      b.onclick = () => banner("You can't score your own card. Another member of the squad scores you.", "info");
+    } else row.querySelector("button").onclick = () => openSheet(p);
     box.appendChild(row);
   }
 
@@ -731,7 +842,10 @@ function paintPeople() {
       const { recorded, possible } = stageProgress(st);
       return recorded < possible;
     }) : null;
-    done.innerHTML = nextStage
+    const mine = SNAP.entrants.some(isSelf);
+    done.innerHTML = (!nextStage && mine)
+      ? `<b>You've scored everyone you can.</b><span>Your own card has to be scored by another member of the squad.</span>`
+      : nextStage
       ? `<b>Everyone is scored on this stage.</b><span>Next stage: ${esc(nextStage.name)}</span>`
       : `<b>Everyone in the squad is scored.</b><span>Check anything marked "waiting to send", then press Finish.</span>`;
     if (nextStage) {
@@ -779,9 +893,11 @@ function closeSheet() {
   document.getElementById("sheetroot").innerHTML = "";
   document.body.style.overflow = "";
   paint();
+  setTimeout(pollSquad, 400);
 }
 
 function openSheet(p) {
+  if (isSelf(p)) { banner("You can't score your own card. Another member of the squad scores you.", "info"); return; }
   openFor = p;
   document.body.style.overflow = "hidden";
   const root = document.getElementById("sheetroot");
@@ -837,9 +953,12 @@ function witnessGate(p, key, proceed) {
   const go = () => {
     const name = wit.value.trim().replace(/\s+/g, " ");
     const err = document.getElementById("witerr");
-    if (name.length < 2) { err.textContent = "Enter the witness's name."; return; }
-    if (SCORER && name.toLowerCase() === SCORER.trim().toLowerCase()) {
+    if (name.split(" ").filter(Boolean).length < 2) { err.textContent = "Enter the witness's first and last name."; return; }
+    if (sameIdentity(name, SCORER)) {
       err.textContent = "The witness has to be someone other than the scorer."; return;
+    }
+    if (sameIdentity(name, p.name)) {
+      err.textContent = "The witness can't be the competitor whose score is being changed."; return;
     }
     WIT[key] = name;
     proceed();
@@ -1214,6 +1333,8 @@ function showScoring() {
   document.getElementById("scorescreen").hidden = false;
   if (isStages() && !stageId && SNAP.stages.length) stageId = SNAP.stages[0].id;
   paint();
+  const me = SNAP.entrants.find(isSelf);
+  if (me) banner(`You're on this squad's roster as ${me.name}. You can score everyone except yourself; another member of the squad scores you.`, "info");
   if (SNAP.discipline.state === "setup")
     banner("This match hasn't been opened yet. You can look around, but scores won't send until your director opens it.", "info");
   else if (SNAP.discipline.state === "complete")
@@ -1277,8 +1398,17 @@ document.getElementById("codeform").addEventListener("submit", async e => {
 
 document.getElementById("nameform").addEventListener("submit", e => {
   e.preventDefault();
-  const v = document.getElementById("scorer").value.trim();
-  if (!v) return;
+  const v = document.getElementById("scorer").value.trim().replace(/\s+/g, " ");
+  const err = document.getElementById("nameerr");
+  /* First and last name, always. "Jay" could be any of three people on a
+     squad; "Jay Smith" is one of them, and that is what makes it possible to
+     tell who entered a score, who witnessed a change, and whether somebody is
+     scoring their own card. */
+  if (v.split(" ").filter(Boolean).length < 2) {
+    err.textContent = "Enter your first and last name, so it's clear who entered each score.";
+    err.hidden = false; return;
+  }
+  err.hidden = true;
   SCORER = v.slice(0, 80);
   rememberScorer(SCORER);
   showScoring();
@@ -1303,12 +1433,14 @@ document.getElementById("signout").onclick = () => {
   showCode();
 };
 
-window.addEventListener("online",  () => { paintPill(); scheduleFlush(300); });
+window.addEventListener("online",  () => { paintPill(); scheduleFlush(300); setTimeout(pollSquad, 600); });
 window.addEventListener("offline", paintPill);
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && QUEUE.length) scheduleFlush(300);
+  if (!document.hidden) setTimeout(pollSquad, 200);    // catch up as soon as the phone is picked up
 });
 setInterval(() => { if (QUEUE.length) flush(); }, 20000);
+setInterval(pollSquad, 5000);
 
 // A last chance to warn before the tab closes with work still queued.
 window.addEventListener("beforeunload", e => {
