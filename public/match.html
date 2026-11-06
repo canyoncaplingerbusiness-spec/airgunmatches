@@ -165,6 +165,32 @@
     clip:rect(0 0 0 0);white-space:nowrap;border:0}
   @media (max-width:620px){ .brandlogo{height:60px} }
 
+  /* ---------- match analysis ---------- */
+  .antiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+  .tile{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:#fff;
+    display:flex;flex-direction:column;gap:2px}
+  .tile .tl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+  .tile b{font-size:21px;line-height:1.25;word-break:break-word}
+  .tile .ts{font-size:12.5px;color:var(--muted)}
+  .stg{border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:11px;background:#fff}
+  .stghead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .stghead b{font-size:15.5px}
+  .stgpct{margin-left:auto;font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
+  .lv{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px}
+  .lv-easy{background:var(--green-bg);color:var(--green)}
+  .lv-typ{background:#eef2f7;color:var(--navy-2)}
+  .lv-hard{background:#fff1dc;color:#8a5a12}
+  .lv-vhard{background:var(--red-bg);color:var(--red)}
+  .sbar{height:8px;background:var(--line);border-radius:999px;overflow:hidden;margin:9px 0 6px}
+  .sbar span{display:block;height:100%;background:var(--navy-2);border-radius:999px}
+  .stgmeta{margin:6px 0 0;font-size:12.5px;color:var(--muted)}
+  .heat{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+  .hc{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:46px;
+    padding:5px 4px;border-radius:7px;line-height:1.2;border:2px solid transparent}
+  .hc i{font-style:normal;font-size:10px;color:#4a5560;font-weight:700}
+  .hc b{font-size:13px;font-variant-numeric:tabular-nums}
+  .hc.hardest{border-color:var(--red)}
+
   /* ---------- phones ----------
      Directors run matches from a phone as often as a laptop. Three things
      matter there: inputs at 16px (below that, iOS zooms the page every time a
@@ -559,6 +585,7 @@ function renderPanel() {
   renderSquads(panel, md);
   renderRoster(panel, md);
   if (md.state !== "setup") renderStandings(panel, md);
+  if (md.state !== "setup" && md.mode === "stages") renderAnalysis(panel, md);
 }
 
 /* ---------------- new discipline ---------------- */
@@ -1104,7 +1131,7 @@ function renderStandings(panel, md) {
       ${hasX ? `<td class="c-x" data-lab="X's"><input class="cell" type="number" inputmode="numeric" step="1" min="0"
                  data-x="${r.entrant_id}" placeholder="—"></td>` : ""}
       ` : `
-      <td class="score c-sc" data-lab="${md.mode === "stages" ? "Hits" : "Score"}">${esc(r.display)}${r.complete === false && md.state === "live"
+      <td class="score c-sc" data-lab="${md.mode === "stages" ? "Hits" : "Score"}">${esc(r.display)}${r.complete === false && md.state === "live" && r.value !== null
         ? ` <span style="color:var(--muted);font-weight:400;font-size:12px">still shooting</span>` : ""}</td>`}
       <td class="c-win"><label class="winner"><input type="checkbox" ${r.declared && r.place === 1 ? "checked" : ""}>
         <span>${r.declared && r.place === 1 ? "Declared winner" : "Declare winner"}</span></label></td>`;
@@ -1242,6 +1269,140 @@ function renderStandings(panel, md) {
     act(() => api("/api/scoring/publish", "POST", { md_id: md.id }),
       `${md.discipline} published.`);
   };
+}
+
+/* ---------------- match analysis ---------------- */
+
+const analysisCache = {};      // discipline id -> { at, data }
+
+async function loadAnalysis(id, force) {
+  const c = analysisCache[id];
+  // Closed matches do not change, so they are fetched once. A live match is
+  // looked at again after half a minute, not on every five-second refresh.
+  if (!force && c && (c.data.state === "complete" || Date.now() - c.at < 30000)) return c.data;
+  const data = await api(`/api/scoring/analysis?code=${encodeURIComponent(CODE)}&md=${id}`);
+  analysisCache[id] = { at: Date.now(), data };
+  return data;
+}
+
+const pct = r => r === null || r === undefined ? "—" : Math.round(r * 100) + "%";
+const LEVEL = {
+  easier: ["Easier than average", "lv-easy"], typical: ["About average", "lv-typ"],
+  harder: ["Harder than average", "lv-hard"], much_harder: ["Much harder than average", "lv-vhard"]
+};
+/* Red for a shot most people missed through to green for one most people hit. */
+const heat = r => r === null ? "#eef1f5" : `hsl(${Math.round(r * 120)}, 62%, ${r < .5 ? 84 : 80}%)`;
+
+function analysisHtml(d) {
+  if (!d.available) return `<p class="sub" style="margin:0">${esc(d.reason || "No analysis available.")}</p>`;
+  if (!d.overall.attempts)
+    return `<p class="sub" style="margin:0">No shots have been scored yet. The analysis fills in as scores arrive.</p>`;
+
+  const ranked = d.stages.filter(s => s.rank).sort((a, b) => a.rank - b.rank);
+  const hardest = ranked[0], easiest = ranked[ranked.length - 1];
+  const sg = d.struggling;
+
+  const note = d.provisional
+    ? `<div class="msg info" style="margin-bottom:14px"><b>Provisional.</b> ${d.finished} of ${d.competitors}
+        competitors have a full course recorded${d.state === "complete" ? "" : " and the match is still open"}.
+        The picture settles once everyone has finished.</div>` : "";
+
+  const tile = (label, big, small) => `<div class="tile"><span class="tl">${esc(label)}</span>
+      <b>${esc(big)}</b><span class="ts">${esc(small)}</span></div>`;
+
+  const tiles = `<div class="antiles">
+    ${tile("Overall hit rate", pct(d.overall.rate), `${d.overall.hits} of ${d.overall.attempts} shots`)}
+    ${hardest ? tile("Hardest stage", hardest.name, `${pct(hardest.rate)} hit`) : ""}
+    ${easiest && easiest !== hardest ? tile("Easiest stage", easiest.name, `${pct(easiest.rate)} hit`) : ""}
+    ${tile("Hit under " + pct(sg.threshold), sg.considered ? `${sg.below} of ${sg.considered}` : "—",
+        "competitors, among those who have shot at least half the course")}
+  </div>`;
+
+  const stageBlock = s => {
+    const lv = LEVEL[s.level];
+    const hs = s.shots.find(x => x.n === s.hardest_shot), es = s.shots.find(x => x.n === s.easiest_shot);
+    return `<div class="stg">
+      <div class="stghead"><b>${esc(s.name)}</b>
+        ${lv ? `<span class="lv ${lv[1]}">${lv[0]}</span>` : ""}
+        <span class="stgpct">${pct(s.rate)}</span></div>
+      <div class="sbar"><span style="width:${Math.round((s.rate || 0) * 100)}%"></span></div>
+      <p class="stgmeta">${s.hits} hits of ${s.attempts} shots · ${s.shooters} shooter${s.shooters === 1 ? "" : "s"}
+        · ${s.perfect} clean card${s.perfect === 1 ? "" : "s"} · ${s.blank} with no hits</p>
+      <div class="heat">${s.shots.map(x => `<span class="hc${x.n === s.hardest_shot && s.shots.length > 1 ? " hardest" : ""}"
+          style="background:${heat(x.rate)}" title="Shot ${x.n}: ${x.hits} of ${x.attempts}">
+          <i>${x.n}</i><b>${pct(x.rate)}</b></span>`).join("")}</div>
+      ${hs && es && s.shots.length > 1 ? `<p class="stgmeta">Hardest: shot ${hs.n} (${pct(hs.rate)}) ·
+        easiest: shot ${es.n} (${pct(es.rate)})</p>` : ""}
+      ${s.classes.length > 1 ? `<p class="stgmeta">By class: ${s.classes.map(c =>
+        `${esc(c.name)} ${pct(c.rate)}`).join(" · ")}</p>` : ""}
+    </div>`;
+  };
+
+  const shotsList = d.hardest_shots.length ? `<h3 style="margin:22px 0 10px">Hardest single shots</h3>
+    <div class="tblwrap"><table><thead><tr><th>Stage</th><th style="width:70px">Shot</th><th style="width:90px">Hit rate</th>
+    <th style="width:110px">Hits</th></tr></thead><tbody>${d.hardest_shots.map(h => `<tr>
+      <td>${esc(h.stage)}</td><td>${h.n}</td><td><b>${pct(h.rate)}</b></td>
+      <td>${h.hits} of ${h.attempts}</td></tr>`).join("")}</tbody></table></div>` : "";
+
+  return `${note}${tiles}
+    <h3 style="margin:22px 0 4px">Stages, hardest first</h3>
+    <p class="hint" style="margin:0 0 12px">Difficulty is measured against this match's own average
+      (${pct(d.overall.rate)}). Each square is one shot; red was missed most often, green was hit most often.</p>
+    ${ranked.map(stageBlock).join("")}
+    ${d.stages.filter(s => !s.rank).map(s => `<p class="stgmeta">${esc(s.name)} — not scored yet.</p>`).join("")}
+    ${shotsList}
+    <div class="row" style="margin-top:16px">
+      <button class="btn ghost sm" id="an-csv" type="button">Download as spreadsheet (CSV)</button>
+      <button class="btn ghost sm" id="an-refresh" type="button">Refresh analysis</button>
+    </div>`;
+}
+
+function analysisCsv(d) {
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const lines = [["Stage", "Stage order", "Shot", "Attempts", "Hits", "Hit rate %"].map(q).join(",")];
+  for (const s of d.stages)
+    for (const x of s.shots)
+      lines.push([q(s.name), s.ordinal, x.n, x.attempts, x.hits,
+        x.rate === null ? "" : Math.round(x.rate * 1000) / 10].join(","));
+  return lines.join("\r\n");
+}
+
+function renderAnalysis(panel, md) {
+  const el = document.createElement("details");
+  el.className = "analysis";
+  el.open = md.state === "complete";
+  el.innerHTML = `<summary>Match analysis <span style="font-weight:400;color:var(--muted)">— where the
+      field struggled, by stage and shot${md.state === "complete" ? "" : " (provisional while live)"}</span></summary>
+    <div class="inner" id="an-body"><p class="sub" style="margin:0">Loading…</p></div>`;
+  panel.appendChild(el);
+
+  const body = el.querySelector("#an-body");
+  const paint = d => {
+    if (!el.isConnected) return;
+    body.innerHTML = analysisHtml(d);
+    const csv = body.querySelector("#an-csv");
+    if (csv) csv.onclick = () => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([analysisCsv(d)], { type: "text/csv" }));
+      a.download = `${md.discipline.replace(/[^\w]+/g, "-")}-shot-analysis.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+    };
+    const rf = body.querySelector("#an-refresh");
+    if (rf) rf.onclick = async () => {
+      rf.disabled = true;
+      try { paint(await loadAnalysis(md.id, true)); } catch { rf.disabled = false; }
+    };
+  };
+
+  // Only fetched once the director opens it, unless the match is already closed.
+  let started = false;
+  const go = async () => {
+    if (started) return; started = true;
+    try { paint(await loadAnalysis(md.id)); }
+    catch (err) { if (el.isConnected) body.innerHTML = `<div class="msg err">${esc(err.message || "Couldn't load the analysis.")}</div>`; }
+  };
+  if (el.open) go();
+  el.addEventListener("toggle", () => { if (el.open) go(); });
 }
 
 /* ---------------- witnessed edits ---------------- */

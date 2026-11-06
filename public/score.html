@@ -104,6 +104,7 @@
   .chip{flex:0 0 auto;background:#fff;border:1px solid var(--line);border-radius:999px;
     padding:9px 15px;font-size:13.5px;font-weight:600;color:var(--steel);cursor:pointer;
     display:flex;align-items:center;gap:7px}
+  .chip.next:not([aria-selected=true]){border-color:var(--amber);color:var(--amber-dk)}
   .chip[aria-selected=true]{background:var(--navy);border-color:var(--navy);color:#fff}
   .chip .dot{width:7px;height:7px;border-radius:50%;background:var(--line)}
   .chip .dot.part{background:var(--amber)}
@@ -127,6 +128,26 @@
   .tally.done{background:var(--green-bg);color:var(--green)}
   .who .chev{color:var(--muted);font-size:19px;line-height:1}
 
+  /* ---------- scored / next / not yet ---------- */
+  .statelegend{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+  .stbadge{display:inline-block;font-style:normal;font-size:11px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.4px;padding:2px 9px;border-radius:999px;margin-left:0}
+  .nm .stbadge{margin-left:6px}
+  .stbadge.done{background:var(--green-bg);color:var(--green)}
+  .stbadge.next{background:var(--amber);color:#fff}
+  .stbadge.part{background:#fff1dc;color:#8a5a12}
+  .stbadge.wait{background:#eef1f5;color:var(--muted)}
+  .who.s-next{border-color:var(--amber);box-shadow:0 0 0 3px rgba(183,29,28,.14),var(--shadow)}
+  .who.s-done{border-color:var(--green-line)}
+  .who.s-wait{background:#fafbfc;box-shadow:none}
+  .who.s-wait .nm b{color:var(--steel);font-weight:500}
+  .alldone{border:1px solid var(--green-line);background:var(--green-bg);color:var(--green);
+    border-radius:var(--radius);padding:14px 16px;margin:4px 0 12px;display:flex;
+    flex-direction:column;gap:4px;font-size:14px}
+  .alldone .btn{margin-top:8px}
+  .ooo{background:#fff1dc;border:1px solid #f0cf94;color:#7a4e0e;border-radius:8px;
+    padding:10px 12px;margin:0 14px 12px;font-size:13.5px}
+
   /* ---------- shot grid ---------- */
   .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:0 14px 14px}
   @media(min-width:430px){ .grid{grid-template-columns:repeat(6,1fr)} }
@@ -135,6 +156,27 @@
     cursor:pointer;padding:0;position:relative;touch-action:manipulation}
   .shot .n{position:absolute;top:3px;left:6px;font-size:10px;color:var(--muted);font-weight:700}
   .shot .mk{font-size:24px;font-weight:800;line-height:1;color:var(--line)}
+  .shot:disabled{cursor:default}
+  .shot.pend{background:#f3f5f8;border-color:#e7ebf0;opacity:.55}
+  .shot.cur{border-color:var(--amber);background:#fff;box-shadow:0 0 0 3px rgba(183,29,28,.18)}
+  .shot.cur .mk{color:var(--amber)}
+  .shot.cur .n{color:var(--amber-dk)}
+  @media(prefers-reduced-motion:no-preference){ .shot.cur{animation:nowpulse 1.6s ease-in-out infinite} }
+  @keyframes nowpulse{50%{box-shadow:0 0 0 6px rgba(183,29,28,.08)}}
+  .seqline{padding:0 16px 10px;font-size:16px}
+  .seqline span{color:var(--muted);font-size:13px;margin-left:6px}
+  .seqbar{position:sticky;bottom:0;background:var(--card);box-shadow:0 -6px 14px rgba(18,38,63,.06)}
+  .callrow{display:flex;gap:12px;padding:10px 14px 4px}
+  .callrow[hidden]{display:none}
+  .call{flex:1;min-height:78px;border:0;border-radius:14px;color:#fff;font-size:24px;
+    font-weight:800;letter-spacing:.5px;cursor:pointer;touch-action:manipulation}
+  .call small{display:block;font-size:12px;font-weight:600;letter-spacing:0;opacity:.85}
+  .call.hit{background:var(--green)}
+  .call.hit:active{background:#17603c}
+  .call.miss{background:var(--red)}
+  .call.miss:active{background:#8f1d17}
+  .call:disabled{opacity:.4}
+  #done.ready{box-shadow:0 0 0 3px rgba(183,29,28,.25)}
   .shot[data-v="1"]{background:var(--green-bg);border-color:var(--green)}
   .shot[data-v="1"] .mk{color:var(--green)}
   .shot[data-v="1"] .n{color:var(--green)}
@@ -571,6 +613,28 @@ function stageProgress(st) {
   return { recorded, possible };
 }
 
+/**
+ * Where a competitor stands on the stage (or relay) being scored:
+ *   done  - every shot recorded, or a score entered
+ *   part  - started but not finished
+ *   none  - nothing recorded yet
+ */
+function personState(p, forStage) {
+  if (isStages()) {
+    const st = SNAP.stages.find(x => x.id === (forStage ?? stageId));
+    if (!st) return "none";
+    const l = LOCAL[keyFor(p.id, st.id)];
+    const rec = l?.hits ? l.hits.filter(v => v !== null).length : 0;
+    return rec === 0 ? "none" : (rec >= st.shot_count ? "done" : "part");
+  }
+  const l = LOCAL[keyFor(p.id, relay)];
+  return l && l.score !== null && l.score !== undefined ? "done" : "none";
+}
+
+/** Squads shoot in roster order, so the next to be scored is the first
+ *  competitor, in that order, who is not finished. */
+const nextPerson = () => SNAP.entrants.find(p => personState(p) !== "done") || null;
+
 function paintStages() {
   const bar = document.getElementById("stagebar");
   if (!isStages()) { bar.hidden = true; return; }
@@ -578,11 +642,15 @@ function paintStages() {
   const wrap = document.getElementById("stagescroll");
   wrap.innerHTML = "";
 
+  const upNext = SNAP.stages.find(st => {
+    const { recorded, possible } = stageProgress(st);
+    return recorded < possible;
+  });
   for (const st of SNAP.stages) {
     const { recorded, possible } = stageProgress(st);
     const cls = recorded === 0 ? "" : (recorded >= possible ? "done" : "part");
     const b = document.createElement("button");
-    b.className = "chip";
+    b.className = "chip" + (upNext && st.id === upNext.id ? " next" : "");
     b.setAttribute("aria-selected", String(st.id === stageId));
     b.innerHTML = `<span class="dot ${cls}"></span>${esc(st.name)}`;
     b.onclick = () => { stageId = st.id; paint(); wrap.parentElement.scrollTop = 0; };
@@ -607,9 +675,22 @@ function paintPeople() {
     return;
   }
 
+  const upNext = nextPerson();
+
+  if (SNAP.entrants.length > 1) {
+    const lg = document.createElement("div");
+    lg.className = "statelegend";
+    lg.innerHTML = `<span class="stbadge done">&#10003; Scored</span>
+      <span class="stbadge next">Next up</span>
+      <span class="stbadge wait">Not scored yet</span>`;
+    box.appendChild(lg);
+  }
+
   for (const p of SNAP.entrants) {
     const row = document.createElement("div");
-    row.className = "who";
+    const ps = personState(p);
+    const role = ps === "done" ? "done" : (upNext && upNext.id === p.id ? "next" : (ps === "part" ? "part" : "wait"));
+    row.className = "who s-" + role;
 
     let tally = "—", cls = "";
     if (isStages()) {
@@ -633,13 +714,34 @@ function paintPeople() {
       <button class="open" type="button">
         <span class="nm">
           <b>${esc(p.name)}</b>
-          <span>${esc(p.class || "")}${queued ? (p.class ? " · " : "") + "waiting to send" : ""}</span>
+          <span>${esc(p.class || "")}${queued ? (p.class ? " · " : "") + "waiting to send" : ""}
+            <i class="stbadge ${role}">${role === "done" ? "&#10003; Scored" : role === "next" ? "Next up"
+              : role === "part" ? "In progress" : "Not scored yet"}</i></span>
         </span>
         <span class="tally ${cls}">${esc(tally)}</span>
         <span class="chev">›</span>
       </button>`;
     row.querySelector("button").onclick = () => openSheet(p);
     box.appendChild(row);
+  }
+
+  if (!upNext) {
+    const done = document.createElement("div");
+    done.className = "alldone";
+    const nextStage = isStages() ? SNAP.stages.find(st => {
+      const { recorded, possible } = stageProgress(st);
+      return recorded < possible;
+    }) : null;
+    done.innerHTML = nextStage
+      ? `<b>Everyone is scored on this stage.</b><span>Next stage: ${esc(nextStage.name)}</span>`
+      : `<b>Everyone in the squad is scored.</b><span>Check anything marked "waiting to send", then press Finish.</span>`;
+    if (nextStage) {
+      const go = document.createElement("button");
+      go.className = "btn"; go.type = "button"; go.textContent = `Go to ${nextStage.name}`;
+      go.onclick = () => { stageId = nextStage.id; paint(); window.scrollTo(0, 0); };
+      done.appendChild(go);
+    }
+    box.appendChild(done);
   }
 
   const note = document.getElementById("footnote");
@@ -696,6 +798,17 @@ function openSheet(p) {
   root.querySelector(".backdrop").onclick = e => { if (e.target.classList.contains("backdrop")) closeSheet(); };
 
   isStages() ? paintShotGrid(p) : paintDirectEntry(p);
+
+  /* Not blocked, because a squad sometimes does shoot out of turn, but never
+     silent: a card scored for the wrong shooter is the mistake this prevents. */
+  const nxt = nextPerson();
+  if (personState(p) === "none" && nxt && nxt.id !== p.id && !WIT[keyFor(p.id, isStages() ? stageId : relay)]) {
+    const body = document.getElementById("sheet-body");
+    const warn = document.createElement("div");
+    warn.className = "ooo";
+    warn.innerHTML = `<b>Out of order.</b> ${esc(nxt.name)} is next to be scored. Check you have the right shooter.`;
+    body.insertBefore(warn, body.firstChild);
+  }
 }
 
 /**
@@ -737,11 +850,14 @@ function witnessGate(p, key, proceed) {
 }
 
 /** Done: mark the card submitted, send it, and say plainly whether it landed. */
-async function finishCard(key, payload, btn) {
+async function finishCard(key, payload, btn, final = true) {
   const l = LOCAL[key];
-  if (l) { l.submitted = true; l.dirty = true; }
+  /* Only a finished card is "submitted". Closing a half-scored card still
+     sends everything recorded so far, but leaves it open so the scorer can
+     carry on without needing a witness. */
+  if (l) { if (final) l.submitted = true; l.dirty = true; }
   saveLocal();
-  enqueue(key, { ...payload, final: true, ...(WIT[key] ? { witness: WIT[key] } : {}) });
+  enqueue(key, { ...payload, ...(final ? { final: true } : {}), ...(WIT[key] ? { witness: WIT[key] } : {}) });
   ABANDON = null;                       // the edit is being kept
   btn.disabled = true; btn.textContent = "Saving…";
   const ok = await flushNow();
@@ -775,43 +891,108 @@ function paintShotGrid(p) {
   const body = document.getElementById("sheet-body");
   body.innerHTML = `
     ${editing ? `<p class="maxnote" style="margin-top:0">Editing a submitted score · witness: ${esc(WIT[k])}</p>` : ""}
+    <div class="seqline" id="seqline"></div>
     <div class="grid" id="grid"></div>
-    <p class="legend">Tap a shot to cycle it: blank → hit → miss → blank.</p>
-    <div class="sheetfoot">
-      <button class="btn ghost sm" id="allhit">All hits</button>
-      <button class="btn ghost sm" id="allmiss">All misses</button>
-      <span class="spread"></span>
-      <button class="btn sm" id="done">Done</button>
+    <p class="legend" id="seqhint"></p>
+    <div class="seqbar">
+      <div class="callrow" id="callrow">
+        <button class="call hit" id="callhit" type="button">HIT<small></small></button>
+        <button class="call miss" id="callmiss" type="button">MISS<small></small></button>
+      </div>
+      <div class="sheetfoot">
+        <button class="btn ghost sm" id="undo" type="button">&larr; Undo last shot</button>
+        <span class="spread"></span>
+        <button class="btn sm" id="done" type="button">Done</button>
+      </div>
     </div>`;
 
+  /* Shots are recorded one at a time, in the order they were fired. Only the
+     current shot is live; earlier ones are locked and later ones cannot be
+     touched until their turn. That is what stops shot 2's result being put
+     into shot 1's square — the director's course-of-fire data depends on every
+     result sitting in the slot it was shot in. The one way to change an earlier
+     shot is Undo, which takes back the most recent one. A witnessed edit of a
+     submitted card is the exception: it may flip a recorded shot, and that
+     change is logged. */
   const grid = document.getElementById("grid");
+  const nextIdx = () => l.hits.findIndex(v => v === null);
+
   const draw = () => {
+    const cur = nextIdx();
+    const done = cur === -1;
+    const rec = l.hits.filter(v => v !== null).length;
+    const hits = l.hits.filter(v => v === 1).length;
+
     grid.innerHTML = "";
     l.hits.forEach((v, i) => {
       const b = document.createElement("button");
-      b.className = "shot"; b.type = "button";
+      b.type = "button";
+      const state = v !== null ? "scored" : (i === cur ? "cur" : "pend");
+      b.className = "shot " + state;
       b.dataset.v = v === null ? "" : String(v);
       b.innerHTML = `<span class="n">${i + 1}</span>
-        <span class="mk">${v === 1 ? "✓" : v === 0 ? "✕" : "–"}</span>`;
-      b.onclick = () => {
-        l.hits[i] = l.hits[i] === null ? 1 : l.hits[i] === 1 ? 0 : null;
-        if (navigator.vibrate) navigator.vibrate(8);
-        commitCard(p, st, l, editing); draw(); updateSub();
-      };
+        <span class="mk">${v === 1 ? "✓" : v === 0 ? "✕" : i === cur ? "●" : "–"}</span>`;
+      b.setAttribute("aria-label", `Shot ${i + 1}: ${v === 1 ? "hit" : v === 0 ? "miss" : i === cur ? "next to score" : "not scored yet"}`);
+      if (editing && v !== null) {
+        b.onclick = () => {                      // witnessed correction of a recorded shot
+          l.hits[i] = v === 1 ? 0 : 1;
+          if (navigator.vibrate) navigator.vibrate(8);
+          commitCard(p, st, l, true); draw();
+        };
+      } else {
+        b.disabled = true;
+      }
       grid.appendChild(b);
     });
-  };
-  const updateSub = () => {
-    const hits = l.hits.filter(v => v === 1).length;
-    const rec  = l.hits.filter(v => v !== null).length;
+
+    document.getElementById("seqline").innerHTML = done
+      ? `<b>All ${st.shot_count} shots recorded</b> · ${hits} hit${hits === 1 ? "" : "s"}`
+      : `<b>Shot ${cur + 1} of ${st.shot_count}</b> <span>${hits} hit${hits === 1 ? "" : "s"} so far</span>`;
+
+    const hitBtn = document.getElementById("callhit"), missBtn = document.getElementById("callmiss");
+    hitBtn.disabled = missBtn.disabled = done;
+    hitBtn.querySelector("small").textContent = done ? "" : `shot ${cur + 1}`;
+    missBtn.querySelector("small").textContent = done ? "" : `shot ${cur + 1}`;
+    document.getElementById("callrow").hidden = done;
+
+    document.getElementById("undo").disabled = rec === 0;
+    const doneBtn = document.getElementById("done");
+    doneBtn.textContent = (done || editing) ? "Done" : "Save & close";
+    doneBtn.classList.toggle("ready", done);
+
+    document.getElementById("seqhint").textContent = editing
+      ? "Tap a recorded shot to flip it between hit and miss. The change is logged with the witness."
+      : done ? "Check the squares, then press Done. Use Undo if the last shot is wrong."
+      : "Record each shot in the order it was fired. Use Undo to take back the last one.";
+
     sub.textContent = `${st.name} · ${hits} hits, ${rec} of ${st.shot_count} recorded`;
   };
-  draw(); updateSub();
 
-  document.getElementById("allhit").onclick  = () => { l.hits = l.hits.map(() => 1); commitCard(p, st, l, editing); draw(); updateSub(); };
-  document.getElementById("allmiss").onclick = () => { l.hits = l.hits.map(() => 0); commitCard(p, st, l, editing); draw(); updateSub(); };
+  const record = v => {
+    const i = nextIdx();
+    if (i === -1) return;
+    l.hits[i] = v;
+    if (navigator.vibrate) navigator.vibrate(10);
+    commitCard(p, st, l, editing);
+    draw();
+  };
+  const undo = () => {
+    let last = -1;
+    l.hits.forEach((v, i) => { if (v !== null) last = i; });
+    if (last === -1) return;
+    l.hits[last] = null;
+    commitCard(p, st, l, editing);
+    draw();
+  };
+
+  document.getElementById("callhit").onclick  = () => record(1);
+  document.getElementById("callmiss").onclick = () => record(0);
+  document.getElementById("undo").onclick = undo;
+  draw();
+
   document.getElementById("done").onclick = e => finishCard(k,
-    { entrant_id: p.id, stage_id: st.id, base_version: l.version || 0 }, e.currentTarget);
+    { entrant_id: p.id, stage_id: st.id, base_version: l.version || 0 }, e.currentTarget,
+    nextIdx() === -1 || editing);
 }
 
 /** Writes the tap to this device immediately, then queues it for sending. */

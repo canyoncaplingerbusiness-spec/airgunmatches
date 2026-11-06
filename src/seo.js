@@ -397,7 +397,7 @@ async function tick(){
             (r.squad_name ? ' <span class="sq">· ' + esc(r.squad_name) + '</span>' : "") +
             (r.declared ? '<span class="flag">declared</span>' : "") + '</td>' +
           '<td class="sc">' + esc(r.display) +
-            (r.complete === false ? ' <span class="shooting">shooting</span>' : "") +
+            (r.complete === false && r.place !== null ? ' <span class="shooting">shooting</span>' : "") +
           '</td></tr>').join("") +
         '</table>'
       : '<div class="empty">No competitors entered yet.</div>') +

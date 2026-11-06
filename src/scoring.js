@@ -186,17 +186,27 @@ async function buildStandings(env, md) {
 
     rows = entrants.map(e => {
       const t = byEntrant.get(e.id) || { hits: 0, recorded: 0, stages: {} };
+      /* Nobody who has not been scored on a single shot is ranked. A hit count
+         of zero means "has shot and missed"; no recorded shots means "has not
+         started", and showing that as 0/100 in 2nd place tells spectators and
+         the director something that is not true. */
+      const started = t.recorded > 0;
       return {
         entrant_id: e.id, name: e.name, class: e.class,
         squad_id: e.squad_id, squad_name: e.squad_name,
-        value: t.hits,
-        display: `${t.hits}/${possible}`,
+        value: started ? t.hits : null,
+        display: started ? `${t.hits}/${possible}` : "—",
         recorded: t.recorded,
         complete: possible > 0 && t.recorded >= possible,
         per_stage: stages.map(s => ({ stage_id: s.id, ordinal: s.ordinal, hits: t.stages[s.id] ?? null }))
       };
     });
-    rows.sort((a, b) => b.value - a.value);
+    rows.sort((a, b) => {
+      if (a.value === null && b.value === null) return 0;
+      if (a.value === null) return 1;
+      if (b.value === null) return -1;
+      return b.value - a.value;
+    });
 
   } else {
     const scores = (await env.DB.prepare(
@@ -846,7 +856,7 @@ async function getSquad(request, env, H) {
     : [];
 
   const entrants = (await env.DB.prepare(
-    "SELECT id, name, class FROM entrants WHERE squad_id = ? ORDER BY name"
+    "SELECT id, name, class FROM entrants WHERE squad_id = ? ORDER BY id"
   ).bind(sq.squad_id).all()).results || [];
 
   const ids = entrants.map(e => e.id);
@@ -957,6 +967,10 @@ async function sync(request, env, H, body) {
       const norm = hits.map(v => (v === 1 || v === true) ? 1 : (v === 0 || v === false) ? 0 : null);
       const hitCount = norm.filter(v => v === 1).length;
       const recorded = norm.filter(v => v !== null).length;
+      /* A card is submitted only once every shot has a result. Pressing "Save &
+         close" on a half-scored card sends what is recorded but leaves it open,
+         so the scorer can carry on without a witness. */
+      const cardFinal = final && recorded === shots;
 
       const existing = await env.DB.prepare(
         "SELECT * FROM score_cards WHERE stage_id = ? AND entrant_id = ?"
@@ -967,7 +981,7 @@ async function sync(request, env, H, body) {
         await env.DB.prepare(
           `INSERT INTO score_cards (id, md_id, stage_id, entrant_id, hits, hit_count,
                                     recorded, version, scored_by, squad_id, device_id, submitted_at)
-           VALUES (?,?,?,?,?,?,?,1,?,?,?,${final ? "strftime('%Y-%m-%dT%H:%M:%SZ','now')" : "NULL"})`
+           VALUES (?,?,?,?,?,?,?,1,?,?,?,${cardFinal ? "strftime('%Y-%m-%dT%H:%M:%SZ','now')" : "NULL"})`
         ).bind(id, md.id, stageId, entrantId, JSON.stringify(norm), hitCount,
                recorded, scorer, sq.squad_id, device).run();
         await env.DB.prepare(
@@ -1008,7 +1022,7 @@ async function sync(request, env, H, body) {
       await env.DB.prepare(
         `UPDATE score_cards SET hits=?, hit_count=?, recorded=?, version=?, scored_by=?,
                 scored_at=strftime('%Y-%m-%dT%H:%M:%SZ','now'), device_id=?,
-                submitted_at=${final ? "COALESCE(submitted_at, strftime('%Y-%m-%dT%H:%M:%SZ','now'))" : "submitted_at"}
+                submitted_at=${cardFinal ? "COALESCE(submitted_at, strftime('%Y-%m-%dT%H:%M:%SZ','now'))" : "submitted_at"}
           WHERE id=? AND version=?`
       ).bind(JSON.stringify(norm), hitCount, recorded, nextVersion, scorer, device,
              existing.id, existing.version).run();
@@ -1117,6 +1131,163 @@ async function sync(request, env, H, body) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Match analysis                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Where did the field struggle?
+ *
+ * Every card holds one entry per shot, so the data to answer that is already
+ * on the server: for each stage and each shot, how many were attempted and how
+ * many were hit. This turns the cards into that picture. It is a pure function
+ * of the stages, the roster and the cards, so it can be tested without a
+ * database and gives the same answer on every call.
+ *
+ * Nothing here judges a stage as "too hard" in absolute terms — a field target
+ * course is meant to be hard, a bench rest one is not — so difficulty is
+ * stated against the match's own average, with the raw numbers beside it.
+ */
+function analyse(stages, entrants, cards) {
+  const cls = new Map(entrants.map(e => [e.id, e.class || "Unclassed"]));
+  const rowsByStage = new Map(stages.map(s => [s.id, []]));
+  for (const c of cards) {
+    const bucket = rowsByStage.get(c.stage_id);
+    if (!bucket) continue;
+    let hits;
+    try { hits = JSON.parse(c.hits); } catch { continue; }
+    if (Array.isArray(hits)) bucket.push({ entrant: c.entrant_id, hits });
+  }
+
+  const rate = (hit, att) => att ? hit / att : null;
+  const perEntrant = new Map();
+  let totalHits = 0, totalAtt = 0;
+
+  const out = stages.map(st => {
+    const shots = Array.from({ length: st.shot_count }, () => ({ attempts: 0, hits: 0 }));
+    const classes = {};
+    const spread = Array(st.shot_count + 1).fill(0);   // how many shooters hit 0..N
+    let att = 0, hit = 0, shooters = 0, perfect = 0, blank = 0;
+
+    for (const r of rowsByStage.get(st.id)) {
+      let rh = 0, ra = 0;
+      r.hits.forEach((v, i) => {
+        if (i >= st.shot_count || (v !== 0 && v !== 1)) return;
+        shots[i].attempts++; ra++;
+        if (v === 1) { shots[i].hits++; rh++; }
+      });
+      if (!ra) continue;                                // not started this stage
+      shooters++; att += ra; hit += rh;
+
+      const k = cls.get(r.entrant) || "Unclassed";
+      const c = classes[k] || (classes[k] = { shooters: 0, attempts: 0, hits: 0 });
+      c.shooters++; c.attempts += ra; c.hits += rh;
+
+      if (ra === st.shot_count) {
+        spread[rh]++;
+        if (rh === st.shot_count) perfect++;
+        if (rh === 0) blank++;
+      }
+      const pe = perEntrant.get(r.entrant) || { attempts: 0, hits: 0 };
+      pe.attempts += ra; pe.hits += rh; perEntrant.set(r.entrant, pe);
+    }
+    totalHits += hit; totalAtt += att;
+
+    const shotRows = shots.map((x, i) => ({ n: i + 1, attempts: x.attempts, hits: x.hits, rate: rate(x.hits, x.attempts) }));
+    const scored = shotRows.filter(x => x.rate !== null);
+    const hardest = scored.length ? scored.reduce((a, b) => (b.rate < a.rate ? b : a)) : null;
+    const easiest = scored.length ? scored.reduce((a, b) => (b.rate > a.rate ? b : a)) : null;
+
+    return {
+      stage_id: st.id, ordinal: st.ordinal, name: st.name, shot_count: st.shot_count,
+      shooters, attempts: att, hits: hit, rate: rate(hit, att),
+      perfect, blank, spread,
+      shots: shotRows,
+      hardest_shot: hardest && hardest.n, easiest_shot: easiest && easiest.n,
+      classes: Object.entries(classes).map(([name, c]) => ({
+        name, shooters: c.shooters, rate: rate(c.hits, c.attempts)
+      })).sort((a, b) => a.name.localeCompare(b.name))
+    };
+  });
+
+  const overall = rate(totalHits, totalAtt);
+
+  // Difficulty is relative to this match's own average.
+  for (const s of out) {
+    if (s.rate === null || overall === null) { s.level = null; continue; }
+    const d = s.rate - overall;
+    s.level = d >= 0.10 ? "easier" : d <= -0.20 ? "much_harder" : d <= -0.10 ? "harder" : "typical";
+  }
+  const ranked = out.filter(s => s.rate !== null).sort((a, b) => a.rate - b.rate);
+  ranked.forEach((s, i) => { s.rank = i + 1; });          // 1 = hardest
+
+  // Single shots that stood out, ignoring ones few people have attempted yet.
+  const hardShots = [];
+  for (const s of out) {
+    const floor = Math.max(3, Math.ceil(s.shooters * 0.5));
+    for (const x of s.shots)
+      if (x.rate !== null && x.attempts >= floor)
+        hardShots.push({ stage_id: s.stage_id, stage: s.name, n: x.n, attempts: x.attempts, hits: x.hits, rate: x.rate });
+  }
+  hardShots.sort((a, b) => a.rate - b.rate || a.stage_id - b.stage_id || a.n - b.n);
+
+  /* Competitors who found the match very hard are the ones who may not come
+     back, which is why the director asked for this. Only those who have shot at
+     least half the course are counted, so a mid-match look is not distorted by
+     people who have barely started. */
+  const possible = stages.reduce((a, s) => a + s.shot_count, 0);
+  const THRESHOLD = 0.4;
+  let considered = 0, below = 0, finished = 0;
+  for (const e of entrants) {
+    const pe = perEntrant.get(e.id);
+    if (!pe) continue;
+    if (pe.attempts >= possible) finished++;
+    if (pe.attempts * 2 < possible) continue;
+    considered++;
+    if (pe.hits / pe.attempts < THRESHOLD) below++;
+  }
+
+  return {
+    competitors: entrants.length, finished,
+    overall: { rate: overall, hits: totalHits, attempts: totalAtt, possible: possible * entrants.length },
+    struggling: { threshold: THRESHOLD, considered, below },
+    stages: out,
+    hardest_shots: hardShots.slice(0, 8)
+  };
+}
+
+async function matchAnalysis(request, env, H) {
+  const url = new URL(request.url);
+  const ev = await asDirector(env, url.searchParams.get("code"), H);
+  if (!ev) return H.fail("That code isn't recognised.", 404);
+  const md = await ownedDiscipline(env, ev.id, url.searchParams.get("md"));
+  if (!md) return H.fail("That discipline isn't part of this event.", 404);
+
+  if (md.mode !== "stages") {
+    return H.json({ available: false,
+      reason: "Stage and shot analysis needs a match scored shot by shot. This one is scored by total." },
+      200, { "cache-control": "no-store" });
+  }
+
+  const stages = (await env.DB.prepare(
+    "SELECT id, ordinal, name, shot_count FROM stages WHERE md_id = ? ORDER BY ordinal"
+  ).bind(md.id).all()).results || [];
+  const entrants = (await env.DB.prepare(
+    "SELECT id, name, class FROM entrants WHERE md_id = ?"
+  ).bind(md.id).all()).results || [];
+  const cards = (await env.DB.prepare(
+    "SELECT stage_id, entrant_id, hits FROM score_cards WHERE md_id = ?"
+  ).bind(md.id).all()).results || [];
+
+  const a = analyse(stages, entrants, cards);
+  return H.json({
+    available: true, discipline: md.discipline, state: md.state,
+    // Final only once the match is closed and every competitor has a full card.
+    provisional: md.state !== "complete" || a.finished < a.competitors,
+    ...a
+  }, 200, { "cache-control": "no-store" });
+}
+
+/* ------------------------------------------------------------------ */
 /* Public route                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -1164,6 +1335,7 @@ export async function handleScoring(request, env, path, method, H) {
   // Director reads
   if (path === "/api/scoring/match"     && method === "GET") return await getMatch(request, env, H);
   if (path === "/api/scoring/standings" && method === "GET") return await directorStandings(request, env, H);
+  if (path === "/api/scoring/analysis"  && method === "GET") return await matchAnalysis(request, env, H);
 
   // Squad read
   if (path === "/api/scoring/squad" && method === "GET") return await getSquad(request, env, H);
@@ -1197,4 +1369,4 @@ export async function handleScoring(request, env, path, method, H) {
   return null;   // not a scoring route
 }
 
-export const __test__ = { aggregate, buildStandings, sameHits };
+export const __test__ = { aggregate, buildStandings, sameHits, analyse };
