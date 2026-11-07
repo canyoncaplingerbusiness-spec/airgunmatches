@@ -626,8 +626,10 @@ async function getPublicEvents(env) {
   });
 
   return json({ events }, 200, {
-    // Short cache: approvals appear within a minute without a deploy.
-    "cache-control": "public, max-age=60, stale-while-revalidate=300"
+    /* Revalidated on every load. This carries each event's LIVE flag, and a
+       director switching public standings on or off has to show up on the next
+       reload, not after a cache runs out. */
+    "cache-control": "public, max-age=0, must-revalidate"
   });
 }
 
@@ -832,7 +834,9 @@ async function serveEventPage(request, env, path, origin, host, ctx) {
   return new Response(page, {
     headers: {
       "content-type": "text/html; charset=utf-8",
-      "cache-control": "public, max-age=600, stale-while-revalidate=3600",
+      /* Not cached: when a match goes live this same address must turn into the
+         live standings page on the next load, not ten minutes later. */
+      "cache-control": "public, max-age=0, must-revalidate",
       ...securityHeaders()
     }
   });
@@ -1958,7 +1962,7 @@ export default {
           injectSponsor(injectIntoCalendar(html, events, canon), sponsor, url.host),
           /* An unsold slot caches for five minutes as before. A sold one is
              kept briefly so the day's impression count means something. */
-          sponsor ? "public, max-age=60" : "public, max-age=300, stale-while-revalidate=1800");
+          "public, max-age=0, must-revalidate");   // the LIVE badge must follow the director's switch
       }
 
       /* The scoring screen, with the sponsor logo in its header if one is

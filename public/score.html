@@ -94,6 +94,11 @@
   .msg.err{background:var(--red-bg);border:1px solid var(--red-line);color:#8f2419}
   .msg.ok{background:var(--green-bg);border:1px solid var(--green-line);color:var(--green)}
   .msg.info{background:#eef2f7;border:1px solid #dde4ee;color:var(--navy-2)}
+  #toast{position:fixed;left:14px;right:14px;bottom:calc(18px + env(safe-area-inset-bottom));z-index:80;
+    background:var(--navy);color:#fff;border-radius:12px;padding:14px 16px;font-size:15px;line-height:1.4;
+    box-shadow:0 10px 30px rgba(0,0,0,.35);opacity:0;transform:translateY(12px);pointer-events:none;
+    transition:opacity .18s,transform .18s;max-width:520px;margin:0 auto}
+  #toast.show{opacity:1;transform:none}
 
   /* ---------- stage chips ---------- */
   .stagebar{position:sticky;top:0;z-index:20;background:var(--bg);
@@ -470,7 +475,7 @@ function mergeSnapshot(fresh, skip = new Set()) {
 }
 
 async function fetchSquad(code) {
-  const res = await fetch(`/api/scoring/squad?code=${encodeURIComponent(code)}`, {
+  const res = await fetch(`/api/scoring/squad?code=${encodeURIComponent(code)}&pending=${(typeof QUEUE !== "undefined" && QUEUE.length) || 0}`, {
     credentials: "omit", cache: "no-store"
   });
   const body = await res.json().catch(() => ({}));
@@ -688,6 +693,18 @@ function paintPill() {
   else                    { p.className = "pill ok";   p.textContent = "Saved"; }
 }
 
+/** A short message pinned to the screen. The tap explanations (locked stage,
+ *  closed stage, your own card) use this instead of the banner at the top of
+ *  the page, which scrolls out of sight on a phone. */
+let toastTimer = null;
+function toast(text) {
+  let t = document.getElementById("toast");
+  if (!t) { t = document.createElement("div"); t.id = "toast"; t.setAttribute("role", "status"); document.body.appendChild(t); }
+  t.textContent = text; t.className = "show";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = ""; }, 5000);
+}
+
 function banner(text, kind) {
   const box = document.getElementById("topmsg");
   box.innerHTML = `<div class="msg ${kind}">${esc(text)}</div>`;
@@ -799,7 +816,7 @@ function paintStages() {
     b.onclick = () => {
       if (locked) {
         const cur = currentStage();
-        banner(`${st.name} opens once everyone in your squad is scored on ${cur ? cur.name : "the stage before"}.`, "info");
+        toast(`${st.name} is locked. It opens once everyone in your squad has been scored on ${cur ? cur.name : "the stage before"}.`);
         return;
       }
       stageId = st.id; paint(); wrap.parentElement.scrollTop = 0;
@@ -874,13 +891,13 @@ function paintPeople() {
         <span class="chev">›</span>
       </button>`;
     if (p.dq) {
-      row.querySelector("button").onclick = () => banner(`${p.name} has been disqualified and can't be scored.`, "info");
+      row.querySelector("button").onclick = () => toast(`${p.name} has been disqualified and can't be scored.`);
     } else if (self) {
       const b = row.querySelector("button");
-      b.onclick = () => banner("You can't score your own card. Another member of the squad scores you.", "info");
+      b.onclick = () => toast("You can't score your own card. Another member of the squad scores you.");
     } else row.querySelector("button").onclick = () => {
       if (isStages() && stageClosedSet().has(stageId)) {
-        banner("This stage is closed. Your squad has moved two stages past it, so it can't be changed here. Ask your match director.", "info");
+        toast("This stage is closed. Your squad has moved two stages past it, so it can't be changed here. Ask your match director.");
         return;
       }
       openSheet(p);

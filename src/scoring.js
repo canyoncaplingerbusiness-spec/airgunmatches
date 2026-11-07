@@ -449,6 +449,11 @@ async function getMatch(request, env, H) {
 
     const squads = (await env.DB.prepare(
       `SELECT s.id, s.ordinal, s.name, s.code, s.scorer_name, s.start_stage,
+              s.last_seen_at, s.pending,
+              (SELECT MAX(c.scored_at) FROM score_cards c JOIN entrants x ON x.id = c.entrant_id
+                WHERE x.squad_id = s.id) AS last_score_at,
+              (SELECT MAX(d.scored_at) FROM direct_scores d JOIN entrants x ON x.id = d.entrant_id
+                WHERE x.squad_id = s.id) AS last_direct_at,
               (SELECT COUNT(*) FROM entrants x WHERE x.squad_id = s.id) AS entrants
          FROM squads s WHERE s.md_id = ? ORDER BY s.ordinal`
     ).bind(md.id).all()).results || [];
@@ -457,6 +462,16 @@ async function getMatch(request, env, H) {
       "SELECT id, name, class, squad_id, dq_at, dq_reason, dq_by FROM entrants WHERE md_id = ? ORDER BY name"
     ).bind(md.id).all()).results || [];
     const active = entrants.filter(e => !e.dq_at);
+
+    /* Squad health, as seconds ago on the server's clock so the director's
+       screen doesn't depend on its own being right. */
+    const nowMs = Date.now();
+    const ago = t => (t ? Math.max(0, Math.round((nowMs - Date.parse(t)) / 1000)) : null);
+    for (const sq of squads) {
+      const lastScore = [sq.last_score_at, sq.last_direct_at].filter(Boolean).sort().pop() || null;
+      sq.health = { score_ago: ago(lastScore), seen_ago: ago(sq.last_seen_at), pending: sq.pending || 0 };
+      delete sq.last_score_at; delete sq.last_direct_at; delete sq.last_seen_at; delete sq.pending;
+    }
 
     /* Where each squad is on the course: the stages in its own order with the
        finished ones marked, the stage it is on, and who is still to be scored
@@ -1083,6 +1098,84 @@ async function correctCard(request, env, H, body) {
   return H.json({ ok: true, version });
 }
 
+/**
+ * Every shot, as a spreadsheet. One row per competitor per stage (or per
+ * relay), with each shot as H, M or blank, so a protest or a post-match
+ * question can be answered from the raw record. Cells are written so that a
+ * name beginning with = + - or @ can't run as a formula when it is opened.
+ */
+async function exportShots(request, env, H) {
+  const url = new URL(request.url);
+  const ev = await asDirector(env, url.searchParams.get("code"), H);
+  if (!ev) return H.fail("That code isn't recognised.", 404);
+  const md = await ownedDiscipline(env, ev.id, url.searchParams.get("md"));
+  if (!md) return H.fail("That discipline isn't part of this event.", 404);
+
+  const cell = v => {
+    let t = v === null || v === undefined ? "" : String(v);
+    if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+    return `"${t.replace(/"/g, '""')}"`;
+  };
+  const entrants = (await env.DB.prepare(
+    `SELECT e.id, e.name, e.class, e.dq_at, e.dq_reason, s.name AS squad
+       FROM entrants e LEFT JOIN squads s ON s.id = e.squad_id
+      WHERE e.md_id = ? ORDER BY e.name, e.id`
+  ).bind(md.id).all()).results || [];
+  const shown = distinctNames(entrants);
+  const status = e => e.dq_at ? "Disqualified" : "Active";
+
+  const lines = [];
+  if (md.mode === "stages") {
+    const stages = (await env.DB.prepare(
+      "SELECT id, ordinal, name, shot_count FROM stages WHERE md_id = ? ORDER BY ordinal"
+    ).bind(md.id).all()).results || [];
+    const maxShots = Math.max(1, ...stages.map(s => s.shot_count));
+    const cards = (await env.DB.prepare(
+      `SELECT stage_id, entrant_id, hits, hit_count, recorded, version, scored_by, scored_at, submitted_at
+         FROM score_cards WHERE md_id = ?`
+    ).bind(md.id).all()).results || [];
+    const byKey = new Map(cards.map(c => [c.stage_id + ":" + c.entrant_id, c]));
+
+    lines.push(["Competitor", "Squad", "Class", "Status", "Stage",
+      ...Array.from({ length: maxShots }, (_, i) => `Shot ${i + 1}`),
+      "Hits", "Shots recorded", "Scored by", "Last scored (UTC)", "Submitted (UTC)", "Version"].map(cell).join(","));
+    for (const e of entrants) for (const st of stages) {
+      const c = byKey.get(st.id + ":" + e.id);
+      const hits = c ? (H.safeParse(c.hits) || []) : [];
+      const shots = Array.from({ length: maxShots }, (_, i) =>
+        i >= st.shot_count ? "" : hits[i] === 1 ? "H" : hits[i] === 0 ? "M" : "");
+      lines.push([shown.get(e.id), e.squad || "", e.class || "", status(e), st.name, ...shots,
+        c ? c.hit_count : "", c ? c.recorded : 0, c ? c.scored_by : "", c ? c.scored_at : "",
+        c ? c.submitted_at : "", c ? c.version : ""].map(cell).join(","));
+    }
+  } else {
+    const rows = (await env.DB.prepare(
+      `SELECT entrant_id, relay, score, x_count, version, scored_by, scored_at, submitted_at
+         FROM direct_scores WHERE md_id = ? ORDER BY relay`
+    ).bind(md.id).all()).results || [];
+    const byE = new Map();
+    for (const r of rows) (byE.get(r.entrant_id) || byE.set(r.entrant_id, []).get(r.entrant_id)).push(r);
+    lines.push(["Competitor", "Squad", "Class", "Status", "Relay", "Score", "X count",
+      "Scored by", "Last scored (UTC)", "Submitted (UTC)", "Version"].map(cell).join(","));
+    for (const e of entrants) {
+      const list = byE.get(e.id) || [{}];
+      for (const r of list)
+        lines.push([shown.get(e.id), e.squad || "", e.class || "", status(e), r.relay ?? "",
+          r.score ?? "", r.x_count ?? "", r.scored_by ?? "", r.scored_at ?? "",
+          r.submitted_at ?? "", r.version ?? ""].map(cell).join(","));
+    }
+  }
+
+  const name = String(md.discipline || "match").replace(/[^\w]+/g, "-").replace(/^-|-$/g, "");
+  return new Response("﻿" + lines.join("\r\n"), {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="${name}-every-shot.csv"`,
+      "cache-control": "no-store"
+    }
+  });
+}
+
 async function directorStandings(request, env, H) {
   const url = new URL(request.url);
   const ev = await asDirector(env, url.searchParams.get("code"), H);
@@ -1107,9 +1200,13 @@ async function directorStandings(request, env, H) {
     after:  (() => { try { return JSON.parse(r.after);  } catch { return {}; } })()
   }));
 
+  const dq_log = (await env.DB.prepare(
+    `SELECT name, action, reason, by, at FROM dq_log WHERE md_id = ? ORDER BY id DESC LIMIT 300`
+  ).bind(md.id).all()).results || [];
+
   return H.json({
     discipline: md.discipline, mode: md.mode, state: md.state,
-    live_public: md.live_public, possible, standings: rows, edits
+    live_public: md.live_public, possible, standings: rows, edits, dq_log
   }, 200, { "cache-control": "no-store" });
 }
 
@@ -1198,6 +1295,23 @@ async function getSquad(request, env, H) {
 
   const md = await env.DB.prepare("SELECT * FROM match_disciplines WHERE id = ?")
     .bind(sq.md_id).first();
+
+  /* Heartbeat: the director's squad card shows when this phone last checked in
+     and how many scores it is still holding. Written at most once a minute per
+     squad (or at once if the unsent count changes), so a room full of phones
+     polling every few seconds is a trickle of writes, not a flood. A failure
+     here must never stop a scorer loading their page. */
+  try {
+    const pend = Math.min(Math.max(asInt(new URL(request.url).searchParams.get("pending")) ?? 0, 0), 999);
+    const row = await env.DB.prepare("SELECT last_seen_at, pending FROM squads WHERE id = ?")
+      .bind(sq.squad_id).first();
+    const age = row && row.last_seen_at ? Date.now() - Date.parse(row.last_seen_at) : Infinity;
+    if (!row || age > 60000 || (row.pending || 0) !== pend) {
+      await env.DB.prepare(
+        "UPDATE squads SET last_seen_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'), pending = ? WHERE id = ?"
+      ).bind(pend, sq.squad_id).run();
+    }
+  } catch { /* heartbeat is best-effort */ }
 
   /* Stages come back in this squad's own order, starting at the stage it was
      drawn, so the phone's first stage is always where this squad begins. */
@@ -1746,6 +1860,7 @@ export async function handleScoring(request, env, path, method, H) {
   if (path === "/api/scoring/standings" && method === "GET") return await directorStandings(request, env, H);
   if (path === "/api/scoring/analysis"  && method === "GET") return await matchAnalysis(request, env, H);
   if (path === "/api/scoring/cards"     && method === "GET") return await directorCards(request, env, H);
+  if (path === "/api/scoring/export"    && method === "GET") return await exportShots(request, env, H);
 
   // Squad read
   if (path === "/api/scoring/squad" && method === "GET") return await getSquad(request, env, H);

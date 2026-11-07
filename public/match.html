@@ -315,6 +315,11 @@
   .startrow{margin:12px 0 0;gap:10px}
   .startrow label{margin:0;font-size:13px;color:var(--muted);font-weight:600}
   .startrow select{max-width:220px;padding:8px 10px;font-size:14px}
+  .health{display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 10px;border-radius:8px;
+    background:#f6f8fb;font-size:12.5px;color:var(--muted)}
+  .health .hd{width:9px;height:9px;border-radius:50%;background:var(--green);flex:none}
+  .health.warn{background:var(--amber-bg);color:var(--amber-tx)} .health.warn .hd{background:var(--amber-tx)}
+  .health.bad{background:var(--red-bg);color:#8f2419} .health.bad .hd{background:var(--red)}
   .sq .foot{margin-top:14px}
   .sq .code{font-size:15px;margin:0;padding:9px 12px}
   .sqbtns{margin-top:10px}
@@ -1090,6 +1095,44 @@ function renderDirectSettings(panel, md) {
 
 /* ---------------- squads and codes ---------------- */
 
+/* How long ago, in words. Seconds are measured on the server's clock. */
+function agoText(sec) {
+  if (sec === null || sec === undefined) return null;
+  if (sec < 15) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  const m = Math.floor(sec / 60);
+  if (m < 60) return `${m} min ago`;
+  return `${Math.floor(m / 60)}h ${m % 60}m ago`;
+}
+
+/** What a squad's card should say about its phone and its pace. Only matters
+ *  while the match is running and the squad still has stages to shoot. */
+function squadHealth(md, q) {
+  const h = q.health || {};
+  const running = md.state === "live" && q.entrants > 0 && !(q.track && q.track.finished);
+  const seen = h.seen_ago;
+  let level = "ok", flag = null;
+  if (running) {
+    if (seen === null || seen === undefined) { level = "bad"; flag = "No contact yet"; }
+    else if (seen > 180) { level = "bad"; flag = "No contact " + Math.floor(seen / 60) + " min"; }
+    else if (h.score_ago === null || h.score_ago > 900) { level = "warn"; flag = h.score_ago === null ? "No scores yet" : "Quiet " + Math.floor(h.score_ago / 60) + " min"; }
+    if ((h.pending || 0) > 0 && level === "ok") { level = "warn"; flag = `${h.pending} unsent`; }
+  }
+  const lines = [];
+  lines.push(h.score_ago === null || h.score_ago === undefined
+    ? "No scores recorded yet" : `Last score ${agoText(h.score_ago)}`);
+  lines.push(seen === null || seen === undefined ? "Phone hasn't checked in"
+    : seen <= 45 ? "Phone connected" : `Phone last seen ${agoText(seen)}`);
+  return { running, level, flag, lines, pending: h.pending || 0 };
+}
+
+/** Coarse enough that the auto-refresh redraws about once a minute, not every tick. */
+const healthKey = q => {
+  const h = q.health || {};
+  const b = v => v === null || v === undefined ? "n" : Math.floor(v / 60);
+  return [h.seen_ago === null || h.seen_ago === undefined ? "n" : h.seen_ago <= 45 ? "c" : b(h.seen_ago), b(h.score_ago), h.pending || 0];
+};
+
 function renderSquads(panel, md) {
   const d = document.createElement("section");
   d.className = "sec";
@@ -1120,7 +1163,10 @@ function renderSquads(panel, md) {
     const el = document.createElement("div");
     el.className = "sq";
     const link = `${location.origin}/score.html?code=${s.code}`;
-    const pill = t
+    const hl = squadHealth(md, s);
+    const pill = hl.flag
+      ? `<span class="pill s ${hl.level === "bad" ? "p-bad" : "p-wait"}">${esc(hl.flag)}</span>`
+      : t
       ? (t.finished ? `<span class="pill s p-ok">Finished</span>`
          : t.cur_name ? `<span class="pill s p-wait">On ${esc(t.cur_name)}</span>`
          : `<span class="pill s p-n">${s.entrants} competitor${s.entrants === 1 ? "" : "s"}</span>`)
@@ -1136,6 +1182,9 @@ function renderSquads(panel, md) {
           : `<div class="line">Started on <b>${esc(startName || "—")}</b> · ${t.scored} of ${t.of} scored on <b>${esc(t.cur_name || "")}</b></div>
              <div class="bar"><span style="width:${pct}%"></span></div>
              ${t.waiting.length ? `<div class="line small">Waiting on: <b>${t.waiting.map(esc).join(", ")}</b></div>` : ""}`}` : ""}
+      ${md.state !== "setup" ? `<div class="health ${hl.level}">
+        <span class="hd"></span>${hl.lines.map(esc).join(" &nbsp;·&nbsp; ")}${
+          hl.pending ? ` &nbsp;·&nbsp; <b>${hl.pending} score${hl.pending === 1 ? "" : "s"} waiting to send</b>` : ""}</div>` : ""}
       ${md.stages.length ? `<div class="row startrow">
         <label>Starts on</label>
         <select data-a="start">
@@ -1336,6 +1385,8 @@ function renderStandings(panel, md) {
     ${anyDeclared ? `<p class="hint">Placings marked <span class="declared">declared</span>
       were set by you, not worked out from the scores.</p>` : ""}
     <div class="row" style="margin-top:16px;justify-content:flex-end">
+      <button class="btn ghost" id="std-csv" type="button">Download every shot (CSV)</button>
+      <button class="btn ghost" id="std-report" type="button">Match report (print / PDF)</button>
       <button class="btn" id="std-publish">Publish these results</button>
     </div>
     <p class="hint">Publishing puts this discipline on the event's public results page and
@@ -1500,7 +1551,7 @@ function renderStandings(panel, md) {
         try {
           const m = await api(`/api/scoring/match?code=${encodeURIComponent(CODE)}`);
           const sig = x => JSON.stringify((x.match_disciplines || []).map(d =>
-            [d.id, d.state, d.progress && d.progress.done, (d.squads || []).map(q => [q.id, q.start_stage, q.track]),
+            [d.id, d.state, d.progress && d.progress.done, (d.squads || []).map(q => [q.id, q.start_stage, q.track, healthKey(q)]),
              (d.entrants || []).map(e => [e.id, e.dq_at, e.squad_id])]));
           if (sig(m) !== sig(DATA)) { DATA = m; squadsMoved = true; }
         } catch { /* try again next cycle */ }
@@ -1515,6 +1566,22 @@ function renderStandings(panel, md) {
       }
     }, 5000);
   }
+
+  el.querySelector("#std-csv").onclick = async ev => {
+    const b = ev.currentTarget, was = b.textContent;
+    b.disabled = true; b.textContent = "Preparing…";
+    try {
+      const res = await fetch(`/api/scoring/export?code=${encodeURIComponent(CODE)}&md=${md.id}`,
+        { credentials: "omit", cache: "no-store" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Couldn't build the file.");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(await res.blob());
+      a.download = `${md.discipline.replace(/[^\w]+/g, "-")}-every-shot.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch (err) { $("std-msg").innerHTML = `<div class="msg err">${esc(err.message)}</div>`; }
+    finally { b.disabled = false; b.textContent = was; }
+  };
+  el.querySelector("#std-report").onclick = ev => openReport(md, ev.currentTarget);
 
   el.querySelector("#std-publish").onclick = () => {
     const scored = s.standings.filter(r => r.place !== null).length;
@@ -1658,6 +1725,108 @@ function renderAnalysis(panel, md) {
   };
   if (el.open) go();
   el.addEventListener("toggle", () => { if (el.open) go(); });
+}
+
+/* ---------------- match report ---------------- */
+
+/**
+ * A print-ready record of the match: results, how each stage played, every
+ * correction and disqualification, and a line for the director to sign. It
+ * opens in its own window; Print there, and "Save as PDF" is the PDF.
+ */
+async function openReport(md, btn) {
+  // Open the window first, inside the click, or the browser treats it as a pop-up.
+  const w = window.open("", "_blank");
+  if (!w) { alert("Your browser blocked the report window. Allow pop-ups for this site and try again."); return; }
+  w.document.write("<p style='font:16px sans-serif;padding:30px'>Building the report…</p>");
+  const was = btn && btn.textContent; if (btn) btn.disabled = true;
+
+  try {
+    await loadStandings(md.id);
+    const s = standings[md.id];
+    let an = null;
+    if (md.mode === "stages") { try { an = await loadAnalysis(md.id, true); } catch { an = null; } }
+
+    const ev = DATA.event;
+    const when = ev.end_date && ev.end_date !== ev.start_date ? `${ev.start_date} to ${ev.end_date}` : ev.start_date;
+    const stamp = t => { const d = new Date(t); return isNaN(d) ? esc(t) : esc(d.toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })); };
+    const status = md.state === "complete" ? "Final" : md.state === "live" ? "Provisional — match still open" : "Not started";
+    const dqById = new Map(md.entrants.filter(e => e.dq_at).map(e => [e.name, e]));
+
+    const stageCols = md.mode === "stages" ? md.stages : [];
+    const rows = (s.standings || []).map(r => {
+      const dq = r.dq;
+      const per = stageCols.map(st => {
+        const x = (r.per_stage || []).find(p => p.stage_id === st.id);
+        return `<td class="n">${dq || !x || x.hits === null ? "—" : x.hits}</td>`;
+      }).join("");
+      const note = dq ? `Disqualified${(dqById.get(r.name) || {}).dq_reason ? ": " + esc(dqById.get(r.name).dq_reason) : ""}`
+        : r.declared ? "Placing declared by the director" : "";
+      return `<tr class="${dq ? "dq" : ""}"><td class="n">${dq ? "DQ" : (r.place ?? "—")}</td>
+        <td><b>${esc(r.name)}</b>${r.class ? ` <span class="m">· ${esc(r.class)}</span>` : ""}<br><span class="m">${esc(r.squad_name || "No squad")}${note ? " · " + note : ""}</span></td>
+        ${per}<td class="n"><b>${esc(r.display)}</b></td></tr>`;
+    }).join("");
+
+    const diff = an && an.available && an.overall && an.overall.attempts ? (() => {
+      const ranked = an.stages.filter(x => x.rank).sort((a, b) => a.rank - b.rank);
+      const lv = { easier: "Easier than average", typical: "About average", harder: "Harder than average", much_harder: "Much harder than average" };
+      const hs = x => x.shots.find(y => y.n === x.hardest_shot), es = x => x.shots.find(y => y.n === x.easiest_shot);
+      return `<h2>How the stages played</h2>
+        <p class="m">Overall hit rate ${pct(an.overall.rate)} (${an.overall.hits} of ${an.overall.attempts} shots).
+          Difficulty is measured against this match's own average.${an.provisional ? " Provisional until everyone has finished." : ""}</p>
+        <table><thead><tr><th>Stage</th><th class="n">Hit rate</th><th>Difficulty</th><th>Hardest shot</th><th>Easiest shot</th></tr></thead><tbody>
+        ${ranked.map(x => `<tr><td><b>${esc(x.name)}</b></td><td class="n">${pct(x.rate)}</td><td>${lv[x.level] || "—"}</td>
+          <td>${hs(x) && x.shots.length > 1 ? `Shot ${hs(x).n} (${pct(hs(x).rate)})` : "—"}</td>
+          <td>${es(x) && x.shots.length > 1 ? `Shot ${es(x).n} (${pct(es(x).rate)})` : "—"}</td></tr>`).join("")}</tbody></table>
+        ${an.hardest_shots && an.hardest_shots.length ? `<h3>Ten hardest single shots</h3><table><thead><tr><th>Stage</th><th class="n">Shot</th><th class="n">Hit rate</th><th class="n">Hits</th></tr></thead><tbody>
+          ${an.hardest_shots.slice(0, 10).map(h => `<tr><td>${esc(h.stage)}</td><td class="n">${h.n}</td><td class="n">${pct(h.rate)}</td><td class="n">${h.hits} of ${h.attempts}</td></tr>`).join("")}</tbody></table>` : ""}`;
+    })() : "";
+
+    const side = (e, v) => {
+      if (e.kind === "card") { const h = (v.hits || []).filter(x => x === 1).length, n = (v.hits || []).filter(x => x !== null).length; return `${h} of ${n}`; }
+      const sc = v.score === null || v.score === undefined ? "—" : v.score; return v.x_count ? `${sc} (${v.x_count}X)` : String(sc);
+    };
+    const edits = s.edits || [];
+    const editTbl = edits.length ? `<table><thead><tr><th>When</th><th>Competitor</th><th>Change</th><th>Made by</th><th>Witness / reason</th></tr></thead><tbody>
+      ${edits.map(e => `<tr><td>${stamp(e.edited_at)}</td><td>${esc(e.competitor)}${e.stage ? `<br><span class="m">${esc(e.stage)}</span>` : ""}</td>
+        <td>${esc(side(e, e.before))} → <b>${esc(side(e, e.after))}</b></td><td>${esc(e.edited_by || "—")}</td>
+        <td>${esc(e.witness)}${e.reason ? `<br><span class="m">Reason: ${esc(e.reason)}</span>` : ""}</td></tr>`).join("")}</tbody></table>`
+      : `<p class="m">No scores were changed after submission.</p>`;
+    const dql = s.dq_log || [];
+    const dqTbl = dql.length ? `<table><thead><tr><th>When</th><th>Competitor</th><th>Action</th><th>Reason</th><th>By</th></tr></thead><tbody>
+      ${dql.map(d => `<tr><td>${stamp(d.at)}</td><td>${esc(d.name)}</td><td>${d.action === "disqualify" ? "Disqualified" : "Reinstated"}</td><td>${esc(d.reason)}</td><td>${esc(d.by)}</td></tr>`).join("")}</tbody></table>`
+      : `<p class="m">No disqualifications.</p>`;
+
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>${esc(ev.name)} — ${esc(md.discipline)} — Match report</title>
+<style>
+  *{box-sizing:border-box} body{font:13.5px/1.45 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:#1d2733;max-width:900px;margin:0 auto;padding:28px}
+  .bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+  .btn{background:#B71D1C;color:#fff;border:0;border-radius:8px;padding:10px 18px;font-weight:700;cursor:pointer;font-size:14px}
+  h1{margin:0 0 2px;font-size:24px} h2{font-size:15px;margin:26px 0 8px;padding-bottom:5px;border-bottom:2px solid #121417;text-transform:uppercase;letter-spacing:.5px}
+  h3{font-size:13.5px;margin:16px 0 6px} .m{color:#6b7684;font-size:12.5px} .tag{display:inline-block;background:#121417;color:#fff;border-radius:99px;padding:2px 10px;font-size:12px;font-weight:700}
+  table{width:100%;border-collapse:collapse;margin:6px 0 4px} th{background:#f1f3f6;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#4a5560}
+  th,td{padding:7px 9px;border-bottom:1px solid #dde2e8;vertical-align:top} .n{text-align:right;white-space:nowrap} tr.dq td{color:#7a8490;background:#faf3f2}
+  .sig{display:flex;gap:40px;margin-top:46px} .sig div{flex:1;border-top:1px solid #1d2733;padding-top:5px;font-size:12px;color:#4a5560}
+  .foot{margin-top:26px;font-size:11.5px;color:#6b7684}
+  @media print{.bar{display:none} body{padding:0;max-width:none} h2{break-after:avoid} table,tr{break-inside:avoid}}
+</style></head><body>
+<div class="bar"><span class="m">Use Print, then choose “Save as PDF” to keep a copy.</span><button class="btn" onclick="window.print()">Print / Save as PDF</button></div>
+<h1>${esc(ev.name)}</h1>
+<div>${esc(md.discipline)} &nbsp;·&nbsp; ${esc(when)} &nbsp;·&nbsp; ${esc(ev.venue)}, ${esc(ev.city)}, ${esc(ev.state)}</div>
+<div style="margin-top:8px"><span class="tag">${status}</span> <span class="m">&nbsp;Generated ${stamp(new Date().toISOString())}</span></div>
+<h2>Results</h2>
+<table><thead><tr><th class="n">Place</th><th>Competitor</th>${stageCols.map(st => `<th class="n">${esc(st.name)}</th>`).join("")}<th class="n">${md.mode === "stages" ? "Total hits" : "Score"}</th></tr></thead><tbody>${rows}</tbody></table>
+${md.mode === "stages" ? `<p class="m">Out of ${s.possible} shots in total. Disqualified competitors are listed last and are not ranked.</p>` : ""}
+${diff}
+<h2>Score changes after submission</h2>${editTbl}
+<h2>Disqualifications</h2>${dqTbl}
+<div class="sig"><div>Match director</div><div>Date</div></div>
+<p class="foot">Generated by GunMatches.com. The change and disqualification logs are permanent records and cannot be edited.</p>
+</body></html>`;
+    w.document.open(); w.document.write(html); w.document.close();
+  } catch (err) {
+    w.document.open(); w.document.write(`<p style="font:16px sans-serif;padding:30px">Couldn't build the report: ${esc(err.message || "unknown error")}</p>`); w.document.close();
+  } finally { if (btn) { btn.disabled = false; btn.textContent = was; } }
 }
 
 /* ---------------- disqualification ---------------- */
