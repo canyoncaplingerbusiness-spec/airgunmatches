@@ -76,6 +76,16 @@
   .msg.ok{background:var(--green-bg);border:1px solid var(--green-line);color:var(--green)}
   .msg.info{background:#eef2f7;border:1px solid #dde4ee;color:var(--navy-2)}
 
+  .fixdlg{border:0;border-radius:14px;padding:22px;width:min(520px,94vw);box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  .fixdlg::backdrop{background:rgba(15,20,30,.55)}
+  .fixdlg textarea{width:100%;box-sizing:border-box;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px}
+  .fxgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:12px 0 6px}
+  .fxshot{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 0;font-weight:700;
+    font-size:13px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;min-height:48px}
+  .fxshot small{font-weight:500;color:var(--muted);font-size:11px}
+  .fxshot.hit{background:var(--green-bg);border-color:var(--green-line);color:var(--green)}
+  .fxshot.miss{background:var(--red-bg);border-color:var(--red-line);color:#8f2419}
+
   .eventhead{border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:18px}
   .eventhead h2{margin:0 0 4px;font-size:20px}
   .eventhead .meta{color:var(--muted);font-size:14.5px}
@@ -1069,16 +1079,19 @@ function renderRoster(panel, md) {
   for (const e of md.entrants) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${esc(e.name)}${e.class ? ` <span style="color:var(--muted);font-size:13px">· ${esc(e.class)}</span>` : ""}</td>
+      <td>${esc(e.name)}${e.class ? ` <span style="color:var(--muted);font-size:13px">· ${esc(e.class)}</span>` : ""}${
+        e.dq_at ? ` <span class="declared" style="background:#fdecea;color:#8f2419" title="${esc(e.dq_reason || "")}">DISQUALIFIED</span>` : ""}</td>
       <td><select>
         <option value="">— none —</option>
         ${md.squads.map(s => `<option value="${s.id}" ${s.id === e.squad_id ? "selected" : ""}>${esc(s.name)}</option>`).join("")}
       </select></td>
-      <td class="act"><button class="btn danger sm">Remove</button></td>`;
+      <td class="act"><button class="btn ghost sm" data-dq>${e.dq_at ? "Reinstate" : "Disqualify"}</button>
+        <button class="btn danger sm" data-rm>Remove</button></td>`;
+    tr.querySelector("[data-dq]").onclick = () => openDq(md, e.id, e.name, !!e.dq_at);
     tr.querySelector("select").onchange = ev => act(() =>
       api("/api/scoring/entrants", "POST", {
         md_id: md.id, action: "assign", entrant_id: e.id, squad_id: ev.target.value || null }));
-    tr.querySelector("button").onclick = () => {
+    tr.querySelector("[data-rm]").onclick = () => {
       if (!confirm(`Remove ${e.name} from this discipline?`)) return;
       act(() => api("/api/scoring/entrants", "POST",
         { md_id: md.id, action: "remove", entrant_id: e.id }));
@@ -1151,7 +1164,11 @@ function renderStandings(panel, md) {
     tr.innerHTML = `
       <td class="num c-pl">${r.place ?? "—"}</td>
       <td class="c-nm">${esc(r.name)}${r.squad_name ? ` <span style="color:var(--muted);font-size:13px">· ${esc(r.squad_name)}</span>` : ""}${
-        r.declared ? `<span class="declared">declared</span>` : ""}</td>
+        r.declared ? `<span class="declared">declared</span>` : ""}${
+        r.dq ? ` <span class="declared" style="background:#fdecea;color:#8f2419">DISQUALIFIED</span>` : ""}${
+        md.mode === "stages" && md.state !== "setup" && !r.dq
+          ? ` <button type="button" class="btn ghost sm fixbtn" style="margin-left:6px;padding:3px 10px">Correct score</button>` : ""}
+        <button type="button" class="btn ghost sm dqbtn" style="margin-left:6px;padding:3px 10px">${r.dq ? "Reinstate" : "Disqualify"}</button></td>
       ${typeable ? `
       <td class="c-sc" data-lab="Score"><input class="cell" type="number" inputmode="decimal" step="any" min="0"
                  ${md.max_score ? `max="${md.max_score}"` : ""}
@@ -1198,6 +1215,11 @@ function renderStandings(panel, md) {
         inp.onkeydown = ev => { if (ev.key === "Enter") { ev.preventDefault(); inp.blur(); } };
       });
     }
+
+    const fix = tr.querySelector(".fixbtn");
+    if (fix) fix.onclick = () => openCorrection(md, r);
+    tr.querySelector(".dqbtn").onclick = () => openDq(md, r.entrant_id, r.name, !!r.dq);
+    if (r.dq) tr.querySelectorAll(".cell, input[type=checkbox]").forEach(i => { i.disabled = true; });
 
     tr.querySelector('input[type="checkbox"]').onchange = ev => {
       const on = ev.target.checked;
@@ -1433,6 +1455,145 @@ function renderAnalysis(panel, md) {
   el.addEventListener("toggle", () => { if (el.open) go(); });
 }
 
+/* ---------------- disqualification ---------------- */
+
+/** Disqualify or reinstate one competitor. Needs a name and a reason, and is
+ *  written to a permanent log. The rest of the squad carries on as normal. */
+function openDq(md, entrantId, name, isDq) {
+  const dlg = document.createElement("dialog");
+  dlg.className = "fixdlg";
+  dlg.innerHTML = `
+    <h3 style="margin:0 0 4px">${isDq ? "Reinstate" : "Disqualify"} ${esc(name)}</h3>
+    <p class="sub" style="margin:0 0 14px">${isDq
+      ? "They can be scored again and are ranked on the scores they have. Their squad is not affected."
+      : "They can't be scored and are left out of the placings. Scores already entered are kept. Everyone else in their squad carries on as normal."}</p>
+    <label for="dq-by">Your name</label>
+    <input id="dq-by" maxlength="80" autocomplete="name">
+    <label for="dq-why" style="margin-top:12px">Reason</label>
+    <textarea id="dq-why" rows="2" maxlength="300" placeholder="${isDq ? "e.g. Protest overturned" : "e.g. Safety violation on the firing line"}"></textarea>
+    <p class="hint">This is recorded permanently with the time and your name.</p>
+    <div id="dq-msg"></div>
+    <div class="row" style="margin-top:14px;justify-content:flex-end">
+      <button type="button" class="btn ghost" id="dq-cancel">Cancel</button>
+      <button type="button" class="btn ${isDq ? "" : "danger"}" id="dq-go">${isDq ? "Reinstate" : "Disqualify"}</button>
+    </div>`;
+  document.body.appendChild(dlg);
+  dlg.querySelector("#dq-by").value = DIRECTOR;
+  dlg.querySelector("#dq-cancel").onclick = () => { dlg.close(); dlg.remove(); };
+  dlg.addEventListener("cancel", () => dlg.remove());
+  dlg.querySelector("#dq-go").onclick = async () => {
+    const by = dlg.querySelector("#dq-by").value.trim();
+    const why = dlg.querySelector("#dq-why").value.trim();
+    const msg = dlg.querySelector("#dq-msg");
+    if (!by) { msg.innerHTML = `<div class="msg err">Enter your name.</div>`; return; }
+    if (why.length < 3) { msg.innerHTML = `<div class="msg err">Give the reason.</div>`; return; }
+    try {
+      await api("/api/scoring/entrants", "POST", {
+        md_id: md.id, action: isDq ? "reinstate" : "disqualify",
+        entrant_id: entrantId, by, reason: why });
+      DIRECTOR = by; localStorage.setItem("agm.match.director", DIRECTOR);
+      dlg.close(); dlg.remove();
+      await act(async () => { await loadStandings(md.id); },
+        isDq ? `${name} reinstated.` : `${name} disqualified.`);
+    } catch (err) { msg.innerHTML = `<div class="msg err">${esc(err.message)}</div>`; }
+  };
+  dlg.showModal();
+}
+
+/* ---------------- director correction ---------------- */
+
+/**
+ * Correct one competitor's stage card. Tap a shot to cycle blank, hit, miss.
+ * A name and a reason are required, and the change goes in the log below the
+ * standings. Every scorer's phone picks the change up on its next refresh.
+ */
+async function openCorrection(md, r) {
+  let data;
+  try {
+    data = await api(`/api/scoring/cards?md=${md.id}&entrant=${r.entrant_id}&code=${encodeURIComponent(CODE)}`);
+  } catch (err) { alert(err.message); return; }
+
+  const dlg = document.createElement("dialog");
+  dlg.className = "fixdlg";
+  dlg.innerHTML = `
+    <form method="dialog" style="margin:0">
+      <h3 style="margin:0 0 4px">Correct score</h3>
+      <p class="sub" style="margin:0 0 14px"><b>${esc(data.entrant.name)}</b> &middot; tap a shot to cycle
+        blank, hit, miss.</p>
+      <label for="fx-stage">Stage</label>
+      <select id="fx-stage"></select>
+      <div id="fx-grid" class="fxgrid"></div>
+      <div id="fx-sum" class="hint"></div>
+      <label for="fx-by" style="margin-top:12px">Your name</label>
+      <input id="fx-by" maxlength="80" autocomplete="name">
+      <label for="fx-why" style="margin-top:12px">Reason for the change</label>
+      <textarea id="fx-why" rows="2" maxlength="300" placeholder="e.g. Scorer mis-tapped shot 4; competitor and scorer both confirmed a hit"></textarea>
+      <div id="fx-msg"></div>
+      <div class="row" style="margin-top:14px;justify-content:flex-end">
+        <button type="button" class="btn ghost" id="fx-cancel">Cancel</button>
+        <button type="button" class="btn" id="fx-save">Save correction</button>
+      </div>
+    </form>`;
+  document.body.appendChild(dlg);
+
+  const byId = new Map(data.cards.map(c => [c.stage_id, c]));
+  const stSel = dlg.querySelector("#fx-stage");
+  stSel.innerHTML = data.stages.map(s => {
+    const c = byId.get(s.id);
+    const n = c ? c.hits.filter(v => v !== null).length : 0;
+    const h = c ? c.hits.filter(v => v === 1).length : 0;
+    return `<option value="${s.id}">${esc(s.name)} — ${n ? `${h}/${s.shot_count}` : "not scored"}</option>`;
+  }).join("");
+  dlg.querySelector("#fx-by").value = DIRECTOR;
+
+  let hits = [];
+  const grid = dlg.querySelector("#fx-grid");
+  const paint = () => {
+    const st = data.stages.find(s => s.id === parseInt(stSel.value, 10));
+    grid.innerHTML = "";
+    hits.forEach((v, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "fxshot " + (v === 1 ? "hit" : v === 0 ? "miss" : "");
+      b.innerHTML = `<small>${i + 1}</small>${v === 1 ? "HIT" : v === 0 ? "MISS" : "—"}`;
+      b.onclick = () => { hits[i] = v === null ? 1 : v === 1 ? 0 : null; paint(); };
+      grid.appendChild(b);
+    });
+    const h = hits.filter(v => v === 1).length, n = hits.filter(v => v !== null).length;
+    dlg.querySelector("#fx-sum").textContent = `${h} hit${h === 1 ? "" : "s"} of ${st.shot_count} · ${n} shot${n === 1 ? "" : "s"} recorded`;
+  };
+  const load = () => {
+    const st = data.stages.find(s => s.id === parseInt(stSel.value, 10));
+    const c = byId.get(st.id);
+    hits = Array.from({ length: st.shot_count }, (_, i) => c && c.hits[i] !== undefined ? c.hits[i] : null);
+    paint();
+  };
+  stSel.onchange = load;
+  load();
+
+  dlg.querySelector("#fx-cancel").onclick = () => { dlg.close(); dlg.remove(); };
+  dlg.addEventListener("cancel", () => dlg.remove());
+  dlg.querySelector("#fx-save").onclick = async () => {
+    const by = dlg.querySelector("#fx-by").value.trim();
+    const why = dlg.querySelector("#fx-why").value.trim();
+    const msg = dlg.querySelector("#fx-msg");
+    if (!by) { msg.innerHTML = `<div class="msg err">Enter your name.</div>`; return; }
+    if (why.length < 3) { msg.innerHTML = `<div class="msg err">Say why the score is being changed.</div>`; return; }
+    try {
+      const out = await api("/api/scoring/correct", "POST", {
+        md_id: md.id, entrant_id: r.entrant_id, stage_id: parseInt(stSel.value, 10),
+        hits, by, reason: why
+      });
+      DIRECTOR = by; localStorage.setItem("agm.match.director", DIRECTOR);
+      dlg.close(); dlg.remove();
+      await loadStandings(md.id);
+      render();
+      if (out.unchanged) alert("Nothing was different, so nothing was changed.");
+    } catch (err) { msg.innerHTML = `<div class="msg err">${esc(err.message)}</div>`; }
+  };
+  dlg.showModal();
+}
+
 /* ---------------- witnessed edits ---------------- */
 
 /**
@@ -1459,7 +1620,7 @@ function editsHtml(edits) {
   return `<details class="edits" ${edits.length ? "open" : ""} style="margin-top:18px">
     <summary>Score changes after submission <span style="font-weight:400;color:var(--muted)">— ${
       edits.length ? edits.length + " recorded" : "none"}</span></summary>
-    <div class="inner">${edits.length ? `<div class="tblwrap"><table>
+    <div class="inner"><p class="hint" style="margin:0 0 10px">This log is permanent. Entries can't be edited or deleted by anyone, including you.</p>${edits.length ? `<div class="tblwrap"><table>
       <thead><tr><th>When</th><th>Competitor</th><th>Changed</th><th>Edited by</th><th>Witness</th></tr></thead>
       <tbody>${edits.map(e => `<tr>
         <td>${when(e.edited_at)}</td>
@@ -1467,7 +1628,7 @@ function editsHtml(edits) {
           : e.relay > 1 ? `<br><span style="color:var(--muted);font-size:13px">Relay ${e.relay}</span>` : ""}</td>
         <td>${esc(side(e, e.before))} → <strong>${esc(side(e, e.after))}</strong></td>
         <td>${esc(e.edited_by || "—")}</td>
-        <td>${esc(e.witness)}</td></tr>`).join("")}</tbody></table></div>`
+        <td>${esc(e.witness)}${e.reason ? `<br><span style="color:var(--muted);font-size:13px">Reason: ${esc(e.reason)}</span>` : ""}</td></tr>`).join("")}</tbody></table></div>`
       : `<p class="sub" style="margin:0">Nothing has been changed after submission. When a scorer
          reopens a submitted score, the witness, the time and the before and after appear here.</p>`}
     </div></details>`;

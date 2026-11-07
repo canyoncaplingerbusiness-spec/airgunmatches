@@ -140,6 +140,8 @@
   .stbadge.part{background:#fff1dc;color:#8a5a12}
   .stbadge.wait{background:#eef1f5;color:var(--muted)}
   .stbadge.self{background:#e8eefb;color:#2c4a8a}
+  .stbadge.dq{background:#fdecea;color:#8f2419}
+  .who.s-dq{background:#fbf3f2;border-style:dashed;box-shadow:none;opacity:.8}
   .who.s-self{background:#f6f8fd;border-style:dashed;box-shadow:none}
   .who.s-self .nm b{color:var(--steel)}
   .who.s-next{border-color:var(--amber);box-shadow:0 0 0 3px rgba(183,29,28,.14),var(--shadow)}
@@ -432,7 +434,7 @@ function snapSig(f) {
   const rows = (f.discipline.mode === "stages" ? f.cards : f.direct) || [];
   return JSON.stringify([
     rows.map(c => c.id + ":" + c.version + ":" + (c.submitted_at ? 1 : 0)),
-    f.discipline.state, f.entrants.map(e => e.id + e.name),
+    f.discipline.state, f.entrants.map(e => e.id + e.name + (e.dq ? "!" : "")),
     (f.stages || []).map(x => x.id + ":" + x.shot_count + x.name),
     f.squad && f.squad.start_stage
   ]);
@@ -699,8 +701,8 @@ function paintHeader() {
 }
 
 function stageProgress(st) {
-  let recorded = 0, possible = st.shot_count * SNAP.entrants.length;
-  for (const p of SNAP.entrants) {
+  let recorded = 0, possible = st.shot_count * SNAP.entrants.filter(p => !p.dq).length;
+  for (const p of SNAP.entrants.filter(p => !p.dq)) {
     const l = LOCAL[keyFor(p.id, st.id)];
     if (l?.hits) recorded += l.hits.filter(v => v !== null).length;
   }
@@ -741,14 +743,14 @@ const isSelf = p => !!SCORER && sameIdentity(SCORER, p.name);
 
 /** Squads shoot in roster order, so the next to be scored is the first
  *  competitor, in that order, who is not finished. */
-const nextPerson = () => SNAP.entrants.find(p => !isSelf(p) && personState(p) !== "done") || null;
+const nextPerson = () => SNAP.entrants.find(p => !p.dq && !isSelf(p) && personState(p) !== "done") || null;
 
 /* Stage order. SNAP.stages arrives in this squad's own order, beginning at the
    stage the match director's draw gave it and wrapping round at the end. A
    stage opens once every competitor in the squad is finished on the one before
    it. This is worked out from what is on the phone, so it keeps moving on with
    no signal; the server applies the same rule to whatever is sent. */
-const stageDone = st => SNAP.entrants.every(p => {
+const stageDone = st => SNAP.entrants.filter(p => !p.dq).every(p => {
   const l = LOCAL[keyFor(p.id, st.id)];
   return (l?.hits ? l.hits.filter(v => v !== null).length : 0) >= st.shot_count;
 });
@@ -765,6 +767,12 @@ function stageOpenMap() {
   }
   return m;
 }
+/** Stages the squad has moved two past: still visible, no longer editable. */
+function stageClosedSet() {
+  let cur = SNAP.stages.findIndex(st => !stageDone(st));
+  if (cur < 0) cur = SNAP.stages.length;
+  return new Set(SNAP.stages.filter((st, i) => i <= cur - 2).map(st => st.id));
+}
 /** The stage this squad is on now: the first one not finished. */
 const currentStage = () => SNAP.stages.find(st => !stageDone(st)) || SNAP.stages[SNAP.stages.length - 1] || null;
 
@@ -776,6 +784,7 @@ function paintStages() {
   wrap.innerHTML = "";
 
   const open = stageOpenMap();
+  const closed = stageClosedSet();
   const upNext = currentStage();
   for (const st of SNAP.stages) {
     const { recorded, possible } = stageProgress(st);
@@ -785,7 +794,8 @@ function paintStages() {
     b.className = "chip" + (upNext && st.id === upNext.id ? " next" : "") + (locked ? " locked" : "");
     b.setAttribute("aria-selected", String(st.id === stageId));
     if (locked) b.setAttribute("aria-disabled", "true");
-    b.innerHTML = `<span class="dot ${cls}"></span>${esc(st.name)}${locked ? ` <small>(locked)</small>` : ""}`;
+    const closedNow = closed.has(st.id);
+    b.innerHTML = `<span class="dot ${cls}"></span>${esc(st.name)}${locked ? ` <small>(locked)</small>` : closedNow ? ` <small>(closed)</small>` : ""}`;
     b.onclick = () => {
       if (locked) {
         const cur = currentStage();
@@ -830,7 +840,7 @@ function paintPeople() {
     const row = document.createElement("div");
     const ps = personState(p);
     const self = isSelf(p);
-    const role = self ? "self" : ps === "done" ? "done" : (upNext && upNext.id === p.id ? "next" : (ps === "part" ? "part" : "wait"));
+    const role = p.dq ? "dq" : self ? "self" : ps === "done" ? "done" : (upNext && upNext.id === p.id ? "next" : (ps === "part" ? "part" : "wait"));
     row.className = "who s-" + role;
 
     let tally = "—", cls = "";
@@ -856,17 +866,25 @@ function paintPeople() {
         <span class="nm">
           <b>${esc(p.name)}</b>
           <span>${esc(p.class || "")}${queued ? (p.class ? " · " : "") + "waiting to send" : ""}
-            <i class="stbadge ${role}${p.class || queued ? " sep" : ""}">${role === "self" ? "You &middot; scored by another member"
+            <i class="stbadge ${role}${p.class || queued ? " sep" : ""}">${role === "dq" ? "Disqualified" : role === "self" ? "You &middot; scored by another member"
               : role === "done" ? "&#10003; Scored" : role === "next" ? "Next up"
               : role === "part" ? "In progress" : "Not scored yet"}</i></span>
         </span>
         <span class="tally ${cls}">${esc(tally)}</span>
         <span class="chev">›</span>
       </button>`;
-    if (self) {
+    if (p.dq) {
+      row.querySelector("button").onclick = () => banner(`${p.name} has been disqualified and can't be scored.`, "info");
+    } else if (self) {
       const b = row.querySelector("button");
       b.onclick = () => banner("You can't score your own card. Another member of the squad scores you.", "info");
-    } else row.querySelector("button").onclick = () => openSheet(p);
+    } else row.querySelector("button").onclick = () => {
+      if (isStages() && stageClosedSet().has(stageId)) {
+        banner("This stage is closed. Your squad has moved two stages past it, so it can't be changed here. Ask your match director.", "info");
+        return;
+      }
+      openSheet(p);
+    };
     box.appendChild(row);
   }
 

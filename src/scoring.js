@@ -163,7 +163,7 @@ async function stagePlan(env, mdId, squadId, startStage) {
   const order = at <= 0 ? stages : [...stages.slice(at), ...stages.slice(0, at)];
 
   const members = ((await env.DB.prepare(
-    "SELECT id FROM entrants WHERE squad_id = ?"
+    "SELECT id FROM entrants WHERE squad_id = ? AND dq_at IS NULL"   // a disqualified competitor never holds the squad back
   ).bind(squadId).all()).results || []).map(r => r.id);
 
   const have = new Map();          // stageId -> { entrantId -> recorded }
@@ -189,7 +189,13 @@ async function stagePlan(env, mdId, squadId, startStage) {
     if (!blocked || have.has(st.id)) open.add(st.id);
     if (!blocked && !complete.has(st.id)) blocked = true;
   }
-  return { order, open, complete };
+  /* A finished stage closes to scoring once the squad is two stages past it,
+     so stage 7 closes when the squad reaches 9 and stage 8 is still correctable
+     until it reaches 10. */
+  let cur = order.findIndex(st => !complete.has(st.id));
+  if (cur < 0) cur = order.length;
+  const closed = new Set(order.filter((st, i) => i <= cur - 2).map(st => st.id));
+  return { order, open, complete, closed };
 }
 
 /* ------------------------------------------------------------------ */
@@ -273,7 +279,7 @@ function aggregate(scores, md) {
  */
 async function buildStandings(env, md) {
   const entrants = (await env.DB.prepare(
-    `SELECT e.id, e.name, e.class, e.squad_id, s.name AS squad_name
+    `SELECT e.id, e.name, e.class, e.squad_id, e.dq_at, s.name AS squad_name
        FROM entrants e LEFT JOIN squads s ON s.id = e.squad_id
       WHERE e.md_id = ? ORDER BY e.name, e.id`
   ).bind(md.id).all()).results || [];
@@ -373,6 +379,13 @@ async function buildStandings(env, md) {
     });
   }
 
+  /* Disqualified competitors are taken out before anything is ranked, so they
+     neither hold a place nor push anyone down. They are listed last, marked. */
+  const dqIds = new Set(entrants.filter(e => e.dq_at).map(e => e.id));
+  const dqRows = rows.filter(r => dqIds.has(r.entrant_id))
+    .map(r => ({ ...r, dq: true, value: null, place: null, display: "DQ", complete: true, declared: false }));
+  rows = rows.filter(r => !dqIds.has(r.entrant_id));
+
   /* Placings.
    *
    * A declaration is the director's judgement and it wins outright: the
@@ -410,7 +423,7 @@ async function buildStandings(env, md) {
     else { r.place = i + 1; lastPlace = r.place; lastValue = r.value; }
   });
 
-  return { rows: order, possible };
+  return { rows: order.concat(dqRows), possible };
 }
 
 /* ------------------------------------------------------------------ */
@@ -441,22 +454,25 @@ async function getMatch(request, env, H) {
     ).bind(md.id).all()).results || [];
 
     const entrants = (await env.DB.prepare(
-      "SELECT id, name, class, squad_id FROM entrants WHERE md_id = ? ORDER BY name"
+      "SELECT id, name, class, squad_id, dq_at, dq_reason, dq_by FROM entrants WHERE md_id = ? ORDER BY name"
     ).bind(md.id).all()).results || [];
+    const active = entrants.filter(e => !e.dq_at);
 
     // Progress, so the director can see at a glance which squad is behind.
     let progress = null;
     if (md.mode === "stages") {
-      const possible = stages.reduce((a, s) => a + s.shot_count, 0) * entrants.length;
+      const possible = stages.reduce((a, s) => a + s.shot_count, 0) * active.length;
       const done = (await env.DB.prepare(
-        "SELECT COALESCE(SUM(recorded),0) AS n FROM score_cards WHERE md_id = ?"
-      ).bind(md.id).first())?.n || 0;
+        `SELECT COALESCE(SUM(recorded),0) AS n FROM score_cards
+          WHERE md_id = ? AND entrant_id NOT IN (SELECT id FROM entrants WHERE md_id = ? AND dq_at IS NOT NULL)`
+      ).bind(md.id, md.id).first())?.n || 0;
       progress = { done, possible };
     } else {
-      const possible = entrants.length * (md.relays || 1);
+      const possible = active.length * (md.relays || 1);
       const done = (await env.DB.prepare(
-        "SELECT COUNT(*) AS n FROM direct_scores WHERE md_id = ? AND score IS NOT NULL"
-      ).bind(md.id).first())?.n || 0;
+        `SELECT COUNT(*) AS n FROM direct_scores
+          WHERE md_id = ? AND score IS NOT NULL AND entrant_id NOT IN (SELECT id FROM entrants WHERE md_id = ? AND dq_at IS NOT NULL)`
+      ).bind(md.id, md.id).first())?.n || 0;
       progress = { done, possible };
     }
 
@@ -746,7 +762,34 @@ async function entrantAction(request, env, H, body) {
     return H.json({ ok: true });
   }
 
+  if (action === "disqualify" || action === "reinstate") {
+    const by = clean(body.by, 80);
+    const reason = clean(body.reason, 300);
+    if (!by || by.length < 2) return H.fail("Enter your name so this is recorded against it.");
+    if (!reason || reason.length < 3) return H.fail("Give the reason.");
+    const dq = action === "disqualify";
+    if (dq && entrant.dq_at) return H.fail("That competitor is already disqualified.");
+    if (!dq && !entrant.dq_at) return H.fail("That competitor isn't disqualified.");
+
+    await env.DB.batch([
+      dq
+        ? env.DB.prepare("UPDATE entrants SET dq_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'), dq_reason = ?, dq_by = ? WHERE id = ?")
+            .bind(reason, by, entrant.id)
+        : env.DB.prepare("UPDATE entrants SET dq_at = NULL, dq_reason = NULL, dq_by = NULL WHERE id = ?")
+            .bind(entrant.id),
+      env.DB.prepare("INSERT INTO dq_log (md_id, entrant_id, name, action, reason, by) VALUES (?,?,?,?,?,?)")
+        .bind(md.id, entrant.id, entrant.name, action, reason, by)
+    ]);
+    return H.json({ ok: true, disqualified: dq });
+  }
+
   if (action === "remove") {
+    if (entrant.dq_at || (await env.DB.prepare("SELECT 1 FROM dq_log WHERE entrant_id = ? LIMIT 1").bind(entrant.id).first()))
+      return H.fail("This competitor has a disqualification on record, which is permanent, so they can't be removed.");
+    const logged = (await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM score_edits WHERE entrant_id = ? AND md_id = ?"
+    ).bind(entrant.id, md.id).first())?.n || 0;
+    if (logged) return H.fail("This competitor has recorded score changes, which are permanent, so they can't be removed.");
     await env.DB.prepare("DELETE FROM entrants WHERE id = ?").bind(entrant.id).run();
     return H.json({ ok: true });
   }
@@ -849,9 +892,10 @@ async function enterScore(request, env, H, body) {
 
   const entrantId = asInt(body.entrant_id);
   const entrant = await env.DB.prepare(
-    "SELECT id FROM entrants WHERE id = ? AND md_id = ?"
+    "SELECT id, dq_at FROM entrants WHERE id = ? AND md_id = ?"
   ).bind(entrantId, md.id).first();
   if (!entrant) return H.fail("That competitor isn't in this discipline.", 404);
+  if (entrant.dq_at) return H.fail("That competitor is disqualified and can't be scored.");
 
   const relay = Math.min(Math.max(asInt(body.relay) ?? 1, 1), md.relays || 1);
 
@@ -899,6 +943,121 @@ async function enterScore(request, env, H, body) {
   return H.json({ ok: true, version });
 }
 
+/** One competitor's cards, stage by stage, for the director's correction sheet. */
+async function directorCards(request, env, H) {
+  const url = new URL(request.url);
+  const ev = await asDirector(env, url.searchParams.get("code"), H);
+  if (!ev) return H.fail("That code isn't recognised.", 404);
+  const md = await ownedDiscipline(env, ev.id, url.searchParams.get("md"));
+  if (!md) return H.fail("That discipline isn't part of this event.", 404);
+  if (md.mode !== "stages") return H.fail("This discipline isn't scored stage by stage.");
+
+  const entrant = await env.DB.prepare(
+    "SELECT id, name FROM entrants WHERE id = ? AND md_id = ?"
+  ).bind(asInt(url.searchParams.get("entrant")), md.id).first();
+  if (!entrant) return H.fail("That competitor isn't on this roster.", 404);
+
+  const stages = (await env.DB.prepare(
+    "SELECT id, ordinal, name, shot_count FROM stages WHERE md_id = ? ORDER BY ordinal"
+  ).bind(md.id).all()).results || [];
+  const cards = ((await env.DB.prepare(
+    `SELECT stage_id, hits, version, scored_by, scored_at, submitted_at
+       FROM score_cards WHERE entrant_id = ?`
+  ).bind(entrant.id).all()).results || []).map(c => ({ ...c, hits: H.safeParse(c.hits) || [] }));
+
+  return H.json({ entrant, state: md.state, stages, cards }, 200, { "cache-control": "no-store" });
+}
+
+/**
+ * The director corrects a stage card.
+ *
+ * Squad scorers can only reach their own squad, and only the stages they are
+ * on, so when something goes wrong — a mis-tap on a closed stage, a protest
+ * after the match, a dead phone — the director needs a way in. It has the same
+ * validation as a scorer's save, always bumps the version (so every phone
+ * picks the change up on its next poll), and always leaves a row in the
+ * change log with who made it and why. A director cannot change a score
+ * without giving a name and a reason.
+ */
+async function correctCard(request, env, H, body) {
+  const ev = await asDirector(env, body.code, H);
+  if (!ev) return H.fail("That code isn't recognised.", 404);
+  const md = await ownedDiscipline(env, ev.id, body.md_id);
+  if (!md) return H.fail("That discipline isn't part of this event.", 404);
+  if (md.mode !== "stages") return H.fail("This discipline isn't scored stage by stage.");
+  if (md.state === "setup") return H.fail("Open the match before correcting scores.", 409);
+
+  const by = clean(body.by, 80);
+  const reason = clean(body.reason, 300);
+  if (!by || by.length < 2) return H.fail("Enter your name so the correction is recorded against it.");
+  if (!reason || reason.length < 3) return H.fail("Say why the score is being changed.");
+
+  const entrant = await env.DB.prepare(
+    "SELECT id, squad_id, dq_at FROM entrants WHERE id = ? AND md_id = ?"
+  ).bind(asInt(body.entrant_id), md.id).first();
+  if (!entrant) return H.fail("That competitor isn't on this roster.", 404);
+  if (entrant.dq_at) return H.fail("That competitor is disqualified. Reinstate them first if their score needs to change.");
+
+  const stage = await env.DB.prepare(
+    "SELECT id, shot_count FROM stages WHERE id = ? AND md_id = ?"
+  ).bind(asInt(body.stage_id), md.id).first();
+  if (!stage) return H.fail("That stage isn't part of this match.", 404);
+
+  const hits = Array.isArray(body.hits) ? body.hits : null;
+  if (!hits || hits.length !== stage.shot_count)
+    return H.fail(`This stage has exactly ${stage.shot_count} shots.`);
+  const norm = hits.map(v => (v === 1 || v === true) ? 1 : (v === 0 || v === false) ? 0 : null);
+  const hitCount = norm.filter(v => v === 1).length;
+  const recorded = norm.filter(v => v !== null).length;
+  const complete = recorded === stage.shot_count;
+
+  const existing = await env.DB.prepare(
+    "SELECT * FROM score_cards WHERE stage_id = ? AND entrant_id = ?"
+  ).bind(stage.id, entrant.id).first();
+
+  const oldHits = existing ? (H.safeParse(existing.hits) || []) : [];
+  if (existing && sameHits(norm, oldHits)) return H.json({ ok: true, unchanged: true });
+  if (!existing && recorded === 0) return H.json({ ok: true, unchanged: true });
+
+  const who = `Director: ${by}`;
+  let refId, version;
+  if (existing) {
+    refId = existing.id;
+    version = existing.version + 1;
+    await env.DB.prepare(
+      `UPDATE score_cards SET hits=?, hit_count=?, recorded=?, version=?, scored_by=?,
+              scored_at=strftime('%Y-%m-%dT%H:%M:%SZ','now'), device_id='console',
+              submitted_at=${complete ? "COALESCE(submitted_at, strftime('%Y-%m-%dT%H:%M:%SZ','now'))" : "submitted_at"}
+        WHERE id=?`
+    ).bind(JSON.stringify(norm), hitCount, recorded, version, who, refId).run();
+  } else {
+    refId = crypto.randomUUID();
+    version = 1;
+    await env.DB.prepare(
+      `INSERT INTO score_cards (id, md_id, stage_id, entrant_id, hits, hit_count,
+                                recorded, version, scored_by, squad_id, device_id, submitted_at)
+       VALUES (?,?,?,?,?,?,?,1,?,?,'console',${complete ? "strftime('%Y-%m-%dT%H:%M:%SZ','now')" : "NULL"})`
+    ).bind(refId, md.id, stage.id, entrant.id, JSON.stringify(norm), hitCount,
+           recorded, who, entrant.squad_id).run();
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO score_edits (md_id, kind, ref_id, entrant_id, stage_id, relay, version,
+                              witness, edited_by, device_id, reason, before, after)
+     VALUES (?,?,?,?,?,NULL,?,?,?,'console',?,?,?)`
+  ).bind(md.id, "card", refId, entrant.id, stage.id, version,
+         "Match director", who, reason,
+         JSON.stringify({ hits: oldHits, hit_count: existing?.hit_count ?? 0 }),
+         JSON.stringify({ hits: norm, hit_count: hitCount })).run();
+
+  await env.DB.prepare(
+    `INSERT INTO score_history (kind, ref_id, md_id, version, payload, actor_name, via_code, device_id)
+     VALUES ('card',?,?,?,?,?,'console','console')`
+  ).bind(refId, md.id, version, JSON.stringify({ hits: norm, hit_count: hitCount }), who).run();
+
+  return H.json({ ok: true, version });
+}
+
 async function directorStandings(request, env, H) {
   const url = new URL(request.url);
   const ev = await asDirector(env, url.searchParams.get("code"), H);
@@ -911,10 +1070,10 @@ async function directorStandings(request, env, H) {
   /* The witnessed-edit log rides along with the standings so the console's
      five-second refresh picks up a new edit as it happens. */
   const edits = ((await env.DB.prepare(
-    `SELECT x.id, x.kind, x.stage_id, x.relay, x.version, x.witness, x.edited_by,
-            x.before, x.after, x.edited_at, e.name AS competitor, st.name AS stage
+    `SELECT x.id, x.kind, x.stage_id, x.relay, x.version, x.witness, x.edited_by, x.reason,
+            x.before, x.after, x.edited_at, COALESCE(e.name, '(removed competitor)') AS competitor, st.name AS stage
        FROM score_edits x
-       JOIN entrants e ON e.id = x.entrant_id
+       LEFT JOIN entrants e ON e.id = x.entrant_id
        LEFT JOIN stages st ON st.id = x.stage_id
       WHERE x.md_id = ? ORDER BY x.id DESC LIMIT 300`
   ).bind(md.id).all()).results || []).map(r => ({
@@ -1023,11 +1182,11 @@ async function getSquad(request, env, H) {
     startStage = (await env.DB.prepare("SELECT start_stage FROM squads WHERE id = ?")
       .bind(sq.squad_id).first())?.start_stage ?? null;
     const plan = await stagePlan(env, md.id, sq.squad_id, startStage);
-    stages = plan.order.map(s => ({ ...s, open: plan.open.has(s.id) }));
+    stages = plan.order.map(s => ({ ...s, open: plan.open.has(s.id), closed: plan.closed.has(s.id) }));
   }
 
   const entrants = (await env.DB.prepare(
-    "SELECT id, name, class FROM entrants WHERE squad_id = ? ORDER BY id"
+    "SELECT id, name, class, CASE WHEN dq_at IS NULL THEN 0 ELSE 1 END AS dq FROM entrants WHERE squad_id = ? ORDER BY id"
   ).bind(sq.squad_id).all()).results || [];
   {
     const everyone = (await env.DB.prepare(
@@ -1102,9 +1261,10 @@ async function sync(request, env, H, body) {
 
   // The two sets this squad is allowed to touch, read fresh from the server.
   const memberRows = (await env.DB.prepare(
-    "SELECT id, name FROM entrants WHERE squad_id = ?"
+    "SELECT id, name, dq_at FROM entrants WHERE squad_id = ?"
   ).bind(sq.squad_id).all()).results || [];
   const members = new Set(memberRows.map(r => r.id));
+  const dqSet = new Set(memberRows.filter(r => r.dq_at).map(r => r.id));
   const nameById = new Map(memberRows.map(r => [r.id, r.name]));
 
   const stageMap = new Map(((await env.DB.prepare(
@@ -1145,6 +1305,11 @@ async function sync(request, env, H, body) {
       continue;
     }
 
+    if (dqSet.has(entrantId)) {
+      rejected.push({ id: item.id, reason: "That competitor has been disqualified and can't be scored." });
+      continue;
+    }
+
     /* Nobody scores their own card, and nobody witnesses their own change.
        Checked here as well as on the phone: the phone only keeps an honest
        scorer from making the mistake, this is what stops it being done on
@@ -1165,6 +1330,11 @@ async function sync(request, env, H, body) {
       const shots = stageMap.get(stageId);
       if (!shots) { rejected.push({ id: item.id, reason: "Unknown stage." }); continue; }
 
+      if (plan.closed.has(stageId)) {
+        const nm = plan.order.find(s => s.id === stageId)?.name || "That stage";
+        rejected.push({ id: item.id, reason: `${nm} is closed. Your squad has moved two stages past it, so it can no longer be changed here. Ask your match director.` });
+        continue;
+      }
       if (!plan.open.has(stageId)) plan = await planFor();
       if (!plan.open.has(stageId)) {
         const prev = plan.order.find(s => !plan.complete.has(s.id));
@@ -1485,11 +1655,12 @@ async function matchAnalysis(request, env, H) {
     "SELECT id, ordinal, name, shot_count FROM stages WHERE md_id = ? ORDER BY ordinal"
   ).bind(md.id).all()).results || [];
   const entrants = (await env.DB.prepare(
-    "SELECT id, name, class FROM entrants WHERE md_id = ?"
+    "SELECT id, name, class FROM entrants WHERE md_id = ? AND dq_at IS NULL"
   ).bind(md.id).all()).results || [];
   const cards = (await env.DB.prepare(
-    "SELECT stage_id, entrant_id, hits FROM score_cards WHERE md_id = ?"
-  ).bind(md.id).all()).results || [];
+    `SELECT stage_id, entrant_id, hits FROM score_cards
+      WHERE md_id = ? AND entrant_id NOT IN (SELECT id FROM entrants WHERE md_id = ? AND dq_at IS NOT NULL)`
+  ).bind(md.id, md.id).all()).results || [];
 
   const a = analyse(stages, entrants, cards);
   return H.json({
@@ -1549,6 +1720,7 @@ export async function handleScoring(request, env, path, method, H) {
   if (path === "/api/scoring/match"     && method === "GET") return await getMatch(request, env, H);
   if (path === "/api/scoring/standings" && method === "GET") return await directorStandings(request, env, H);
   if (path === "/api/scoring/analysis"  && method === "GET") return await matchAnalysis(request, env, H);
+  if (path === "/api/scoring/cards"     && method === "GET") return await directorCards(request, env, H);
 
   // Squad read
   if (path === "/api/scoring/squad" && method === "GET") return await getSquad(request, env, H);
@@ -1569,6 +1741,7 @@ export async function handleScoring(request, env, path, method, H) {
       if (path === "/api/scoring/state")      return await setState(request, env, H, body);
       if (path === "/api/scoring/declare")    return await declarePlace(request, env, H, body);
       if (path === "/api/scoring/enter")      return await enterScore(request, env, H, body);
+      if (path === "/api/scoring/correct")    return await correctCard(request, env, H, body);
       if (path === "/api/scoring/publish")    return await publish(request, env, H, body);
       if (path === "/api/scoring/sync")       return await sync(request, env, H, body);
     } catch (err) {

@@ -1728,6 +1728,16 @@ async function adminDelete(env, id) {
   const exists = await env.DB.prepare("SELECT id FROM events WHERE id = ?").bind(id).first();
   if (!exists) return fail("Event not found.", 404);
 
+  /* Score corrections are a permanent record. The database refuses to delete
+     them, which would make this delete fail halfway, so say so up front. */
+  const logged = (await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM score_edits
+      WHERE md_id IN (SELECT id FROM match_disciplines WHERE event_id = ?)`
+  ).bind(id).first())?.n || 0;
+  if (logged) return fail(
+    `This event has ${logged} recorded score change${logged === 1 ? "" : "s"} and can't be deleted. ` +
+    `Those records are permanent. Unpublish the event instead.`, 409);
+
   const wiped = await env.DB.batch([
     env.DB.prepare(
       `DELETE FROM score_history
