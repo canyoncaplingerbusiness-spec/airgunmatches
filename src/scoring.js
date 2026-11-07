@@ -1404,6 +1404,9 @@ async function sync(request, env, H, body) {
   ).bind(sq.squad_id).all()).results || [];
   const members = new Set(memberRows.map(r => r.id));
   const dqSet = new Set(memberRows.filter(r => r.dq_at).map(r => r.id));
+  const shownNames = distinctNames((await env.DB.prepare(
+    "SELECT id, name FROM entrants WHERE md_id = ?"
+  ).bind(md.id).all()).results || []);
   const nameById = new Map(memberRows.map(r => [r.id, r.name]));
 
   const stageMap = new Map(((await env.DB.prepare(
@@ -1461,6 +1464,19 @@ async function sync(request, env, H, body) {
     if (witness && (sameIdentity(witness, scorer) || sameIdentity(witness, entrantName))) {
       rejected.push({ id: item.id, reason: "The witness can't be the scorer or the competitor whose score is being changed." });
       continue;
+    }
+    /* The witness has to be somebody else on this squad: not the scorer, not the
+       competitor being changed, not a disqualified competitor. Matched on the
+       whole name, so "Jay" doesn't stand in for "Jay Smith". */
+    if (witness) {
+      const w = normName(witness);
+      const okWitness = memberRows.some(m =>
+        m.id !== entrantId && !m.dq_at && !sameIdentity(scorer, m.name) &&
+        (normName(m.name) === w || normName(shownNames.get(m.id)) === w));
+      if (!okWitness) {
+        rejected.push({ id: item.id, reason: "The witness has to be another member of your squad, other than you and the competitor whose score is being changed." });
+        continue;
+      }
     }
 
     /* ---------- stage card ---------- */

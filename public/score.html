@@ -94,6 +94,10 @@
   .msg.err{background:var(--red-bg);border:1px solid var(--red-line);color:#8f2419}
   .msg.ok{background:var(--green-bg);border:1px solid var(--green-line);color:var(--green)}
   .msg.info{background:#eef2f7;border:1px solid #dde4ee;color:var(--navy-2)}
+  .witlist{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+  .witopt{text-align:left;background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 14px;
+    font-size:16px;font-weight:600;color:var(--navy-2);cursor:pointer;min-height:48px}
+  .witopt[aria-checked=true]{background:var(--navy);border-color:var(--navy);color:#fff}
   #toast{position:fixed;left:14px;right:14px;bottom:calc(18px + env(safe-area-inset-bottom));z-index:80;
     background:var(--navy);color:#fff;border-radius:12px;padding:14px 16px;font-size:15px;line-height:1.4;
     box-shadow:0 10px 30px rgba(0,0,0,.35);opacity:0;transform:translateY(12px);pointer-events:none;
@@ -1007,38 +1011,49 @@ function openSheet(p) {
  */
 function witnessGate(p, key, proceed) {
   const body = document.getElementById("sheet-body");
+  /* The witness has to be somebody else on this squad: not the person scoring
+     on this phone, not the competitor whose score is being changed, and not
+     anyone disqualified. They are picked from the squad's own list. */
+  const eligible = SNAP.entrants.filter(e => e.id !== p.id && !e.dq && !isSelf(e));
+  if (!eligible.length) {
+    body.innerHTML = `
+      <p class="legend" style="margin-top:0">This score was already submitted, so changing it needs a witness
+        from your squad. There is nobody else in the squad who can witness it.
+        Ask your match director to make the correction.</p>
+      <div class="sheetfoot"><span class="spread"></span><button class="btn ghost sm" id="wcancel" type="button">Close</button></div>`;
+    document.getElementById("wcancel").onclick = closeSheet;
+    return;
+  }
   body.innerHTML = `
-    <p class="legend" style="margin-top:0">This score was already submitted. To change it,
-      a witness has to be named. The change, the time and the witness are recorded
-      for the match director.</p>
-    <div class="entry"><div class="fld" style="flex:1">
-      <label for="wit">Witness name</label>
-      <input type="text" id="wit" maxlength="80" autocomplete="off" placeholder="Full name">
-    </div></div>
+    <p class="legend" style="margin-top:0">This score was already submitted. To change it, another member of
+      your squad has to witness it. Choose who is witnessing. The change, the time and the witness are
+      recorded for the match director.</p>
+    <div class="witlist" role="radiogroup" aria-label="Witness"></div>
     <p class="maxnote" id="witerr" style="color:var(--red,#b71d1c)"></p>
     <div class="sheetfoot">
       <span class="spread"></span>
       <button class="btn ghost sm" id="wcancel" type="button">Cancel</button>
       <button class="btn sm" id="wgo" type="button">Start editing</button>
     </div>`;
-  const wit = document.getElementById("wit");
-  wit.focus();
+  let chosen = null;
+  const list = body.querySelector(".witlist");
+  for (const e of eligible) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "witopt"; b.setAttribute("role", "radio"); b.setAttribute("aria-checked", "false");
+    b.textContent = e.name;
+    b.onclick = () => {
+      chosen = e;
+      list.querySelectorAll(".witopt").forEach(x => x.setAttribute("aria-checked", String(x === b)));
+      document.getElementById("witerr").textContent = "";
+    };
+    list.appendChild(b);
+  }
   document.getElementById("wcancel").onclick = closeSheet;
-  const go = () => {
-    const name = wit.value.trim().replace(/\s+/g, " ");
-    const err = document.getElementById("witerr");
-    if (name.split(" ").filter(Boolean).length < 2) { err.textContent = "Enter the witness's first and last name."; return; }
-    if (sameIdentity(name, SCORER)) {
-      err.textContent = "The witness has to be someone other than the scorer."; return;
-    }
-    if (sameIdentity(name, p.name)) {
-      err.textContent = "The witness can't be the competitor whose score is being changed."; return;
-    }
-    WIT[key] = name;
+  document.getElementById("wgo").onclick = () => {
+    if (!chosen) { document.getElementById("witerr").textContent = "Choose who is witnessing."; return; }
+    WIT[key] = chosen.name;
     proceed();
   };
-  document.getElementById("wgo").onclick = go;
-  wit.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
 }
 
 /** Done: mark the card submitted, send it, and say plainly whether it landed. */
