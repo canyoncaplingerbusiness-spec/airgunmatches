@@ -458,6 +458,31 @@ async function getMatch(request, env, H) {
     ).bind(md.id).all()).results || [];
     const active = entrants.filter(e => !e.dq_at);
 
+    /* Where each squad is on the course: the stages in its own order with the
+       finished ones marked, the stage it is on, and who is still to be scored
+       there. Disqualified competitors don't count. */
+    if (md.mode === "stages" && md.state !== "setup") {
+      const cardRows = (await env.DB.prepare(
+        "SELECT stage_id, entrant_id, recorded FROM score_cards WHERE md_id = ?"
+      ).bind(md.id).all()).results || [];
+      const rec = new Map(cardRows.map(c => [c.stage_id + ":" + c.entrant_id, c.recorded]));
+      for (const s of squads) {
+        const plan = await stagePlan(env, md.id, s.id, s.start_stage);
+        const members = active.filter(e => e.squad_id === s.id);
+        const cur = plan.order.find(st => !plan.complete.has(st.id)) || null;
+        const waiting = cur ? members.filter(e => (rec.get(cur.id + ":" + e.id) ?? 0) < cur.shot_count).map(e => e.name) : [];
+        s.track = {
+          order: plan.order.map(st => ({
+            ordinal: st.ordinal, name: st.name,
+            done: plan.complete.has(st.id), current: !!cur && cur.id === st.id
+          })),
+          cur_name: cur ? cur.name : null,
+          scored: members.length - waiting.length, of: members.length, waiting,
+          finished: !cur && plan.order.length > 0 && members.length > 0
+        };
+      }
+    }
+
     // Progress, so the director can see at a glance which squad is behind.
     let progress = null;
     if (md.mode === "stages") {
