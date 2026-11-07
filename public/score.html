@@ -106,6 +106,8 @@
     display:flex;align-items:center;gap:7px}
   .chip.next:not([aria-selected=true]){border-color:var(--amber);color:var(--amber-dk)}
   .chip[aria-selected=true]{background:var(--navy);border-color:var(--navy);color:#fff}
+  .chip.locked{opacity:.5;background:#f1f2f4;border-style:dashed}
+  .chip small{font-size:11px;font-weight:500}
   .chip .dot{width:7px;height:7px;border-radius:50%;background:var(--line)}
   .chip .dot.part{background:var(--amber)}
   .chip .dot.done{background:var(--green)}
@@ -431,7 +433,8 @@ function snapSig(f) {
   return JSON.stringify([
     rows.map(c => c.id + ":" + c.version + ":" + (c.submitted_at ? 1 : 0)),
     f.discipline.state, f.entrants.map(e => e.id + e.name),
-    (f.stages || []).map(x => x.id + ":" + x.shot_count + x.name)
+    (f.stages || []).map(x => x.id + ":" + x.shot_count + x.name),
+    f.squad && f.squad.start_stage
   ]);
 }
 let lastSig = "";
@@ -740,6 +743,31 @@ const isSelf = p => !!SCORER && sameIdentity(SCORER, p.name);
  *  competitor, in that order, who is not finished. */
 const nextPerson = () => SNAP.entrants.find(p => !isSelf(p) && personState(p) !== "done") || null;
 
+/* Stage order. SNAP.stages arrives in this squad's own order, beginning at the
+   stage the match director's draw gave it and wrapping round at the end. A
+   stage opens once every competitor in the squad is finished on the one before
+   it. This is worked out from what is on the phone, so it keeps moving on with
+   no signal; the server applies the same rule to whatever is sent. */
+const stageDone = st => SNAP.entrants.every(p => {
+  const l = LOCAL[keyFor(p.id, st.id)];
+  return (l?.hits ? l.hits.filter(v => v !== null).length : 0) >= st.shot_count;
+});
+function stageOpenMap() {
+  const m = new Map();
+  let blocked = false;
+  for (const st of SNAP.stages) {
+    const started = SNAP.entrants.some(p => {
+      const l = LOCAL[keyFor(p.id, st.id)];
+      return l?.hits && l.hits.some(v => v !== null);
+    });
+    m.set(st.id, !blocked || started);
+    if (!blocked && !stageDone(st)) blocked = true;
+  }
+  return m;
+}
+/** The stage this squad is on now: the first one not finished. */
+const currentStage = () => SNAP.stages.find(st => !stageDone(st)) || SNAP.stages[SNAP.stages.length - 1] || null;
+
 function paintStages() {
   const bar = document.getElementById("stagebar");
   if (!isStages()) { bar.hidden = true; return; }
@@ -747,18 +775,25 @@ function paintStages() {
   const wrap = document.getElementById("stagescroll");
   wrap.innerHTML = "";
 
-  const upNext = SNAP.stages.find(st => {
-    const { recorded, possible } = stageProgress(st);
-    return recorded < possible;
-  });
+  const open = stageOpenMap();
+  const upNext = currentStage();
   for (const st of SNAP.stages) {
     const { recorded, possible } = stageProgress(st);
     const cls = recorded === 0 ? "" : (recorded >= possible ? "done" : "part");
+    const locked = !open.get(st.id);
     const b = document.createElement("button");
-    b.className = "chip" + (upNext && st.id === upNext.id ? " next" : "");
+    b.className = "chip" + (upNext && st.id === upNext.id ? " next" : "") + (locked ? " locked" : "");
     b.setAttribute("aria-selected", String(st.id === stageId));
-    b.innerHTML = `<span class="dot ${cls}"></span>${esc(st.name)}`;
-    b.onclick = () => { stageId = st.id; paint(); wrap.parentElement.scrollTop = 0; };
+    if (locked) b.setAttribute("aria-disabled", "true");
+    b.innerHTML = `<span class="dot ${cls}"></span>${esc(st.name)}${locked ? ` <small>(locked)</small>` : ""}`;
+    b.onclick = () => {
+      if (locked) {
+        const cur = currentStage();
+        banner(`${st.name} opens once everyone in your squad is scored on ${cur ? cur.name : "the stage before"}.`, "info");
+        return;
+      }
+      stageId = st.id; paint(); wrap.parentElement.scrollTop = 0;
+    };
     wrap.appendChild(b);
   }
   const sel = wrap.querySelector('[aria-selected=true]');
@@ -838,13 +873,15 @@ function paintPeople() {
   if (!upNext) {
     const done = document.createElement("div");
     done.className = "alldone";
-    const nextStage = isStages() ? SNAP.stages.find(st => {
-      const { recorded, possible } = stageProgress(st);
-      return recorded < possible;
-    }) : null;
+    const stagesLeft = isStages() ? SNAP.stages.filter(st => !stageDone(st)) : [];
+    const thisDone = isStages() ? stageDone(SNAP.stages.find(s => s.id === stageId)) : true;
+    // Only offered once this stage is finished by the whole squad.
+    const nextStage = isStages() && thisDone ? (stagesLeft[0] || null) : null;
     const mine = SNAP.entrants.some(isSelf);
-    done.innerHTML = (!nextStage && mine)
-      ? `<b>You've scored everyone you can.</b><span>Your own card has to be scored by another member of the squad.</span>`
+    done.innerHTML = (isStages() && !thisDone)
+      ? `<b>You've scored everyone you can on this stage.</b><span>${mine
+          ? "Your own card has to be scored by another member of the squad. The next stage opens as soon as that's done."
+          : "The next stage opens as soon as everyone in the squad is scored."}</span>`
       : nextStage
       ? `<b>Everyone is scored on this stage.</b><span>Next stage: ${esc(nextStage.name)}</span>`
       : `<b>Everyone in the squad is scored.</b><span>Check anything marked "waiting to send", then press Finish.</span>`;
@@ -870,8 +907,10 @@ function paint() {
   // renumbered or removed by the director while this phone was offline —
   // rather than drawing against a stage that no longer exists, it falls back
   // to the first one.
-  if (isStages() && SNAP.stages.length && !SNAP.stages.some(s => s.id === stageId))
-    stageId = SNAP.stages[0].id;
+  if (isStages() && SNAP.stages.length) {
+    const ok = SNAP.stages.some(s => s.id === stageId) && stageOpenMap().get(stageId);
+    if (!ok) stageId = currentStage().id;
+  }
   paintHeader(); paintStages(); paintPeople(); paintPill();
 }
 
@@ -1331,7 +1370,7 @@ function showScoring() {
   document.getElementById("codecard").hidden = true;
   document.getElementById("namecard").hidden = true;
   document.getElementById("scorescreen").hidden = false;
-  if (isStages() && !stageId && SNAP.stages.length) stageId = SNAP.stages[0].id;
+  if (isStages() && !stageId && SNAP.stages.length) stageId = currentStage().id;
   paint();
   const me = SNAP.entrants.find(isSelf);
   if (me) banner(`You're on this squad's roster as ${me.name}. You can score everyone except yourself; another member of the squad scores you.`, "info");

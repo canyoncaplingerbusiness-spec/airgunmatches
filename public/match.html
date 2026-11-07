@@ -915,6 +915,10 @@ function renderSquads(panel, md) {
       <p class="sub">Each squad gets its own code. A code reaches that squad's competitors and
         nobody else's — a scorer holding it cannot see or change another squad's scores, however
         they ask. Hand each code to that squad's scorer.</p>
+      ${md.stages.length ? `<p class="sub">When you open the match, each squad is drawn a starting stage at random.
+        It scores that stage, then the next in order, wrapping from the last stage back to stage 1.
+        A squad can't move on until everyone in it has been scored.
+        ${md.state === "setup" ? "" : `<button class="btn ghost sm" id="sq-shuffle">Draw again</button>`}</p>` : ""}
       <div id="sq-list"></div>
       <div class="row" style="margin-top:12px">
         <div style="width:110px"><input type="number" id="sq-n" min="1" max="20" value="1"></div>
@@ -938,6 +942,12 @@ function renderSquads(panel, md) {
         <span class="cnt">${s.entrants} competitor${s.entrants === 1 ? "" : "s"}</span>
       </div>
       <div class="code">${esc(s.code)}</div>
+      ${md.stages.length ? `<div class="row" style="margin:6px 0">
+        <label style="font-size:13px;color:var(--muted)">Starts on</label>
+        <select data-a="start" style="max-width:220px">
+          ${s.start_stage ? "" : `<option value="">Drawn when the match opens</option>`}
+          ${md.stages.map(t => `<option value="${t.ordinal}" ${t.ordinal === s.start_stage ? "selected" : ""}>${esc(t.name)}</option>`).join("")}
+        </select></div>` : ""}
       <div class="row">
         <button class="btn ghost sm" data-a="copycode">Copy code</button>
         <button class="btn ghost sm" data-a="copylink">Copy scorer link</button>
@@ -954,7 +964,18 @@ function renderSquads(panel, md) {
       setTimeout(() => { btn.textContent = was; }, 1400);
     };
 
-    el.querySelectorAll("[data-a]").forEach(b => {
+    const startSel = el.querySelector("select[data-a=start]");
+    if (startSel) startSel.onchange = () => {
+      if (!startSel.value) return;
+      if (md.progress.done > 0 && !confirm(`Scoring has started. Change where ${s.name} starts?\n\nStages it has already scored stay open.`)) {
+        startSel.value = s.start_stage || ""; return;
+      }
+      act(() => api("/api/scoring/squads", "POST",
+        { md_id: md.id, action: "set_start", squad_id: s.id, stage_ordinal: parseInt(startSel.value, 10) }),
+        `${s.name} now starts on ${startSel.selectedOptions[0].textContent}.`);
+    };
+
+    el.querySelectorAll("button[data-a]").forEach(b => {
       b.onclick = () => {
         const a = b.dataset.a;
         if (a === "copycode") return copy(s.code, "code", b);
@@ -980,6 +1001,13 @@ function renderSquads(panel, md) {
     });
     list.appendChild(el);
   }
+
+  const shuf = d.querySelector("#sq-shuffle");
+  if (shuf && md.squads.length) shuf.onclick = () => {
+    if (!confirm("Draw new starting stages for every squad?")) return;
+    act(() => api("/api/scoring/squads", "POST",
+      { md_id: md.id, action: "reshuffle", squad_id: md.squads[0].id }), "New starting stages drawn.");
+  };
 
   d.querySelector("#sq-add").onclick = () => act(() =>
     api("/api/scoring/squads", "POST", {

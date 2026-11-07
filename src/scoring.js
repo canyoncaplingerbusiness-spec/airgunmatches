@@ -99,7 +99,7 @@ async function asSquad(env, code) {
   if (c.length !== 12) return null;
   return await env.DB.prepare(
     `SELECT s.id AS squad_id, s.name AS squad_name, s.ordinal AS squad_ordinal,
-            s.scorer_name,
+            s.scorer_name, s.start_stage,
             d.id AS md_id, d.discipline, d.mode, d.state, d.relays,
             d.score_type, d.decimals, d.max_score, d.winner,
             e.id AS event_id, e.name AS event_name, e.start_date, e.venue,
@@ -109,6 +109,87 @@ async function asSquad(env, code) {
        JOIN events e            ON e.id = d.event_id
       WHERE replace(upper(s.code), '-', '') = ?`
   ).bind(c).first();
+}
+
+/* ------------------------------------------------------------------ */
+/* Stage rotation                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Give every squad that has no starting stage one, at random, spreading the
+ * squads across the stages so no two start together until every stage has a
+ * squad. Squads that already have a start are never changed, so reopening a
+ * match or adding a late squad doesn't disturb anyone mid-match.
+ */
+async function assignStartStages(env, mdId) {
+  const stages = (await env.DB.prepare(
+    "SELECT ordinal FROM stages WHERE md_id = ? ORDER BY ordinal"
+  ).bind(mdId).all()).results || [];
+  if (!stages.length) return;
+  const squads = (await env.DB.prepare(
+    "SELECT id, start_stage FROM squads WHERE md_id = ? ORDER BY ordinal"
+  ).bind(mdId).all()).results || [];
+
+  const valid = new Set(stages.map(s => s.ordinal));
+  const used = new Map(stages.map(s => [s.ordinal, 0]));
+  for (const s of squads) if (valid.has(s.start_stage)) used.set(s.start_stage, used.get(s.start_stage) + 1);
+
+  const stmts = [];
+  for (const s of squads) {
+    if (valid.has(s.start_stage)) continue;
+    const low = Math.min(...used.values());
+    const pool = [...used].filter(([, n]) => n === low).map(([o]) => o);
+    const pick = pool[crypto.getRandomValues(new Uint32Array(1))[0] % pool.length];
+    used.set(pick, used.get(pick) + 1);
+    s.start_stage = pick;
+    stmts.push(env.DB.prepare("UPDATE squads SET start_stage = ? WHERE id = ?").bind(pick, s.id));
+  }
+  if (stmts.length) await env.DB.batch(stmts);
+}
+
+/**
+ * The order one squad shoots the stages in, and which of them it may score.
+ *
+ * It starts at its own stage, runs upward, and wraps round to stage 1. A stage
+ * opens only when every competitor in the squad has a finished card on the one
+ * before it. A stage that already has scores stays open regardless, so moving a
+ * squad's start mid-match can't lock it out of work it has done.
+ */
+async function stagePlan(env, mdId, squadId, startStage) {
+  const stages = (await env.DB.prepare(
+    "SELECT id, ordinal, name, shot_count FROM stages WHERE md_id = ? ORDER BY ordinal"
+  ).bind(mdId).all()).results || [];
+  const at = stages.findIndex(s => s.ordinal === startStage);
+  const order = at <= 0 ? stages : [...stages.slice(at), ...stages.slice(0, at)];
+
+  const members = ((await env.DB.prepare(
+    "SELECT id FROM entrants WHERE squad_id = ?"
+  ).bind(squadId).all()).results || []).map(r => r.id);
+
+  const have = new Map();          // stageId -> { entrantId -> recorded }
+  if (members.length) {
+    const marks = members.map(() => "?").join(",");
+    for (const c of (await env.DB.prepare(
+      `SELECT stage_id, entrant_id, recorded FROM score_cards WHERE entrant_id IN (${marks})`
+    ).bind(...members).all()).results || []) {
+      if (!have.has(c.stage_id)) have.set(c.stage_id, new Map());
+      have.get(c.stage_id).set(c.entrant_id, c.recorded);
+    }
+  }
+
+  const complete = new Set();
+  for (const st of order) {
+    const m = have.get(st.id);
+    if (members.every(id => (m?.get(id) ?? 0) >= st.shot_count)) complete.add(st.id);
+  }
+
+  const open = new Set();
+  let blocked = false;
+  for (const st of order) {
+    if (!blocked || have.has(st.id)) open.add(st.id);
+    if (!blocked && !complete.has(st.id)) blocked = true;
+  }
+  return { order, open, complete };
 }
 
 /* ------------------------------------------------------------------ */
@@ -354,7 +435,7 @@ async function getMatch(request, env, H) {
     ).bind(md.id).all()).results || [];
 
     const squads = (await env.DB.prepare(
-      `SELECT s.id, s.ordinal, s.name, s.code, s.scorer_name,
+      `SELECT s.id, s.ordinal, s.name, s.code, s.scorer_name, s.start_stage,
               (SELECT COUNT(*) FROM entrants x WHERE x.squad_id = s.id) AS entrants
          FROM squads s WHERE s.md_id = ? ORDER BY s.ordinal`
     ).bind(md.id).all()).results || [];
@@ -544,6 +625,24 @@ async function squadAction(request, env, H, body) {
     return H.json({ ok: true });
   }
 
+  if (action === "set_start") {
+    const o = asInt(body.stage_ordinal);
+    const ok = await env.DB.prepare("SELECT 1 FROM stages WHERE md_id = ? AND ordinal = ?")
+      .bind(md.id, o).first();
+    if (!ok) return H.fail("That stage doesn't exist.");
+    await env.DB.prepare("UPDATE squads SET start_stage = ? WHERE id = ?").bind(o, squad.id).run();
+    return H.json({ ok: true });
+  }
+
+  if (action === "reshuffle") {
+    const n = (await env.DB.prepare("SELECT COUNT(*) AS n FROM score_cards WHERE md_id = ?")
+      .bind(md.id).first())?.n || 0;
+    if (n) return H.fail("Scoring has started, so the starting stages are locked in.");
+    await env.DB.prepare("UPDATE squads SET start_stage = NULL WHERE md_id = ?").bind(md.id).run();
+    await assignStartStages(env, md.id);
+    return H.json({ ok: true });
+  }
+
   if (action === "rotate") {
     const fresh = makeCode(H);
     await env.DB.prepare("UPDATE squads SET code = ? WHERE id = ?").bind(fresh, squad.id).run();
@@ -689,6 +788,9 @@ async function setState(request, env, H, body) {
 
   await env.DB.prepare("UPDATE match_disciplines SET state = ?, live_public = ? WHERE id = ?")
     .bind(state, live_public, md.id).run();
+
+  // Opening the match draws each squad's starting stage.
+  if (state === "live" && md.mode === "stages") await assignStartStages(env, md.id);
 
   return H.json({ ok: true, state, live_public });
 }
@@ -913,11 +1015,16 @@ async function getSquad(request, env, H) {
   const md = await env.DB.prepare("SELECT * FROM match_disciplines WHERE id = ?")
     .bind(sq.md_id).first();
 
-  const stages = md.mode === "stages"
-    ? (await env.DB.prepare(
-        "SELECT id, ordinal, name, shot_count FROM stages WHERE md_id = ? ORDER BY ordinal"
-      ).bind(md.id).all()).results || []
-    : [];
+  /* Stages come back in this squad's own order, starting at the stage it was
+     drawn, so the phone's first stage is always where this squad begins. */
+  let stages = [], startStage = null;
+  if (md.mode === "stages") {
+    if (md.state === "live") await assignStartStages(env, md.id);
+    startStage = (await env.DB.prepare("SELECT start_stage FROM squads WHERE id = ?")
+      .bind(sq.squad_id).first())?.start_stage ?? null;
+    const plan = await stagePlan(env, md.id, sq.squad_id, startStage);
+    stages = plan.order.map(s => ({ ...s, open: plan.open.has(s.id) }));
+  }
 
   const entrants = (await env.DB.prepare(
     "SELECT id, name, class FROM entrants WHERE squad_id = ? ORDER BY id"
@@ -953,7 +1060,7 @@ async function getSquad(request, env, H) {
       name: sq.event_name, start_date: sq.start_date,
       venue: sq.venue, city: sq.city, state: sq.event_state
     },
-    squad: { id: sq.squad_id, name: sq.squad_name, scorer_name: sq.scorer_name },
+    squad: { id: sq.squad_id, name: sq.squad_name, scorer_name: sq.scorer_name, start_stage: startStage },
     discipline: {
       id: md.id, name: md.discipline, mode: md.mode, state: md.state,
       relays: md.relays, score_type: md.score_type, decimals: md.decimals,
@@ -1006,6 +1113,18 @@ async function sync(request, env, H, body) {
 
   const accepted = [], conflicts = [], rejected = [];
 
+  /* Stage order: a squad may only score the stage it is on. Recomputed from the
+     database when a stage looks closed, because an earlier item in this same
+     batch may have just finished the stage before it. */
+  let plan = null;
+  if (md.mode === "stages") {
+    await assignStartStages(env, md.id);
+    const start = (await env.DB.prepare("SELECT start_stage FROM squads WHERE id = ?")
+      .bind(sq.squad_id).first())?.start_stage ?? null;
+    var planFor = () => stagePlan(env, md.id, sq.squad_id, start);
+    plan = await planFor();
+  }
+
   /* A card or score is "submitted" once the scorer has pressed Done on it.
      Changing it afterwards needs a witness, and the change is logged. */
   const NEED_WITNESS = "This score was already submitted. Enter a witness's name to change it.";
@@ -1045,6 +1164,13 @@ async function sync(request, env, H, body) {
       const stageId = asInt(item.stage_id);
       const shots = stageMap.get(stageId);
       if (!shots) { rejected.push({ id: item.id, reason: "Unknown stage." }); continue; }
+
+      if (!plan.open.has(stageId)) plan = await planFor();
+      if (!plan.open.has(stageId)) {
+        const prev = plan.order.find(s => !plan.complete.has(s.id));
+        rejected.push({ id: item.id, reason: `That stage isn't open yet. Your squad is on ${prev ? prev.name : "an earlier stage"} — everyone in the squad has to be scored there first.` });
+        continue;
+      }
 
       const hits = Array.isArray(item.hits) ? item.hits : null;
       if (!hits || hits.length !== shots) {
