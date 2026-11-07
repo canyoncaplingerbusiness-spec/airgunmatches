@@ -890,9 +890,24 @@ document.getElementById("rows").addEventListener("click", async e => {
     const row = ROWS.find(r => r.id === d.delete);
     if(!confirm(`Permanently delete "${row ? row.name : "this event"}"?\n\nThis cannot be undone. To simply take it off the calendar, use Deny instead.`)) return;
     btn.disabled = true; btn.textContent = "Deleting…";
-    const res = await fetch(`${API}/events/${d.delete}`, { method: "DELETE" });
+    let res = await fetch(`${API}/events/${d.delete}`, { method: "DELETE" });
+    let out = res.ok ? {} : await res.json().catch(() => ({}));
+
+    /* An event with score corrections or disqualifications on record is
+       protected. The owner can still erase it, but has to type its name, and the
+       erasure is itself kept as a permanent record. */
+    if(res.status === 409 && out.requires_purge){
+      const typed = prompt(
+        `${out.error}\n\nThis cannot be undone. The deletion itself is recorded permanently.\n\n` +
+        `To erase it, type the event's exact name:\n${out.name}`);
+      if(typed === null){ btn.disabled = false; btn.textContent = "Delete permanently"; return; }
+      res = await fetch(`${API}/events/${d.delete}`, {
+        method: "DELETE", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ purge: true, confirm_name: typed })
+      });
+      out = res.ok ? {} : await res.json().catch(() => ({}));
+    }
     if(!res.ok){
-      const out = await res.json().catch(() => ({}));
       btn.disabled = false; btn.textContent = "Delete permanently";
       alert("Couldn't delete: " + (out.error || res.status));
       return;

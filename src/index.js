@@ -1728,29 +1728,57 @@ async function adminUpdateSeries(request, env, email) {
  * The order matters. The history rows are found by walking from the event to
  * its disciplines, so they have to go before the cascade removes the path.
  */
-async function adminDelete(env, id) {
-  const exists = await env.DB.prepare("SELECT id FROM events WHERE id = ?").bind(id).first();
-  if (!exists) return fail("Event not found.", 404);
+async function adminDelete(request, env, id, adminEmail) {
+  const ev = await env.DB.prepare("SELECT id, name FROM events WHERE id = ?").bind(id).first();
+  if (!ev) return fail("Event not found.", 404);
 
-  /* Score corrections are a permanent record. The database refuses to delete
-     them, which would make this delete fail halfway, so say so up front. */
-  const logged = (await env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM score_edits
-      WHERE md_id IN (SELECT id FROM match_disciplines WHERE event_id = ?)`
-  ).bind(id).first())?.n || 0;
-  if (logged) return fail(
-    `This event has ${logged} recorded score change${logged === 1 ? "" : "s"} and can't be deleted. ` +
-    `Those records are permanent. Unpublish the event instead.`, 409);
+  const mdIds = ((await env.DB.prepare(
+    "SELECT id FROM match_disciplines WHERE event_id = ?"
+  ).bind(id).all()).results || []).map(r => r.id);
+  const marks = mdIds.map(() => "?").join(",");
 
-  const wiped = await env.DB.batch([
-    env.DB.prepare(
-      `DELETE FROM score_history
-        WHERE md_id IN (SELECT id FROM match_disciplines WHERE event_id = ?)`
-    ).bind(id),
-    env.DB.prepare("DELETE FROM events WHERE id = ?").bind(id)
-  ]);
+  const count = async table => mdIds.length
+    ? ((await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE md_id IN (${marks})`)
+        .bind(...mdIds).first())?.n || 0) : 0;
+  const edits = await count("score_edits");
+  const dqs = await count("dq_log");
 
-  return json({ ok: true, history_rows_removed: wiped[0]?.meta?.changes ?? 0 });
+  /* Score corrections and disqualifications are permanent records. Directors
+     have no way to delete anything. The site owner can erase a whole match, but
+     only by typing its name, and the erasure is itself written to a permanent
+     ledger: what was removed, by whom and when. */
+  if (edits || dqs) {
+    let body = {};
+    try { body = await request.json(); } catch { /* no body */ }
+    if (!body || !body.purge) {
+      return json({
+        error: `This event has ${edits} recorded score change${edits === 1 ? "" : "s"}` +
+               `${dqs ? ` and ${dqs} disqualification record${dqs === 1 ? "" : "s"}` : ""}. ` +
+               `Deleting it erases those permanent records.`,
+        requires_purge: true, name: ev.name, edits, dqs
+      }, 409);
+    }
+    if (String(body.confirm_name || "").trim() !== String(ev.name).trim())
+      return fail("The name you typed doesn't match the event name, so nothing was deleted.");
+  }
+
+  const stmts = [];
+  if (mdIds.length) {
+    if (edits || dqs) {
+      for (const m of mdIds)
+        stmts.push(env.DB.prepare("INSERT OR IGNORE INTO audit_purge_allow (md_id) VALUES (?)").bind(m));
+      stmts.push(env.DB.prepare(
+        "INSERT INTO audit_purges (event_id, event_name, edits_removed, dq_removed, purged_by) VALUES (?,?,?,?,?)"
+      ).bind(ev.id, ev.name, edits, dqs, adminEmail || "owner"));
+    }
+    stmts.push(env.DB.prepare(`DELETE FROM dq_log WHERE md_id IN (${marks})`).bind(...mdIds));
+    stmts.push(env.DB.prepare(`DELETE FROM score_history WHERE md_id IN (${marks})`).bind(...mdIds));
+  }
+  stmts.push(env.DB.prepare("DELETE FROM events WHERE id = ?").bind(id));
+  if (mdIds.length) stmts.push(env.DB.prepare(`DELETE FROM audit_purge_allow WHERE md_id IN (${marks})`).bind(...mdIds));
+
+  await env.DB.batch(stmts);
+  return json({ ok: true, records_erased: edits + dqs });
 }
 
 async function adminExport(request, env) {
@@ -1892,7 +1920,7 @@ export default {
 
           const m = path.match(/^\/api\/admin\/events\/([0-9a-fA-F-]{36})$/);
           if (m && method === "PATCH")  return await adminUpdate(request, env, m[1], auth.email);
-          if (m && method === "DELETE") return await adminDelete(env, m[1]);
+          if (m && method === "DELETE") return await adminDelete(request, env, m[1], auth.email);
         }
         return fail("Not found", 404);
       }
