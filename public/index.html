@@ -703,7 +703,7 @@ function mapLink(ev){
 
 /* ---------- Load approved events ---------- */
 async function loadEvents(){
-  const res = await fetch(`${API}/events`, { headers: { accept: "application/json" } });
+  const res = await fetch(`${API}/events`, { headers: { accept: "application/json" }, cache: "no-cache" });
   if(!res.ok) throw new Error(`The server responded ${res.status}.`);
   const { events } = await res.json();
 
@@ -1349,12 +1349,71 @@ async function init(){
 
     buildDisciplineFilter();
     render();
+    watchLive();
   }catch(err){
     document.getElementById("list").innerHTML =
       `<div class="loadfail"><strong>Couldn't load the calendar.</strong><br>
        ${esc(err.message || "Please refresh the page to try again.")}</div>`;
   }
 }
+/**
+ * Keeps the LIVE badges honest while the page is open.
+ *
+ * Every 15 seconds (and whenever the tab comes back into view) it asks the
+ * server which matches are live and updates only the badge on the cards that
+ * changed, in place. The list is not rebuilt, so nothing moves and nobody loses
+ * their place. Only if a match gains published results, which changes its
+ * buttons and details, is the list redrawn, and then the scroll position is put
+ * back where it was. A hidden tab does no polling.
+ */
+function watchLive(){
+  let busy = false;
+  const tag = ev => ev.live
+    ? `<a class="tag live" href="${esc(ev.path)}"><span class="dot"></span>LIVE NOW</a>`
+    : ev.results ? `<span class="tag results">Results</span>` : "";
+
+  async function check(){
+    if(busy || document.hidden) return;
+    busy = true;
+    try{
+      const res = await fetch(`${API}/events`, { headers: { accept: "application/json" }, cache: "no-store" });
+      if(!res.ok) return;
+      const { events } = await res.json();
+      const fresh = new Map((events || []).map(r => [r.id, r]));
+      let redraw = false;
+
+      for(const ev of EVENTS){
+        const r = fresh.get(ev.id);
+        if(!r) continue;
+        const live = !!r.live, results = r.results || null;
+        const liveChanged = live !== ev.live;
+        const resultsChanged = !!results !== !!ev.results;
+        if(!liveChanged && !resultsChanged) continue;
+
+        ev.live = live; ev.results = results; ev.path = r.path || ev.path;
+        if(resultsChanged){ redraw = true; continue; }
+
+        const card = document.querySelector(`article[data-open="${CSS.escape(ev.id)}"]`);
+        const tags = card && card.querySelector(".tags");
+        if(!tags) continue;
+        tags.querySelectorAll(".tag.live, .tag.results").forEach(n => n.remove());
+        tags.insertAdjacentHTML("beforeend", tag(ev));
+      }
+
+      if(redraw){
+        const y = window.scrollY;
+        render();
+        window.scrollTo(0, y);
+      }
+    }catch(_){ /* a missed check is fine; the next one is 15 seconds away */ }
+    finally{ busy = false; }
+  }
+
+  setInterval(check, 15000);
+  document.addEventListener("visibilitychange", () => { if(!document.hidden) check(); });
+  window.addEventListener("focus", check);
+}
+
 init();
 </script>
 <script>
