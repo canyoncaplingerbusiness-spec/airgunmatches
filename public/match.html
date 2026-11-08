@@ -792,6 +792,7 @@ function renderHeadline(panel, md) {
         <h1>${esc(ev.name)}</h1>
         <div class="meta">${esc(when)} &nbsp;·&nbsp; ${esc(ev.venue)}, ${esc(ev.city)}, ${esc(ev.state)}</div>
         <div class="tags">
+          ${ev.test ? `<span class="tag" style="background:#b86e00">TEST EVENT</span>` : ""}
           <span class="tag">${esc(md.discipline)}</span>
           ${md.mode === "stages" && md.stages.length ? `<span class="tag o">${md.stages.length} stages · ${shots} shots</span>` : ""}
           <span class="tag o">${md.squads.length} squad${md.squads.length === 1 ? "" : "s"}</span>

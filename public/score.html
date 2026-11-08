@@ -445,7 +445,8 @@ function snapSig(f) {
     rows.map(c => c.id + ":" + c.version + ":" + (c.submitted_at ? 1 : 0)),
     f.discipline.state, f.entrants.map(e => e.id + e.name + (e.dq ? "!" : "")),
     (f.stages || []).map(x => x.id + ":" + x.shot_count + x.name),
-    f.squad && f.squad.start_stage
+    f.squad && f.squad.start_stage,
+    f.event && f.event.test
   ]);
 }
 let lastSig = "";
@@ -718,7 +719,7 @@ function banner(text, kind) {
 function paintHeader() {
   document.getElementById("hd-title").textContent = SNAP.squad.name;
   const d = SNAP.discipline, e = SNAP.event;
-  document.getElementById("hd-sub").textContent = `${d.name} · ${e.name}`;
+  document.getElementById("hd-sub").textContent = `${d.name} · ${e.name}` + (e.test ? " · TEST EVENT" : "");
 }
 
 function stageProgress(st) {
@@ -760,7 +761,10 @@ function sameIdentity(a, b) {
   return short.every(t => long.includes(t));
 }
 /** Is this competitor the person holding the phone? */
-const isSelf = p => !!SCORER && sameIdentity(SCORER, p.name);
+const isTest = () => !!(SNAP && SNAP.event && SNAP.event.test);
+/* In a test event the owner has switched the identity rules off, so one person
+   can try every part of the system. */
+const isSelf = p => !isTest() && !!SCORER && sameIdentity(SCORER, p.name);
 
 /** Squads shoot in roster order, so the next to be scored is the first
  *  competitor, in that order, who is not finished. */
@@ -1014,7 +1018,7 @@ function witnessGate(p, key, proceed) {
   /* The witness has to be somebody else on this squad: not the person scoring
      on this phone, not the competitor whose score is being changed, and not
      anyone disqualified. They are picked from the squad's own list. */
-  const eligible = SNAP.entrants.filter(e => e.id !== p.id && !e.dq && !isSelf(e));
+  const eligible = SNAP.entrants.filter(e => !e.dq && (isTest() || (e.id !== p.id && !isSelf(e))));
   if (!eligible.length) {
     body.innerHTML = `
       <p class="legend" style="margin-top:0">This score was already submitted, so changing it needs a witness
@@ -1423,7 +1427,8 @@ function showScoring() {
   if (isStages() && !stageId && SNAP.stages.length) stageId = currentStage().id;
   paint();
   const me = SNAP.entrants.find(isSelf);
-  if (me) banner(`You're on this squad's roster as ${me.name}. You can score everyone except yourself; another member of the squad scores you.`, "info");
+  if (isTest()) banner("This is a test event. The usual rules about scoring your own card and who can witness are switched off.", "info");
+  else if (me) banner(`You're on this squad's roster as ${me.name}. You can score everyone except yourself; another member of the squad scores you.`, "info");
   if (SNAP.discipline.state === "setup")
     banner("This match hasn't been opened yet. You can look around, but scores won't send until your director opens it.", "info");
   else if (SNAP.discipline.state === "complete")

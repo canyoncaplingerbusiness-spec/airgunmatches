@@ -708,7 +708,8 @@ function render(){
             r.reviewed_at && !isPending ? " · reviewed " + esc(ago(r.reviewed_at)) : ""
           }</div>
         </div>
-        <span class="pill ${esc(r.status)}">${esc(r.status)}</span>
+        <span class="pill ${esc(r.status)}">${esc(r.status)}</span>${r.is_test
+          ? ` <span class="pill" style="background:#fff4e0;color:#b86e00;margin-left:6px">TEST EVENT</span>` : ""}
       </div>
 
       ${isSeries ? `<div class="seriesbar">
@@ -800,6 +801,7 @@ function render(){
             ? `<button class="act approve" data-approve="${esc(r.id)}"><span class="ic">✓</span> Approve instead</button>`
             : `<button class="act deny" data-deny="${esc(r.id)}"><span class="ic">✕</span> Remove from calendar</button>`}
         `}
+        <button class="act neutral" data-test="${esc(r.id)}" title="In a test event anyone on a squad can score anyone, themselves included">${r.is_test ? "Remove test mode" : "Make test event"}</button>
         <button class="act destroy" data-delete="${esc(r.id)}">Delete permanently</button>
       </div>
     </article>`;
@@ -878,10 +880,29 @@ document.getElementById("rows").addEventListener("click", async e => {
 
 /* ---------- Events ---------- */
 document.getElementById("rows").addEventListener("click", async e => {
-  const btn = e.target.closest("button[data-approve],button[data-deny],button[data-pending],button[data-delete]");
+  const btn = e.target.closest("button[data-approve],button[data-deny],button[data-pending],button[data-delete],button[data-test]");
   if(!btn) return;
   const d = btn.dataset;
 
+  if(d.test){
+    const row = ROWS.find(r => r.id === d.test);
+    const on = !(row && row.is_test);
+    if(on && !confirm(`Make "${row ? row.name : "this event"}" a test event?\n\nIn a test event anyone on a squad can score anyone on it, themselves included, and the witness rules are relaxed. Use it for rehearsals only.`)) return;
+    btn.disabled = true;
+    const res = await fetch(`${API}/events/${d.test}`, {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ is_test: on })
+    });
+    if(!res.ok){
+      btn.disabled = false;
+      const out = await res.json().catch(() => ({}));
+      alert("Couldn't change test mode: " + (out.error || res.status));
+      return;
+    }
+    if(row) row.is_test = on ? 1 : 0;
+    render();
+    return;
+  }
   if(d.approve) return setStatus(d.approve, "approved", btn);
   if(d.deny)    return setStatus(d.deny, "denied", btn);
   if(d.pending) return setStatus(d.pending, "pending", btn);

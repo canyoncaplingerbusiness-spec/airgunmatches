@@ -236,7 +236,7 @@ async function eventForCode(env, code) {
   const clean = normaliseCode(code);
   if (clean.length !== 12) return null;
   return await env.DB.prepare(
-    `SELECT id, name, start_date, end_date, venue, city, state, disciplines, status
+    `SELECT id, name, start_date, end_date, venue, city, state, disciplines, status, is_test
        FROM events
       WHERE replace(upper(results_token), '-', '') = ?`
   ).bind(clean).first();
@@ -915,7 +915,8 @@ async function saveResults(request, env) {
     const fieldSize = rows.length;
     for (const [idx, r] of rows.entries()) {
       const place = r.place !== null ? r.place : idx + 1;
-      const shooterId = await resolveShooter(env, r.competitor);
+      // A test event never creates or feeds a shooter's record.
+      const shooterId = ev.is_test ? null : await resolveShooter(env, r.competitor);
 
       // a score of "45/60" brings its own ceiling; a bare "248" borrows the
       // organizer's, and anything above that ceiling is treated as unusable
@@ -1002,7 +1003,7 @@ async function getRankings(request, env) {
             SUM(CASE WHEN r.available > 0 THEN 1 ELSE 0 END) AS with_targets,
             COUNT(*) AS total_results
        FROM results r JOIN events e ON e.id = r.event_id
-      WHERE e.status = 'approved' AND e.start_date >= ? AND r.shooter_id IS NOT NULL
+      WHERE e.status = 'approved' AND e.is_test = 0 AND e.start_date >= ? AND r.shooter_id IS NOT NULL
       GROUP BY r.discipline
       ORDER BY shooters DESC, r.discipline ASC`
   ).bind(since).all();
@@ -1037,7 +1038,7 @@ async function getRankings(request, env) {
            FROM results r
            JOIN events e   ON e.id = r.event_id
            JOIN shooters s ON s.id = r.shooter_id
-          WHERE e.status = 'approved' AND e.start_date >= ?
+          WHERE e.status = 'approved' AND e.is_test = 0 AND e.start_date >= ?
             AND r.shooter_id IS NOT NULL AND r.discipline = ?
             AND r.available > 0 AND r.hits IS NOT NULL
           GROUP BY s.id
@@ -1059,7 +1060,7 @@ async function getRankings(request, env) {
            FROM results r
            JOIN events e   ON e.id = r.event_id
            JOIN shooters s ON s.id = r.shooter_id
-          WHERE e.status = 'approved' AND e.start_date >= ?
+          WHERE e.status = 'approved' AND e.is_test = 0 AND e.start_date >= ?
             AND r.shooter_id IS NOT NULL AND r.discipline = ?
           GROUP BY s.id
           ORDER BY points DESC, wins DESC, events DESC, s.display_name ASC
@@ -1101,7 +1102,7 @@ async function getShooter(request, env, id) {
     `SELECT e.name AS event, e.start_date, e.venue, e.city, e.state,
             r.discipline, r.place, r.score, r.class, r.points, r.field_size
        FROM results r JOIN events e ON e.id = r.event_id
-      WHERE r.shooter_id = ? AND e.status = 'approved'
+      WHERE r.shooter_id = ? AND e.status = 'approved' AND e.is_test = 0
       ORDER BY e.start_date DESC`
   ).bind(id).all();
 
@@ -1627,6 +1628,9 @@ async function adminUpdate(request, env, id, email) {
       if (!cur?.results_token) { sets.push("results_token = ?"); binds.push(makeResultsCode()); }
     }
   }
+
+  // The owner's test-event switch. Directors have no route to this.
+  if (body.is_test !== undefined) { sets.push("is_test = ?"); binds.push(body.is_test ? 1 : 0); }
 
   // Explicitly re-issue a code, for when one has been lost or leaked.
   if (body.regenerate_code === true) { sets.push("results_token = ?"); binds.push(makeResultsCode()); }

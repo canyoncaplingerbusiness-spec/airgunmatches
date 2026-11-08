@@ -99,7 +99,7 @@ async function asSquad(env, code) {
   if (c.length !== 12) return null;
   return await env.DB.prepare(
     `SELECT s.id AS squad_id, s.name AS squad_name, s.ordinal AS squad_ordinal,
-            s.scorer_name, s.start_stage,
+            s.scorer_name, s.start_stage, e.is_test,
             d.id AS md_id, d.discipline, d.mode, d.state, d.relays,
             d.score_type, d.decimals, d.max_score, d.winner,
             e.id AS event_id, e.name AS event_name, e.start_date, e.venue,
@@ -522,7 +522,7 @@ async function getMatch(request, env, H) {
   return H.json({
     event: {
       id: ev.id, name: ev.name, start_date: ev.start_date, end_date: ev.end_date,
-      venue: ev.venue, city: ev.city, state: ev.state,
+      venue: ev.venue, city: ev.city, state: ev.state, test: !!ev.is_test,
       disciplines: H.safeParse(ev.disciplines)
     },
     match_disciplines: out
@@ -1252,7 +1252,8 @@ async function publish(request, env, H, body) {
   ];
 
   for (const [i, r] of scored.entries()) {
-    const shooterId = await H.resolveShooter(env, r.name);
+    // A test event never creates or feeds a shooter's record, so it can't reach the rankings.
+    const shooterId = ev.is_test ? null : await H.resolveShooter(env, r.name);
     // r.value is hits in stage mode and the aggregated score in direct mode —
     // in both cases it is the number that sits over the maximum.
     const hits = maxAvailable !== null && typeof r.value === "number" ? r.value : null;
@@ -1356,7 +1357,7 @@ async function getSquad(request, env, H) {
   return H.json({
     event: {
       name: sq.event_name, start_date: sq.start_date,
-      venue: sq.venue, city: sq.city, state: sq.event_state
+      venue: sq.venue, city: sq.city, state: sq.event_state, test: !!sq.is_test
     },
     squad: { id: sq.squad_id, name: sq.squad_name, scorer_name: sq.scorer_name, start_stage: startStage },
     discipline: {
@@ -1457,11 +1458,11 @@ async function sync(request, env, H, body) {
        scorer from making the mistake, this is what stops it being done on
        purpose. */
     const entrantName = nameById.get(entrantId);
-    if (sameIdentity(scorer, entrantName)) {
+    if (!sq.is_test && sameIdentity(scorer, entrantName)) {
       rejected.push({ id: item.id, reason: "You can't score your own card. Another member of the squad has to score you." });
       continue;
     }
-    if (witness && (sameIdentity(witness, scorer) || sameIdentity(witness, entrantName))) {
+    if (!sq.is_test && witness && (sameIdentity(witness, scorer) || sameIdentity(witness, entrantName))) {
       rejected.push({ id: item.id, reason: "The witness can't be the scorer or the competitor whose score is being changed." });
       continue;
     }
@@ -1471,7 +1472,7 @@ async function sync(request, env, H, body) {
     if (witness) {
       const w = normName(witness);
       const okWitness = memberRows.some(m =>
-        m.id !== entrantId && !m.dq_at && !sameIdentity(scorer, m.name) &&
+        (sq.is_test || (m.id !== entrantId && !sameIdentity(scorer, m.name))) && !m.dq_at &&
         (normName(m.name) === w || normName(shownNames.get(m.id)) === w));
       if (!okWitness) {
         rejected.push({ id: item.id, reason: "The witness has to be another member of your squad, other than you and the competitor whose score is being changed." });
