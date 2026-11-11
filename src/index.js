@@ -1345,7 +1345,7 @@ const MAX_IMPORT_EVENTS = 200;
    months. Change this if the redirect direction ever flips. */
 const CANONICAL_ORIGIN = "https://www.gunmatches.com";
 const CANONICAL_PAGES = new Set([
-  "/rankings.html", "/rankings", "/organizers.html", "/organizers"
+  "/rankings.html", "/rankings", "/organizers.html", "/organizers", "/my.html", "/my"
 ]);
 
 /** The address we want indexed, given whichever spelling was requested.

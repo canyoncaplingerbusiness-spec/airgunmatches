@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>My Scores — free shooting log · GunMatches.com</title>
+<meta name="description" content="A free scorebook for your phone. Log field target, silhouette, benchrest groups and practice, see your trends, and keep your scores on your own device. No account needed.">
+<meta name="theme-color" content="#12263f">
+<link rel="manifest" href="/my-manifest.json">
+<link rel="icon" href="/img/icon-32.png">
+<link rel="apple-touch-icon" href="/img/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="My Scores">
+<style>
+  :root{--navy:#12263f;--navy-2:#1f3b5c;--steel:#4a6785;--bg:#f3f5f8;--card:#fff;--line:#dde3ea;--text:#1b2530;--muted:#5b6876;
+        --green:#14603c;--red:#b71d1c;--amber:#b86e00;--radius:14px;--tab:62px}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0}
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.45;
+       padding-bottom:calc(var(--tab) + env(safe-area-inset-bottom) + 16px)}
+  header{background:var(--navy);color:#fff;padding:calc(12px + env(safe-area-inset-top)) 16px 12px;display:flex;align-items:center;gap:10px;
+         position:sticky;top:0;z-index:20}
+  header h1{margin:0;font-size:19px;letter-spacing:-.2px;flex:1}
+  header a{color:#cfe0f3;font-size:13.5px;font-weight:600;text-decoration:none;padding:8px 4px}
+  main{max-width:680px;margin:0 auto;padding:14px 14px 20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(18,38,63,.06)}
+  h2{margin:0 0 10px;font-size:18px}
+  h3{margin:0 0 6px;font-size:15px}
+  p{margin:0 0 10px;color:var(--muted)}
+  label{display:block;font-size:12px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin:13px 0 5px}
+  input,select,textarea{width:100%;font:inherit;font-size:16px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--text);min-height:46px}
+  textarea{min-height:84px;resize:vertical}
+  input:focus,select:focus,textarea:focus,button:focus-visible,a:focus-visible{outline:3px solid #8fb4e0;outline-offset:1px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  button{font:inherit;font-weight:700;font-size:16px;padding:13px 18px;border-radius:12px;border:1px solid var(--navy-2);background:var(--navy-2);color:#fff;cursor:pointer;min-height:48px}
+  button.ghost{background:#fff;color:var(--navy-2)}
+  button.good{background:var(--green);border-color:var(--green)}
+  button.danger{background:#fff;color:var(--red);border-color:#e6b7b3}
+  button.small{min-height:40px;padding:8px 14px;font-size:14.5px}
+  button:disabled{opacity:.55}
+  .stack{display:flex;flex-direction:column;gap:10px}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+  .actions>*{flex:1;min-width:130px}
+  .types{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .types button{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;padding:14px;background:#fff;color:var(--navy);border:1px solid var(--line);min-height:92px}
+  .types button b{font-size:16px}
+  .types button span{font-size:13px;font-weight:500;color:var(--muted)}
+  .types button:active{background:#eef3f9}
+  .pill{display:inline-block;font-size:11.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;padding:3px 9px;border-radius:999px;background:#eef2f7;color:var(--navy-2)}
+  .pill.ft{background:#e3f0ff}.pill.group{background:#e8f6ec;color:var(--green)}.pill.points{background:#fff1dc;color:#8a5200}.pill.practice{background:#f0e9fb;color:#5b3f99}
+  .item{display:block;width:100%;text-align:left;background:#fff;color:var(--text);border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-bottom:9px;min-height:0;font-weight:400}
+  .item .top{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:3px}
+  .item .t{font-weight:700;font-size:16px}
+  .item .res{font-size:20px;font-weight:800;color:var(--navy);margin:2px 0}
+  .item .sub{font-size:13.5px;color:var(--muted)}
+  .month{font-size:12px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:var(--muted);margin:16px 2px 8px}
+  .chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none}
+  .chips button{white-space:nowrap;min-height:40px;padding:8px 14px;font-size:14.5px;background:#fff;color:var(--navy-2);border-color:var(--line)}
+  .chips button[aria-pressed=true]{background:var(--navy-2);color:#fff;border-color:var(--navy-2)}
+  .stage{display:grid;grid-template-columns:34px 1fr auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+  .stage:last-child{border-bottom:0}
+  .stage .n{font-weight:800;color:var(--muted)}
+  .step{display:flex;align-items:center;gap:6px}
+  .step button{width:46px;padding:0;font-size:22px;min-height:46px}
+  .step input{width:58px;text-align:center;padding:8px 2px;font-weight:800;font-size:20px}
+  .step .of{font-size:13.5px;color:var(--muted);white-space:nowrap}
+  .total{font-size:28px;font-weight:800;color:var(--navy)}
+  .grp{display:grid;grid-template-columns:34px 1fr auto;gap:8px;align-items:center;margin-bottom:8px}
+  .kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+  .kpi{background:#f6f8fb;border:1px solid var(--line);border-radius:12px;padding:12px}
+  .kpi b{display:block;font-size:24px;color:var(--navy);line-height:1.1}
+  .kpi span{font-size:12.5px;color:var(--muted)}
+  .banner{background:#fff4e0;border:1px solid #f0d49a;color:#6b4300;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:14.5px}
+  .banner button{margin-top:8px}
+  .empty{text-align:center;padding:34px 12px;color:var(--muted)}
+  nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;background:#fff;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);
+           padding-bottom:env(safe-area-inset-bottom)}
+  nav.tabs button{background:none;border:0;color:var(--muted);min-height:var(--tab);border-radius:0;font-size:12.5px;padding:6px 2px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+  nav.tabs button .ic{font-size:22px;line-height:1}
+  nav.tabs button[aria-current=page]{color:var(--navy);box-shadow:inset 0 3px 0 var(--red)}
+  .sheet{position:fixed;inset:0;z-index:50;background:rgba(18,38,63,.55);display:flex;align-items:flex-end;justify-content:center}
+  .sheet[hidden]{display:none}
+  .sheet .panel{background:#fff;width:100%;max-width:680px;max-height:90vh;overflow:auto;border-radius:18px 18px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--tab) + env(safe-area-inset-bottom) + 14px);background:#12263f;color:#fff;padding:12px 18px;border-radius:12px;z-index:60;font-weight:600;max-width:90vw;box-shadow:0 6px 20px rgba(0,0,0,.3)}
+  .toast[hidden]{display:none}
+  .muted{color:var(--muted)}.sm{font-size:13.5px}
+  .kv{display:grid;grid-template-columns:110px 1fr;gap:4px 10px;font-size:15px;margin:8px 0}
+  .kv dt{color:var(--muted);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.4px;padding-top:2px}.kv dd{margin:0}
+  svg.spark{width:100%;height:70px;display:block}
+  ol.steps{padding-left:20px;margin:6px 0;color:var(--muted)}
+  [hidden]{display:none!important}
+  @media (min-width:700px){ .types{grid-template-columns:repeat(4,1fr)} }
+  @media (prefers-reduced-motion:no-preference){ .sheet .panel{animation:up .18s ease-out} @keyframes up{from{transform:translateY(24px);opacity:.4}} }
+</style>
+</head>
+<body>
+<header>
+  <h1>My Scores</h1>
+  <a href="/">Match calendar</a>
+</header>
+
+<main id="main" aria-live="polite"></main>
+
+<nav class="tabs" aria-label="Sections">
+  <button data-go="log"><span class="ic" aria-hidden="true">＋</span>Log</button>
+  <button data-go="history"><span class="ic" aria-hidden="true">☰</span>History</button>
+  <button data-go="stats"><span class="ic" aria-hidden="true">▲</span>Stats</button>
+  <button data-go="backup"><span class="ic" aria-hidden="true">⇩</span>Backup</button>
+</nav>
+
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true"><div class="panel" id="panel"></div></div>
+<div class="toast" id="toast" hidden role="status"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* ====================================================================
+   STORAGE
+   Every score lives in this browser's own database (IndexedDB). Nothing is
+   sent to GunMatches. If IndexedDB isn't available (some private modes) it
+   falls back to localStorage, and if that fails too the app still works for
+   the session and tells the person to back up.
+   ==================================================================== */
+var ENTRIES = [];           // in memory, always the truth for the screen
+var META = { lastBackup: null, changesSince: 0 };
+var idb = null, usingLS = false, storageNote = "";
+
+function openDB(){
+  return new Promise(function(resolve){
+    if(!window.indexedDB){ resolve(null); return; }
+    try{
+      var req = indexedDB.open("gm-my-scores", 1);
+      req.onupgradeneeded = function(){
+        var db = req.result;
+        if(!db.objectStoreNames.contains("entries")) db.createObjectStore("entries", { keyPath: "id" });
+        if(!db.objectStoreNames.contains("meta")) db.createObjectStore("meta");
+      };
+      req.onsuccess = function(){ resolve(req.result); };
+      req.onerror = function(){ resolve(null); };
+      req.onblocked = function(){ resolve(null); };
+    }catch(e){ resolve(null); }
+  });
+}
+function tx(store, mode, fn){
+  return new Promise(function(resolve, reject){
+    var t = idb.transaction(store, mode), s = t.objectStore(store), out = fn(s);
+    t.oncomplete = function(){ resolve(out && out.result); };
+    t.onerror = t.onabort = function(){ reject(t.error); };
+  });
+}
+function lsSave(){
+  try{ localStorage.setItem("gm-my-scores", JSON.stringify({ entries: ENTRIES, meta: META })); }
+  catch(e){ storageNote = "This browser wouldn't let us save. Back up often."; }
+}
+function loadAll(){
+  return openDB().then(function(db){
+    idb = db;
+    if(idb){
+      return Promise.all([tx("entries","readonly",function(s){ return s.getAll(); }), tx("meta","readonly",function(s){ return s.get("meta"); })])
+        .then(function(r){ ENTRIES = r[0] || []; META = Object.assign(META, r[1] || {}); });
+    }
+    usingLS = true;
+    try{
+      var raw = JSON.parse(localStorage.getItem("gm-my-scores") || "null");
+      if(raw){ ENTRIES = raw.entries || []; META = Object.assign(META, raw.meta || {}); }
+    }catch(e){}
+  }).catch(function(){ usingLS = true; });
+}
+function saveEntry(e){
+  var i = ENTRIES.findIndex(function(x){ return x.id === e.id; });
+  if(i > -1) ENTRIES[i] = e; else ENTRIES.push(e);
+  META.changesSince++;
+  return persist(function(){ return tx("entries","readwrite",function(s){ return s.put(e); }); });
+}
+function removeEntry(id){
+  ENTRIES = ENTRIES.filter(function(x){ return x.id !== id; });
+  META.changesSince++;
+  return persist(function(){ return tx("entries","readwrite",function(s){ return s.delete(id); }); });
+}
+function saveMeta(){ return persist(function(){ return tx("meta","readwrite",function(s){ return s.put(META,"meta"); }); }, true); }
+function persist(idbFn, metaOnly){
+  if(!usingLS && idb){
+    return idbFn().then(function(){ return metaOnly ? null : saveMeta(); }).catch(function(){ usingLS = true; lsSave(); });
+  }
+  lsSave(); return Promise.resolve();
+}
+
+/* ====================================================================
+   HELPERS
+   ==================================================================== */
+var $ = function(s, r){ return (r || document).querySelector(s); };
+var $$ = function(s, r){ return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function uid(){ return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "id" + Date.now().toString(36) + Math.random().toString(36).slice(2, 9); }
+function todayISO(){ var d = new Date(); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); }
+var MO = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+function parseISO(s){ var p = String(s||"").slice(0,10).split("-").map(Number); return p.length === 3 && !p.some(isNaN) ? new Date(p[0], p[1]-1, p[2]) : null; }
+function fmtDate(s){ var d = parseISO(s); return d ? ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()] + " " + MO[d.getMonth()].slice(0,3) + " " + d.getDate() + ", " + d.getFullYear() : s; }
+function num(v){ var n = parseFloat(String(v).replace(",", ".")); return isFinite(n) ? n : null; }
+function pct(a, b){ return b > 0 ? Math.round(a / b * 1000) / 10 : 0; }
+function toast(msg){ var t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(function(){ t.hidden = true; }, 2600); }
+var TYPES = {
+  ft:       { name: "Field target / silhouette", short: "Hits", blurb: "Hits per stage" },
+  group:    { name: "Benchrest groups", short: "Groups", blurb: "Group size and distance" },
+  points:   { name: "Points / total", short: "Points", blurb: "Score and X count" },
+  practice: { name: "Practice session", short: "Practice", blurb: "Rounds, notes, setup" }
+};
+
+/* ---- results, worked out from what was entered ---- */
+function ftTotals(e){
+  var h = 0, s = 0;
+  (e.data.stages || []).forEach(function(st){ h += st.hits || 0; s += st.shots || 0; });
+  return { hits: h, shots: s, pct: pct(h, s) };
+}
+function groupToMOA(size, sizeUnit, dist, distUnit){
+  if(!size || !dist) return null;
+  var inches = sizeUnit === "mm" ? size / 25.4 : sizeUnit === "moa" ? null : size;
+  var yards = distUnit === "m" ? dist * 1.09361 : dist;
+  if(sizeUnit === "moa") return size;
+  return inches / (yards * 1.047 / 100);
+}
+function groupStats(e){
+  var d = e.data, arr = (d.groups || []).filter(function(x){ return x > 0; });
+  if(!arr.length) return null;
+  var best = Math.min.apply(null, arr), avg = arr.reduce(function(a,b){ return a+b; }, 0) / arr.length;
+  return { best: best, avg: avg, n: arr.length,
+           bestMOA: groupToMOA(best, d.sizeUnit, d.distance, d.distUnit),
+           avgMOA: groupToMOA(avg, d.sizeUnit, d.distance, d.distUnit) };
+}
+function headline(e){
+  if(e.type === "ft"){ var t = ftTotals(e); return t.hits + " / " + t.shots + " · " + t.pct + "%"; }
+  if(e.type === "group"){
+    var g = groupStats(e); if(!g) return "No groups";
+    var u = e.data.sizeUnit === "moa" ? "MOA" : e.data.sizeUnit;
+    return "Best " + r2(g.best) + " " + u + (g.bestMOA != null && e.data.sizeUnit !== "moa" ? " · " + r2(g.bestMOA) + " MOA" : "");
+  }
+  if(e.type === "points"){
+    var d = e.data; return d.score + (d.max ? " / " + d.max : "") + (d.x ? " · " + d.x + "X" : "");
+  }
+  var p = e.data; return (p.rounds ? p.rounds + " rounds" : "Practice") + (p.minutes ? " · " + p.minutes + " min" : "");
+}
+function r2(n){ return Math.round(n * 100) / 100; }
+function subline(e){
+  var parts = [];
+  if(e.type === "ft" && e.data.discipline) parts.push(e.data.discipline);
+  if(e.type === "group") parts.push(e.data.distance + " " + e.data.distUnit + (e.data.shots ? " · " + e.data.shots + " shots" : ""));
+  if(e.type === "points" && e.data.discipline) parts.push(e.data.discipline);
+  if(e.gun) parts.push(e.gun);
+  return parts.join(" · ");
+}
+
+/* ====================================================================
+   SCREENS
+   ==================================================================== */
+var VIEW = "log", FILTER = { type: "", q: "", gun: "" };
+var main = $("#main");
+
+function go(v){
+  VIEW = v;
+  $$("nav.tabs button").forEach(function(b){ if(b.dataset.go === v) b.setAttribute("aria-current","page"); else b.removeAttribute("aria-current"); });
+  if(v === "log") viewLog(); else if(v === "history") viewHistory(); else if(v === "stats") viewStats(); else if(v === "backup") viewBackup();
+  window.scrollTo(0, 0);
+}
+
+/* ---------- Log: choose type ---------- */
+function backupBanner(){
+  if(!ENTRIES.length) return "";
+  var due = META.changesSince >= 5 || (META.lastBackup && Date.now() - META.lastBackup > 30 * 86400000) || (!META.lastBackup && ENTRIES.length >= 3);
+  if(!due) return "";
+  return '<div class="banner"><b>Back up your scores.</b> They live on this phone only. If it is lost or the browser is cleared, so are they. Saving a backup file takes a few seconds.<br><button class="small" data-act="backup-now">Save a backup now</button></div>';
+}
+function viewLog(){
+  main.innerHTML = backupBanner() +
+    '<div class="card"><h2>Log a score</h2><p>What are you recording?</p><div class="types">' +
+    Object.keys(TYPES).map(function(k){ return '<button data-new="' + k + '"><b>' + esc(TYPES[k].name) + '</b><span>' + esc(TYPES[k].blurb) + '</span></button>'; }).join("") +
+    '</div></div>' + recentCard() + installCard();
+}
+function recentCard(){
+  if(!ENTRIES.length) return '<div class="card"><h3>Your scorebook is empty</h3><p>Everything you log is saved on this device, works with no signal at the range, and stays private. Tap a type above to log your first score.</p></div>';
+  var last = ENTRIES.slice().sort(byDateDesc).slice(0, 3);
+  return '<div class="card"><h3>Recent</h3>' + last.map(itemHTML).join("") + '<button class="ghost small" data-go="history">See all ' + ENTRIES.length + '</button></div>';
+}
+var deferredInstall = null;
+window.addEventListener("beforeinstallprompt", function(e){ e.preventDefault(); deferredInstall = e; if(VIEW === "log") viewLog(); });
+function installCard(){
+  if(window.matchMedia && matchMedia("(display-mode: standalone)").matches || navigator.standalone) return "";
+  var ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if(deferredInstall) return '<div class="card"><h3>Add to your home screen</h3><p>Open it like an app, even with no signal.</p><button data-act="install">Install My Scores</button></div>';
+  if(ios) return '<div class="card"><h3>Add to your home screen</h3><p>Tap the Share button in Safari, then “Add to Home Screen.” It then opens like an app and keeps your scores safer.</p></div>';
+  return "";
+}
+
+/* ---------- entries list ---------- */
+function byDateDesc(a, b){ return (b.date || "").localeCompare(a.date || "") || (b.created || 0) - (a.created || 0); }
+function itemHTML(e){
+  return '<button class="item" data-open="' + esc(e.id) + '"><div class="top"><span class="t">' + esc(e.title || TYPES[e.type].name) + '</span><span class="pill ' + e.type + '">' + esc(TYPES[e.type].short) + '</span></div>' +
+    '<div class="res">' + esc(headline(e)) + '</div><div class="sub">' + esc(fmtDate(e.date)) + (subline(e) ? " · " + esc(subline(e)) : "") + '</div></button>';
+}
+function viewHistory(){
+  var guns = uniq(ENTRIES.map(function(e){ return e.gun; }));
+  var list = ENTRIES.slice().sort(byDateDesc).filter(function(e){
+    if(FILTER.type && e.type !== FILTER.type) return false;
+    if(FILTER.gun && e.gun !== FILTER.gun) return false;
+    if(FILTER.q){
+      var hay = [e.title, e.gun, e.ammo, e.notes, e.location, e.data && e.data.discipline].filter(Boolean).join(" ").toLowerCase();
+      if(hay.indexOf(FILTER.q.toLowerCase()) < 0) return false;
+    }
+    return true;
+  });
+  var html = '<div class="card"><label for="hq" style="margin-top:0">Search</label><input id="hq" type="search" placeholder="Match, gun, notes…" value="' + esc(FILTER.q) + '">' +
+    '<div class="chips" role="group" aria-label="Filter by type" style="margin-top:10px">' +
+    '<button data-ftype="" aria-pressed="' + (!FILTER.type) + '">All</button>' +
+    Object.keys(TYPES).map(function(k){ return '<button data-ftype="' + k + '" aria-pressed="' + (FILTER.type === k) + '">' + esc(TYPES[k].short) + '</button>'; }).join("") + '</div>' +
+    (guns.length > 1 ? '<select id="hgun" aria-label="Filter by gun"><option value="">All guns</option>' + guns.map(function(g){ return '<option' + (FILTER.gun === g ? " selected" : "") + '>' + esc(g) + '</option>'; }).join("") + '</select>' : "") + '</div>';
+  if(!list.length) html += '<div class="empty">' + (ENTRIES.length ? "Nothing matches those filters." : "No scores yet. Tap <b>Log</b> to add your first.") + '</div>';
+  var last = "";
+  list.forEach(function(e){
+    var d = parseISO(e.date), k = d ? MO[d.getMonth()] + " " + d.getFullYear() : "Undated";
+    if(k !== last){ html += '<div class="month">' + esc(k) + '</div>'; last = k; }
+    html += itemHTML(e);
+  });
+  main.innerHTML = html;
+  var q = $("#hq"); q.addEventListener("input", function(){ FILTER.q = q.value.trim(); var pos = q.selectionStart; viewHistory(); var n = $("#hq"); n.focus(); try{ n.setSelectionRange(pos,pos); }catch(e){} });
+  var g = $("#hgun"); if(g) g.addEventListener("change", function(){ FILTER.gun = g.value; viewHistory(); });
+}
+function uniq(a){ var s = {}, o = []; a.forEach(function(x){ if(x && !s[x]){ s[x] = 1; o.push(x); } }); return o.sort(); }
+
+/* ---------- detail sheet ---------- */
+function openSheet(html){ $("#panel").innerHTML = html; $("#sheet").hidden = false; document.body.style.overflow = "hidden"; var f = $("#panel button,#panel input"); }
+function closeSheet(){ $("#sheet").hidden = true; document.body.style.overflow = ""; }
+$("#sheet").addEventListener("click", function(e){ if(e.target.id === "sheet") closeSheet(); });
+document.addEventListener("keydown", function(e){ if(e.key === "Escape") closeSheet(); });
+
+function detail(id){
+  var e = ENTRIES.find(function(x){ return x.id === id; }); if(!e) return;
+  var body = "";
+  if(e.type === "ft"){
+    var t = ftTotals(e);
+    body += '<div class="total">' + t.hits + ' / ' + t.shots + ' <span class="muted sm">(' + t.pct + '%)</span></div>' +
+      '<div>' + (e.data.stages || []).map(function(s, i){ return '<div class="stage"><span class="n">' + (i+1) + '</span><span>' + esc(s.name || "Stage " + (i+1)) + '</span><b>' + s.hits + ' / ' + s.shots + '</b></div>'; }).join("") + '</div>';
+  } else if(e.type === "group"){
+    var g = groupStats(e), d = e.data;
+    body += '<dl class="kv"><dt>Distance</dt><dd>' + esc(d.distance + " " + d.distUnit) + '</dd><dt>Shots/group</dt><dd>' + esc(d.shots || "—") + '</dd>' +
+      '<dt>Groups</dt><dd>' + (d.groups || []).map(function(x){ return esc(x) + " " + esc(d.sizeUnit === "moa" ? "MOA" : d.sizeUnit); }).join(", ") + '</dd>' +
+      (g ? '<dt>Best</dt><dd>' + r2(g.best) + ' ' + (d.sizeUnit === "moa" ? "MOA" : d.sizeUnit) + (g.bestMOA != null && d.sizeUnit !== "moa" ? ' (' + r2(g.bestMOA) + ' MOA)' : "") + '</dd><dt>Average</dt><dd>' + r2(g.avg) + ' ' + (d.sizeUnit === "moa" ? "MOA" : d.sizeUnit) + '</dd>' : "") + '</dl>';
+  } else if(e.type === "points"){
+    var p = e.data;
+    body += '<div class="total">' + esc(p.score) + (p.max ? ' / ' + esc(p.max) : "") + '</div>' + (p.x ? '<p>' + esc(p.x) + ' X</p>' : "") + (p.max ? '<p>' + pct(p.score, p.max) + '%</p>' : "");
+  } else {
+    body += '<dl class="kv">' + (e.data.rounds ? '<dt>Rounds</dt><dd>' + esc(e.data.rounds) + '</dd>' : "") + (e.data.minutes ? '<dt>Time</dt><dd>' + esc(e.data.minutes) + ' min</dd>' : "") + '</dl>';
+  }
+  var meta = '<dl class="kv">' +
+    (e.gun ? '<dt>Gun</dt><dd>' + esc(e.gun) + '</dd>' : "") + (e.ammo ? '<dt>Pellet / load</dt><dd>' + esc(e.ammo) + '</dd>' : "") +
+    (e.location ? '<dt>Where</dt><dd>' + esc(e.location) + '</dd>' : "") +
+    (e.wind ? '<dt>Wind</dt><dd>' + esc(e.wind) + '</dd>' : "") + (e.temp ? '<dt>Temp</dt><dd>' + esc(e.temp) + '</dd>' : "") + '</dl>';
+  openSheet('<h2>' + esc(e.title || TYPES[e.type].name) + '</h2><p>' + esc(fmtDate(e.date)) + ' · <span class="pill ' + e.type + '">' + esc(TYPES[e.type].short) + '</span></p>' + body + meta +
+    (e.notes ? '<h3>Notes</h3><p style="white-space:pre-wrap;color:var(--text)">' + esc(e.notes) + '</p>' : "") +
+    '<div class="actions"><button data-edit="' + esc(e.id) + '">Edit</button><button class="ghost" data-share="' + esc(e.id) + '">Share</button><button class="danger" data-del="' + esc(e.id) + '">Delete</button></div>' +
+    '<div class="actions"><button class="ghost" data-act="close">Close</button></div>');
+}
+function shareText(e){
+  return (e.title || TYPES[e.type].name) + " — " + headline(e) + "\n" + fmtDate(e.date) + (e.gun ? " · " + e.gun : "") + "\nLogged with GunMatches My Scores: " + location.origin + "/my";
+}
+
+/* ---------- the entry form ---------- */
+var DRAFT = null;      // the entry being edited
+function startEntry(type, existing){
+  DRAFT = existing ? JSON.parse(JSON.stringify(existing)) : {
+    id: uid(), type: type, date: todayISO(), title: "", gun: lastUsed("gun"), ammo: lastUsed("ammo"), notes: "", wind: "", temp: "", location: "", matchId: "",
+    created: Date.now(), data: defaultData(type)
+  };
+  viewForm(!!existing);
+}
+function lastUsed(k){ var l = ENTRIES.slice().sort(byDateDesc)[0]; return l ? l[k] || "" : ""; }
+function defaultData(type){
+  if(type === "ft") return { discipline: "Field target", stages: [stage(), stage(), stage(), stage()], defaultShots: 4 };
+  if(type === "group") return { distance: "", distUnit: "yd", shots: 5, sizeUnit: "in", groups: [""] };
+  if(type === "points") return { discipline: "", score: "", max: "", x: "" };
+  return { rounds: "", minutes: "" };
+}
+function stage(){ return { name: "", hits: 0, shots: 4 }; }
+
+function datalist(id, vals){ return '<datalist id="' + id + '">' + vals.map(function(v){ return '<option value="' + esc(v) + '">'; }).join("") + '</datalist>'; }
+
+function viewForm(editing){
+  var e = DRAFT, t = e.type, d = e.data;
+  var h = '<div class="card"><h2>' + (editing ? "Edit" : "New") + ': ' + esc(TYPES[t].name) + '</h2>' +
+    '<label for="f-title">Match or session name</label>' +
+    '<input id="f-title" value="' + esc(e.title) + '" placeholder="e.g. Saturday club match" maxlength="120" autocomplete="off">' +
+    '<div style="margin-top:8px"><button class="ghost small" type="button" data-act="pick-match">Pick a match from the calendar</button></div>' +
+    '<div class="row"><div><label for="f-date">Date</label><input id="f-date" type="date" value="' + esc(e.date) + '"></div>' +
+    '<div><label for="f-loc">Where (optional)</label><input id="f-loc" value="' + esc(e.location) + '" maxlength="100" placeholder="Club or range"></div></div></div>';
+
+  h += '<div class="card" id="typeform">' + typeForm(e) + '</div>';
+
+  h += '<div class="card"><h3>Setup</h3>' +
+    '<div class="row"><div><label for="f-gun">Gun</label><input id="f-gun" list="dl-gun" value="' + esc(e.gun) + '" maxlength="80" placeholder="e.g. FX Impact .22" autocomplete="off"></div>' +
+    '<div><label for="f-ammo">Pellet / load</label><input id="f-ammo" list="dl-ammo" value="' + esc(e.ammo) + '" maxlength="80" placeholder="e.g. JSB 18.13" autocomplete="off"></div></div>' +
+    datalist("dl-gun", uniq(ENTRIES.map(function(x){ return x.gun; }))) + datalist("dl-ammo", uniq(ENTRIES.map(function(x){ return x.ammo; }))) +
+    '<div class="row"><div><label for="f-wind">Wind</label><input id="f-wind" value="' + esc(e.wind) + '" maxlength="40" placeholder="e.g. 5–10 mph left"></div>' +
+    '<div><label for="f-temp">Temperature</label><input id="f-temp" value="' + esc(e.temp) + '" maxlength="40" placeholder="e.g. 68°F"></div></div>' +
+    '<label for="f-notes">Notes</label><textarea id="f-notes" maxlength="2000" placeholder="What worked, what didn\'t, scope clicks…">' + esc(e.notes) + '</textarea></div>' +
+    '<div class="actions"><button class="good" data-act="save">Save score</button><button class="ghost" data-act="cancel">Cancel</button></div>';
+  main.innerHTML = h;
+  window.scrollTo(0, 0);
+}
+
+function typeForm(e){
+  var d = e.data;
+  if(e.type === "ft"){
+    var t = ftTotals(e);
+    return '<h3>Stages</h3><label for="f-disc" style="margin-top:0">Discipline</label><select id="f-disc">' +
+      ["Field target","Hunter field target","Extreme field target","Silhouette","Other"].map(function(x){ return '<option' + (d.discipline === x ? " selected" : "") + '>' + x + '</option>'; }).join("") + '</select>' +
+      '<div class="total" style="margin:12px 0 2px" id="ft-total">' + t.hits + ' / ' + t.shots + ' <span class="muted sm">(' + t.pct + '%)</span></div>' +
+      '<div id="stages">' + d.stages.map(stageRow).join("") + '</div>' +
+      '<div class="actions"><button class="ghost" type="button" data-act="add-stage">Add a stage</button><button class="ghost" type="button" data-act="rm-stage">Remove last</button></div>' +
+      '<p class="sm" style="margin-top:10px">Tap − and + to count hits. Change “of” if a stage has a different number of shots.</p>';
+  }
+  if(e.type === "group"){
+    return '<h3>Groups</h3><div class="row"><div><label for="g-dist" style="margin-top:0">Distance</label><input id="g-dist" inputmode="decimal" value="' + esc(d.distance) + '" placeholder="e.g. 50"></div>' +
+      '<div><label for="g-du" style="margin-top:0">Unit</label><select id="g-du"><option value="yd"' + (d.distUnit === "yd" ? " selected" : "") + '>yards</option><option value="m"' + (d.distUnit === "m" ? " selected" : "") + '>meters</option></select></div></div>' +
+      '<div class="row"><div><label for="g-shots">Shots per group</label><input id="g-shots" inputmode="numeric" value="' + esc(d.shots) + '"></div>' +
+      '<div><label for="g-su">Measured in</label><select id="g-su"><option value="in"' + (d.sizeUnit === "in" ? " selected" : "") + '>inches</option><option value="mm"' + (d.sizeUnit === "mm" ? " selected" : "") + '>millimeters</option><option value="moa"' + (d.sizeUnit === "moa" ? " selected" : "") + '>MOA</option></select></div></div>' +
+      '<label>Group sizes</label><div id="groups">' + d.groups.map(groupRow).join("") + '</div>' +
+      '<div class="actions"><button class="ghost" type="button" data-act="add-group">Add a group</button></div>' +
+      '<div class="kpis" style="margin-top:12px" id="g-sum">' + groupSum(e) + '</div>';
+  }
+  if(e.type === "points"){
+    return '<h3>Score</h3><label for="p-disc" style="margin-top:0">Discipline or course (optional)</label><input id="p-disc" value="' + esc(d.discipline) + '" maxlength="60" placeholder="e.g. 10m air rifle, trap">' +
+      '<div class="row3"><div><label for="p-score">Score</label><input id="p-score" inputmode="decimal" value="' + esc(d.score) + '"></div>' +
+      '<div><label for="p-max">Out of</label><input id="p-max" inputmode="decimal" value="' + esc(d.max) + '"></div>' +
+      '<div><label for="p-x">X count</label><input id="p-x" inputmode="numeric" value="' + esc(d.x) + '"></div></div>';
+  }
+  return '<h3>Practice</h3><div class="row"><div><label for="r-rounds" style="margin-top:0">Rounds fired</label><input id="r-rounds" inputmode="numeric" value="' + esc(d.rounds) + '"></div>' +
+    '<div><label for="r-min" style="margin-top:0">Minutes</label><input id="r-min" inputmode="numeric" value="' + esc(d.minutes) + '"></div></div>' +
+    '<p class="sm" style="margin-top:10px">Use the notes below for what you worked on.</p>';
+}
+function stageRow(s, i){
+  return '<div class="stage" data-si="' + i + '"><span class="n">' + (i+1) + '</span>' +
+    '<div class="step"><button class="ghost" type="button" data-hit="-1" aria-label="One less hit on stage ' + (i+1) + '">−</button>' +
+    '<input inputmode="numeric" data-f="hits" value="' + s.hits + '" aria-label="Hits on stage ' + (i+1) + '">' +
+    '<button type="button" data-hit="1" aria-label="One more hit on stage ' + (i+1) + '">+</button></div>' +
+    '<span class="step"><span class="of">of</span><input inputmode="numeric" data-f="shots" value="' + s.shots + '" style="width:54px;font-size:17px" aria-label="Shots on stage ' + (i+1) + '"></span></div>';
+}
+function groupRow(v, i){
+  return '<div class="grp" data-gi="' + i + '"><span class="n muted" style="font-weight:800">' + (i+1) + '</span><input inputmode="decimal" data-g="1" value="' + esc(v) + '" placeholder="size" aria-label="Group ' + (i+1) + ' size"><button class="ghost small" type="button" data-rmgroup="' + i + '" aria-label="Remove group ' + (i+1) + '">✕</button></div>';
+}
+function groupSum(e){
+  var d = e.data, arr = d.groups.map(num).filter(function(x){ return x > 0; });
+  if(!arr.length) return '<div class="kpi"><b>—</b><span>Enter a group size</span></div>';
+  var tmp = { data: { groups: arr, sizeUnit: d.sizeUnit, distance: num(d.distance), distUnit: d.distUnit } }, g = groupStats(tmp);
+  var u = d.sizeUnit === "moa" ? "MOA" : d.sizeUnit;
+  return '<div class="kpi"><b>' + r2(g.best) + ' ' + u + '</b><span>Best group</span></div><div class="kpi"><b>' + r2(g.avg) + ' ' + u + '</b><span>Average of ' + g.n + '</span></div>' +
+    (g.bestMOA != null && d.sizeUnit !== "moa" ? '<div class="kpi"><b>' + r2(g.bestMOA) + '</b><span>Best, in MOA</span></div>' : "");
+}
+
+/* read the form back into DRAFT */
+function readForm(){
+  var e = DRAFT;
+  e.title = $("#f-title").value.trim(); e.date = $("#f-date").value || todayISO(); e.location = $("#f-loc").value.trim();
+  e.gun = $("#f-gun").value.trim(); e.ammo = $("#f-ammo").value.trim(); e.wind = $("#f-wind").value.trim(); e.temp = $("#f-temp").value.trim();
+  e.notes = $("#f-notes").value.trim();
+  var d = e.data;
+  if(e.type === "ft"){ d.discipline = $("#f-disc").value; }
+  if(e.type === "group"){
+    d.distance = $("#g-dist").value; d.distUnit = $("#g-du").value; d.shots = $("#g-shots").value; d.sizeUnit = $("#g-su").value;
+    d.groups = $$("#groups input").map(function(i){ return i.value; });
+  }
+  if(e.type === "points"){ d.discipline = $("#p-disc").value.trim(); d.score = $("#p-score").value; d.max = $("#p-max").value; d.x = $("#p-x").value; }
+  if(e.type === "practice"){ d.rounds = $("#r-rounds").value; d.minutes = $("#r-min").value; }
+}
+function syncStagesFromDOM(){
+  $$("#stages .stage").forEach(function(row){
+    var i = Number(row.dataset.si), s = DRAFT.data.stages[i];
+    s.hits = Math.max(0, parseInt($('[data-f="hits"]', row).value, 10) || 0);
+    s.shots = Math.max(1, parseInt($('[data-f="shots"]', row).value, 10) || 1);
+    if(s.hits > s.shots) s.hits = s.shots;
+  });
+  var t = ftTotals(DRAFT); $("#ft-total").innerHTML = t.hits + " / " + t.shots + ' <span class="muted sm">(' + t.pct + '%)</span>';
+}
+function validate(e){
+  var d = e.data;
+  if(e.type === "ft"){ var t = ftTotals(e); if(!t.shots) return "Add at least one stage."; }
+  if(e.type === "group"){
+    var arr = d.groups.map(num).filter(function(x){ return x > 0; });
+    if(!arr.length) return "Enter at least one group size.";
+    if(!(num(d.distance) > 0)) return "Enter the distance.";
+    d.groups = arr; d.distance = num(d.distance); d.shots = parseInt(d.shots, 10) || null;
+  }
+  if(e.type === "points"){
+    if(num(d.score) == null) return "Enter your score.";
+    d.score = num(d.score); d.max = num(d.max); d.x = parseInt(d.x, 10) || 0;
+  }
+  if(e.type === "practice"){
+    d.rounds = parseInt(d.rounds, 10) || 0; d.minutes = parseInt(d.minutes, 10) || 0;
+    if(!d.rounds && !e.notes) return "Add the rounds fired or a note.";
+  }
+  return null;
+}
+
+/* ---------- match picker (reads the public calendar) ---------- */
+function loadMatches(){
+  return fetch("/api/events", { headers: { accept: "application/json" } }).then(function(r){ if(!r.ok) throw 0; return r.json(); })
+    .then(function(j){
+      var list = (j.events || []).map(function(x){ return { id: x.id, name: x.name, start: x.start_date, place: x.city + ", " + x.state, venue: x.venue }; });
+      try{ localStorage.setItem("gm-matches", JSON.stringify(list)); }catch(e){}
+      return list;
+    }).catch(function(){ try{ return JSON.parse(localStorage.getItem("gm-matches") || "[]"); }catch(e){ return []; } });
+}
+function pickMatch(){
+  openSheet('<h2>Pick a match</h2><p>Fills in the name, date and place. You can still change them.</p><input id="mq" type="search" placeholder="Search matches…"><div id="mlist" style="margin-top:10px"><p>Loading…</p></div><div class="actions"><button class="ghost" data-act="close">Close</button></div>');
+  loadMatches().then(function(all){
+    var today = todayISO();
+    var from = new Date(); from.setDate(from.getDate() - 30);
+    var lo = from.toISOString().slice(0,10);
+    var base = all.filter(function(m){ return m.start >= lo; }).sort(function(a,b){ return a.start.localeCompare(b.start); });
+    function draw(){
+      var q = ($("#mq").value || "").trim().toLowerCase();
+      var rows = base.filter(function(m){ return !q || (m.name + " " + m.place + " " + m.venue).toLowerCase().indexOf(q) > -1; }).slice(0, 60);
+      $("#mlist").innerHTML = rows.length ? rows.map(function(m){
+        return '<button class="item" data-match="' + esc(m.id) + '"><div class="t">' + esc(m.name) + '</div><div class="sub">' + esc(fmtDate(m.start)) + ' · ' + esc(m.place) + '</div></button>';
+      }).join("") : '<p>' + (all.length ? "No matches found." : "Couldn't load the calendar. You can type the name instead.") + '</p>';
+      $$("#mlist [data-match]").forEach(function(b){ b.addEventListener("click", function(){
+        var m = all.find(function(x){ return x.id === b.dataset.match; });
+        readForm(); DRAFT.title = m.name; DRAFT.date = m.start <= today ? m.start : today; DRAFT.location = m.venue || m.place; DRAFT.matchId = m.id;
+        closeSheet(); viewForm(ENTRIES.some(function(x){ return x.id === DRAFT.id; }));
+      }); });
+    }
+    $("#mq").addEventListener("input", draw); draw();
+  });
+}
+
+/* ---------- Stats ---------- */
+function spark(values, fmt){
+  if(values.length < 2) return "";
+  var w = 300, h = 70, pad = 6, min = Math.min.apply(null, values), max = Math.max.apply(null, values);
+  if(max === min){ max += 1; min -= 1; }
+  var pts = values.map(function(v, i){ return [pad + i * (w - 2*pad) / (values.length - 1), h - pad - (v - min) / (max - min) * (h - 2*pad)]; });
+  return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="Trend over your last ' + values.length + ' entries"><polyline fill="none" stroke="#1f3b5c" stroke-width="2.5" stroke-linejoin="round" points="' +
+    pts.map(function(p){ return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" ") + '"/>' +
+    pts.map(function(p, i){ return '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="' + (i === pts.length-1 ? 4 : 2.5) + '" fill="' + (i === pts.length-1 ? "#b71d1c" : "#1f3b5c") + '"/>'; }).join("") + '</svg>';
+}
+var STATGUN = "";
+function viewStats(){
+  if(!ENTRIES.length){ main.innerHTML = '<div class="empty">Log a few scores and your trends will show up here.</div>'; return; }
+  var guns = uniq(ENTRIES.map(function(e){ return e.gun; }));
+  var set = ENTRIES.filter(function(e){ return !STATGUN || e.gun === STATGUN; }).sort(function(a,b){ return a.date.localeCompare(b.date) || a.created - b.created; });
+  var now = new Date(), ym = now.getFullYear() + "-" + String(now.getMonth()+1).padStart(2,"0");
+  var thisMonth = set.filter(function(e){ return e.date.slice(0,7) === ym; }).length;
+  var rounds = 0;
+  set.forEach(function(e){
+    if(e.type === "ft") rounds += ftTotals(e).shots;
+    else if(e.type === "practice") rounds += e.data.rounds || 0;
+    else if(e.type === "group") rounds += (e.data.shots || 0) * (e.data.groups || []).length;
+  });
+  var h = (guns.length > 1 ? '<div class="card"><label for="sg" style="margin-top:0">Gun</label><select id="sg"><option value="">All guns</option>' + guns.map(function(g){ return '<option' + (STATGUN === g ? " selected" : "") + '>' + esc(g) + '</option>'; }).join("") + '</select></div>' : "");
+  h += '<div class="card"><h2>Overview</h2><div class="kpis"><div class="kpi"><b>' + set.length + '</b><span>Entries logged</span></div><div class="kpi"><b>' + thisMonth + '</b><span>This month</span></div>' +
+    '<div class="kpi"><b>' + rounds.toLocaleString() + '</b><span>Shots recorded</span></div><div class="kpi"><b>' + uniq(set.map(function(e){ return e.date; })).length + '</b><span>Days shot</span></div></div></div>';
+
+  var ft = set.filter(function(e){ return e.type === "ft"; });
+  if(ft.length){
+    var ps = ft.map(function(e){ return ftTotals(e).pct; }), recent = ps.slice(-20);
+    var avg = ps.reduce(function(a,b){ return a+b; }, 0) / ps.length;
+    h += '<div class="card"><h2>Field target / silhouette</h2><div class="kpis"><div class="kpi"><b>' + r2(avg) + '%</b><span>Average hit rate</span></div><div class="kpi"><b>' + Math.max.apply(null, ps) + '%</b><span>Best session</span></div></div>' +
+      '<p class="sm">Hit rate, last ' + recent.length + ' sessions</p>' + (recent.length > 1 ? spark(recent) : '<p class="sm">Log one more to see a trend.</p>') + '</div>';
+  }
+  var grp = set.filter(function(e){ return e.type === "group" && groupStats(e) && groupStats(e).bestMOA != null; });
+  if(grp.length){
+    var byDist = {};
+    grp.forEach(function(e){ var k = e.data.distance + " " + e.data.distUnit; var g = groupStats(e); (byDist[k] = byDist[k] || []).push(g.bestMOA); });
+    h += '<div class="card"><h2>Groups</h2>' + Object.keys(byDist).sort(function(a,b){ return parseFloat(a) - parseFloat(b); }).map(function(k){
+      var v = byDist[k]; return '<div class="stage" style="grid-template-columns:1fr auto auto"><b>' + esc(k) + '</b><span class="muted sm">best</span><b>' + r2(Math.min.apply(null, v)) + ' MOA</b></div>' +
+        '<div class="sm muted" style="padding:2px 0 8px">' + v.length + ' session' + (v.length === 1 ? "" : "s") + ', average ' + r2(v.reduce(function(a,b){ return a+b; }, 0) / v.length) + ' MOA</div>';
+    }).join("") + '</div>';
+  }
+  var pts = set.filter(function(e){ return e.type === "points" && e.data.max > 0; });
+  if(pts.length){
+    var pp = pts.map(function(e){ return pct(e.data.score, e.data.max); });
+    h += '<div class="card"><h2>Points</h2><div class="kpis"><div class="kpi"><b>' + r2(pp.reduce(function(a,b){ return a+b; }, 0) / pp.length) + '%</b><span>Average</span></div><div class="kpi"><b>' + Math.max.apply(null, pp) + '%</b><span>Best</span></div></div>' + (pp.length > 1 ? spark(pp.slice(-20)) : "") + '</div>';
+  }
+  main.innerHTML = h;
+  var sg = $("#sg"); if(sg) sg.addEventListener("change", function(){ STATGUN = sg.value; viewStats(); });
+}
+
+/* ---------- Backup ---------- */
+function download(name, text, type){
+  var blob = new Blob([text], { type: type }), a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
+}
+function backupFile(){
+  var payload = JSON.stringify({ app: "gunmatches-my-scores", version: 1, exported: new Date().toISOString(), entries: ENTRIES }, null, 1);
+  download("my-scores-backup-" + todayISO() + ".json", payload, "application/json");
+  META.lastBackup = Date.now(); META.changesSince = 0; saveMeta();
+}
+function csvEsc(v){ v = v == null ? "" : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+function exportCSV(){
+  var head = ["Date","Type","Title","Result","Hits","Shots","Hit %","Best group","Avg group","Group unit","Distance","Score","Out of","X","Rounds","Minutes","Gun","Pellet/load","Wind","Temp","Where","Notes"];
+  var rows = ENTRIES.slice().sort(byDateDesc).map(function(e){
+    var d = e.data, ft = e.type === "ft" ? ftTotals(e) : null, g = e.type === "group" ? groupStats(e) : null;
+    return [e.date, TYPES[e.type].name, e.title, headline(e), ft ? ft.hits : "", ft ? ft.shots : "", ft ? ft.pct : "",
+      g ? r2(g.best) : "", g ? r2(g.avg) : "", g ? (d.sizeUnit === "moa" ? "MOA" : d.sizeUnit) : "", g ? d.distance + " " + d.distUnit : "",
+      e.type === "points" ? d.score : "", e.type === "points" ? d.max : "", e.type === "points" ? d.x : "",
+      e.type === "practice" ? d.rounds : "", e.type === "practice" ? d.minutes : "", e.gun, e.ammo, e.wind, e.temp, e.location, e.notes].map(csvEsc).join(",");
+  });
+  download("my-scores-" + todayISO() + ".csv", "﻿" + [head.join(",")].concat(rows).join("\r\n"), "text/csv");
+}
+function validEntry(x){
+  return x && typeof x.id === "string" && TYPES[x.type] && typeof x.date === "string" && x.data && typeof x.data === "object";
+}
+function restore(file){
+  var rd = new FileReader();
+  rd.onload = function(){
+    try{
+      var j = JSON.parse(rd.result), list = Array.isArray(j) ? j : j.entries;
+      if(!Array.isArray(list)) throw 0;
+      var added = 0, updated = 0, skipped = 0;
+      list.forEach(function(x){
+        if(!validEntry(x)){ skipped++; return; }
+        var cur = ENTRIES.find(function(y){ return y.id === x.id; });
+        if(!cur){ added++; saveEntry(x); }
+        else if((x.updated || x.created || 0) > (cur.updated || cur.created || 0)){ updated++; saveEntry(x); }
+      });
+      META.changesSince = 0; saveMeta();
+      toast("Restored: " + added + " added, " + updated + " updated" + (skipped ? ", " + skipped + " skipped" : "") + ".");
+      viewBackup();
+    }catch(e){ toast("That doesn't look like a My Scores backup file."); }
+  };
+  rd.readAsText(file);
+}
+function viewBackup(){
+  var last = META.lastBackup ? new Date(META.lastBackup).toLocaleDateString() : "never";
+  main.innerHTML = '<div class="card"><h2>Your data</h2><p><b>' + ENTRIES.length + '</b> entr' + (ENTRIES.length === 1 ? "y" : "ies") + ' saved on this device. Last backup: <b>' + esc(last) + '</b>' +
+    (META.changesSince ? ' · ' + META.changesSince + ' change' + (META.changesSince === 1 ? "" : "s") + ' since' : "") + '.</p>' +
+    '<p>Your scores are stored only on this phone or tablet. GunMatches never sees them. That keeps them private and keeps this free, but it means <b>a backup file is your safety net</b>.</p>' +
+    '<div class="stack"><button data-act="backup-now">Save a backup file</button><button class="ghost" data-act="csv">Export for a spreadsheet (CSV)</button>' +
+    '<button class="ghost" data-act="restore">Restore from a backup file</button><input type="file" id="rfile" accept=".json,application/json" hidden></div></div>' +
+    '<div class="card"><h3>Moving to a new phone</h3><ol class="steps"><li>On the old phone, tap <b>Save a backup file</b> and send it to yourself (email, Drive, iCloud).</li><li>On the new phone, open gunmatches.com/my.</li><li>Tap <b>Restore from a backup file</b> and choose it.</li></ol></div>' +
+    '<div class="card"><h3>Keeping it safe</h3><p id="persist" class="sm">' + esc(storageNote) + '</p>' +
+    '<p class="sm">Add this page to your home screen so your phone treats it as an app and keeps its data longer. Clearing your browser history or “website data” will erase your scores unless you have a backup.</p>' +
+    (usingLS ? '<p class="sm" style="color:var(--amber)">This browser is using limited storage. Back up often.</p>' : "") + '</div>' +
+    '<div class="card"><h3>Looking for a match?</h3><p><a href="/">Browse the match calendar</a> · <a href="/rankings">National rankings</a></p></div>';
+  if(navigator.storage && navigator.storage.persisted){
+    navigator.storage.persisted().then(function(p){ var el = $("#persist"); if(el) el.textContent = p ? "Your browser has marked this data as protected from automatic clean-up." : "Your browser may clear this data if the device runs low on space. A backup protects you."; });
+  }
+}
+
+/* ====================================================================
+   EVENTS
+   ==================================================================== */
+document.addEventListener("click", function(ev){
+  var t = ev.target.closest("button, [data-go]"); if(!t) return;
+  if(t.dataset.go){ closeSheet(); go(t.dataset.go); return; }
+  if(t.dataset.new){ startEntry(t.dataset.new); return; }
+  if(t.dataset.open){ detail(t.dataset.open); return; }
+  if(t.dataset.edit){ var e = ENTRIES.find(function(x){ return x.id === t.dataset.edit; }); closeSheet(); if(e) startEntry(e.type, e); return; }
+  if(t.dataset.share){
+    var s = ENTRIES.find(function(x){ return x.id === t.dataset.share; }); if(!s) return;
+    var text = shareText(s);
+    if(navigator.share) navigator.share({ title: "My score", text: text }).catch(function(){});
+    else if(navigator.clipboard) navigator.clipboard.writeText(text).then(function(){ toast("Copied to your clipboard."); });
+    return;
+  }
+  if(t.dataset.del){
+    if(!confirm("Delete this entry? This can't be undone unless you have a backup.")) return;
+    removeEntry(t.dataset.del).then(function(){ closeSheet(); toast("Deleted."); go(VIEW === "log" ? "log" : "history"); });
+    return;
+  }
+  if(t.dataset.ftype !== undefined){ FILTER.type = t.dataset.ftype; viewHistory(); return; }
+  if(t.dataset.hit){
+    var row = t.closest(".stage"), inp = $('[data-f="hits"]', row), sh = $('[data-f="shots"]', row);
+    var v = (parseInt(inp.value, 10) || 0) + Number(t.dataset.hit), cap = parseInt(sh.value, 10) || 1;
+    inp.value = Math.max(0, Math.min(cap, v)); syncStagesFromDOM(); return;
+  }
+  if(t.dataset.rmgroup !== undefined){ readForm(); DRAFT.data.groups.splice(Number(t.dataset.rmgroup), 1); if(!DRAFT.data.groups.length) DRAFT.data.groups = [""]; $("#typeform").innerHTML = typeForm(DRAFT); return; }
+  if(t.dataset.match) return;
+  switch(t.dataset.act){
+    case "close": closeSheet(); break;
+    case "cancel": go("log"); break;
+    case "pick-match": pickMatch(); break;
+    case "add-stage": syncStagesFromDOM(); var last = DRAFT.data.stages[DRAFT.data.stages.length - 1]; DRAFT.data.stages.push({ name: "", hits: 0, shots: last ? last.shots : 4 }); $("#typeform").innerHTML = typeForm(DRAFT); break;
+    case "rm-stage": syncStagesFromDOM(); if(DRAFT.data.stages.length > 1) DRAFT.data.stages.pop(); $("#typeform").innerHTML = typeForm(DRAFT); break;
+    case "add-group": readForm(); DRAFT.data.groups.push(""); $("#typeform").innerHTML = typeForm(DRAFT); var gi = $$("#groups input"); if(gi.length) gi[gi.length - 1].focus(); break;
+    case "save":
+      if(DRAFT.type === "ft") syncStagesFromDOM();
+      readForm();
+      var err = validate(DRAFT);
+      if(err){ toast(err); break; }
+      DRAFT.updated = Date.now();
+      var editing = ENTRIES.some(function(x){ return x.id === DRAFT.id; });
+      t.disabled = true;
+      saveEntry(DRAFT).then(function(){ toast(editing ? "Changes saved." : "Score saved."); FILTER = { type: "", q: "", gun: "" }; go("history");
+        if(!META.lastBackup && ENTRIES.length === 3) setTimeout(function(){ toast("Tip: save a backup file from the Backup tab."); }, 2800);
+        if(navigator.storage && navigator.storage.persist) navigator.storage.persist();
+      });
+      break;
+    case "backup-now": backupFile(); toast("Backup saved to your downloads."); if(VIEW === "backup") viewBackup(); else if(VIEW === "log") viewLog(); break;
+    case "csv": exportCSV(); break;
+    case "restore": $("#rfile").click(); break;
+    case "install": if(deferredInstall){ deferredInstall.prompt(); deferredInstall = null; } break;
+  }
+});
+document.addEventListener("change", function(ev){
+  if(ev.target.id === "rfile" && ev.target.files[0]) restore(ev.target.files[0]);
+  if(ev.target.id === "g-su" || ev.target.id === "g-du"){ readForm(); $("#g-sum").innerHTML = groupSum(DRAFT); }
+});
+document.addEventListener("input", function(ev){
+  var t = ev.target;
+  if(t.closest && t.closest("#stages")) syncStagesFromDOM();
+  if(t.matches && (t.matches("#groups input") || t.id === "g-dist")){ readForm(); $("#g-sum").innerHTML = groupSum(DRAFT); }
+});
+
+/* ====================================================================
+   START
+   ==================================================================== */
+loadAll().then(function(){
+  var hash = location.hash.replace("#", "");
+  go(["log","history","stats","backup"].indexOf(hash) > -1 ? hash : "log");
+  if(navigator.storage && navigator.storage.persist && ENTRIES.length) navigator.storage.persist();
+});
+if("serviceWorker" in navigator){
+  window.addEventListener("load", function(){ navigator.serviceWorker.register("/sw.js").catch(function(){}); });
+}
+})();
+</script>
+</body>
+</html>

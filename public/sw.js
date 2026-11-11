@@ -15,12 +15,24 @@
  * worth the convenience.
  */
 
-const CACHE = "agm-score-v1";
+const CACHE = "agm-score-v2";
 const PAGE = "/score.html";
+
+/* The free personal scorebook (/my) is the second thing this worker keeps
+   available offline, for the same reason: it gets used at a range with no
+   signal. Same rule: network first, cache only as the fallback, and everything
+   else on the site is left alone. */
+const MY_PAGES = ["/my.html", "/my", "/my-manifest.json"];
+const MY_ICONS = ["/img/my-192.png", "/img/my-512.png", "/img/icon-180.png"];
 
 self.addEventListener("install", event => {
   event.waitUntil(
-    caches.open(CACHE).then(c => c.add(PAGE)).then(() => self.skipWaiting())
+    caches.open(CACHE)
+      .then(c => Promise.all([
+        c.add(PAGE),
+        ...["/my.html", "/my-manifest.json", ...MY_ICONS].map(u => c.add(u).catch(() => {}))
+      ]))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -40,10 +52,13 @@ self.addEventListener("fetch", event => {
   try { url = new URL(req.url); } catch { return; }
   if (url.origin !== self.location.origin) return;
 
-  // Everything except the scoring page is none of this worker's business.
-  const wanted = url.pathname === PAGE ||
-    (req.mode === "navigate" && url.pathname === PAGE);
-  if (!wanted) return;
+  // Everything except the scoring page and the personal scorebook is none of
+  // this worker's business.
+  const key = url.pathname === PAGE ? PAGE
+    : (MY_PAGES.includes(url.pathname) || MY_ICONS.includes(url.pathname)) ? url.pathname : null;
+  if (!key) return;
+  // /my and /my.html are the same document
+  const cacheKey = key === "/my" ? "/my.html" : key;
 
   /* Network first, so a scorer who has signal always gets the current page and
      a fix deployed mid-match reaches them. The cache is the fallback, not the
@@ -53,10 +68,10 @@ self.addEventListener("fetch", event => {
       .then(res => {
         if (res && res.ok) {
           const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(PAGE, copy)).catch(() => {});
+          caches.open(CACHE).then(c => c.put(cacheKey, copy)).catch(() => {});
         }
         return res;
       })
-      .catch(() => caches.match(PAGE).then(hit => hit || Response.error()))
+      .catch(() => caches.match(cacheKey).then(hit => hit || Response.error()))
   );
 });
