@@ -2179,6 +2179,14 @@ function movedPermanently(url, request, env) {
   const host = url.hostname.toLowerCase();
   if (host === target || host.endsWith(".workers.dev")) return null;
 
+  /* The personal scorebook stays where the person opened it. Its scores are
+     kept in the browser under that exact address, so sending someone from
+     airgunmatches.com/my to another address would show them an empty scorebook
+     and break an app they have already added to their home screen. */
+  const onAirgun = host === "airgunmatches.com" || host === "www.airgunmatches.com";
+  if (onAirgun && (url.pathname === "/my" || url.pathname === "/my.html" || url.pathname === "/my-manifest.json" ||
+                   url.pathname === "/sw.js" || url.pathname.startsWith("/img/"))) return null;
+
   const to = new URL(url.toString());
   to.protocol = "https:";
   to.hostname = target;

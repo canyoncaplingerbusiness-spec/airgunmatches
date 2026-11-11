@@ -17,7 +17,7 @@
         --green:#14603c;--red:#b71d1c;--amber:#b86e00;--radius:14px;--tab:62px}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0}
-  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.45;
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:17px;background:var(--bg);color:var(--text);line-height:1.45;
        padding-bottom:calc(var(--tab) + env(safe-area-inset-bottom) + 16px)}
   header{background:var(--navy);color:#fff;padding:calc(12px + env(safe-area-inset-top)) 16px 12px;display:flex;align-items:center;gap:10px;
          position:sticky;top:0;z-index:20}
@@ -90,6 +90,38 @@
   .kv dt{color:var(--muted);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.4px;padding-top:2px}.kv dd{margin:0}
   svg.spark{width:100%;height:70px;display:block}
   ol.steps{padding-left:20px;margin:6px 0;color:var(--muted)}
+  /* Tap-to-score: built to be hit with a thumb, outdoors, without glasses */
+  .bigstart{width:100%;text-align:left;display:flex;flex-direction:column;gap:4px;padding:20px;background:#14603c;border-color:#14603c;min-height:110px;border-radius:16px}
+  .bigstart b{font-size:26px}.bigstart span{font-size:16px;font-weight:500;opacity:.95}
+  .hitmiss{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
+  .hit,.miss{min-height:170px;font-size:36px;font-weight:800;border-radius:22px;border:0;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;letter-spacing:.5px;touch-action:manipulation}
+  .hit{background:#1b8a3b;box-shadow:0 6px 0 #0f5f27}.miss{background:#c62828;box-shadow:0 6px 0 #8f1a1a}
+  .hit:active,.miss:active{transform:translateY(4px);box-shadow:0 2px 0 rgba(0,0,0,.35)}
+  .hit i,.miss i{font-style:normal;font-size:56px;line-height:1}
+  .whoshoots{font-size:30px;font-weight:800;color:var(--navy);line-height:1.15;margin:0}
+  .shotof{font-size:18px;color:var(--muted);margin:2px 0 10px;font-weight:600}
+  .dots{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 4px}
+  .dot{width:24px;height:24px;border-radius:50%;background:#dde3ea;display:inline-block}
+  .dot.h{background:#1b8a3b}.dot.m{background:#c62828}.dot.cur{outline:3px solid var(--navy);outline-offset:1px}
+  .note{background:#e8f6ec;border:1px solid #b9dfc9;color:#14603c;border-radius:12px;padding:12px 14px;margin-bottom:10px;font-size:18px;font-weight:700}
+  .board .row2{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:12px 4px;border-bottom:1px solid var(--line);font-size:19px;width:100%;
+               background:none;border-left:0;border-right:0;border-top:0;border-radius:0;color:var(--text);font-weight:600;min-height:56px;text-align:left}
+  .board .row2:last-child{border-bottom:0}
+  .board .row2.now{background:#eef5ff;border-radius:10px}
+  .board .row2 b{font-size:22px;color:var(--navy);white-space:nowrap}
+  .srow{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;margin-bottom:10px}
+  .srow input{font-size:19px;min-height:54px}
+  .star{min-height:54px;padding:0 14px;background:#fff;color:var(--navy-2);border-color:var(--line);font-size:16px}
+  .star[aria-pressed=true]{background:#fff4c9;border-color:#e0b800;color:#6b5400}
+  .bigstep{display:flex;align-items:center;gap:10px}
+  .bigstep button{width:64px;min-height:64px;font-size:30px;padding:0}
+  .bigstep b{font-size:34px;min-width:64px;text-align:center}
+  .winner{font-size:26px;font-weight:800;color:var(--green);margin:0 0 8px}
+  .place{display:grid;grid-template-columns:54px 1fr auto;gap:10px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line);font-size:20px}
+  .place:last-child{border-bottom:0}.place .pn{font-weight:800;color:var(--muted)}.place b{font-size:22px}
+  .chk{display:flex;gap:12px;align-items:center;font-size:18px;font-weight:600;margin:14px 0 4px;text-transform:none;letter-spacing:0;color:var(--text)}
+  .chk input{width:28px;height:28px;min-height:0;flex:none}
+  .pill.match{background:#e3f6e8;color:var(--green)}
   [hidden]{display:none!important}
   @media (min-width:700px){ .types{grid-template-columns:repeat(4,1fr)} }
   @media (prefers-reduced-motion:no-preference){ .sheet .panel{animation:up .18s ease-out} @keyframes up{from{transform:translateY(24px);opacity:.4}} }
@@ -203,7 +235,8 @@ function num(v){ var n = parseFloat(String(v).replace(",", ".")); return isFinit
 function pct(a, b){ return b > 0 ? Math.round(a / b * 1000) / 10 : 0; }
 function toast(msg){ var t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(function(){ t.hidden = true; }, 2600); }
 var TYPES = {
-  ft:       { name: "Field target / silhouette", short: "Hits", blurb: "Hits per stage" },
+  match:    { name: "Friendly match", short: "Match", blurb: "Tap HIT or MISS" },
+  ft:       { name: "Enter totals by stage", short: "Hits", blurb: "Field target or silhouette, after the fact" },
   group:    { name: "Benchrest groups", short: "Groups", blurb: "Group size and distance" },
   points:   { name: "Points / total", short: "Points", blurb: "Score and X count" },
   practice: { name: "Practice session", short: "Practice", blurb: "Rounds, notes, setup" }
@@ -230,7 +263,30 @@ function groupStats(e){
            bestMOA: groupToMOA(best, d.sizeUnit, d.distance, d.distUnit),
            avgMOA: groupToMOA(avg, d.sizeUnit, d.distance, d.distUnit) };
 }
+/* ---- friendly matches: shooters, each with a string of hit (1) / miss (0) ---- */
+function mHits(sh){ return (sh.results || []).reduce(function(a,b){ return a + b; }, 0); }
+function matchStandings(e){
+  var list = (e.data.shooters || []).map(function(sh, i){ return { i: i, name: sh.name, hits: mHits(sh), shots: (sh.results || []).length }; });
+  list.sort(function(a,b){ return b.hits - a.hits || a.i - b.i; });
+  list.forEach(function(r){ r.place = 1 + list.filter(function(o){ return o.hits > r.hits; }).length; r.tie = list.filter(function(o){ return o.hits === r.hits; }).length > 1; });
+  return list;
+}
+function ordinal(n){ var s = ["th","st","nd","rd"], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+function myTotals(e){
+  var d = e.data; if(e.type !== "match" || d.me == null || !d.shooters || !d.shooters[d.me]) return null;
+  var sh = d.shooters[d.me], shots = (sh.results || []).length; return shots ? { hits: mHits(sh), shots: shots, pct: pct(mHits(sh), shots) } : null;
+}
+function hitPct(e){ return e.type === "ft" ? ftTotals(e).pct : myTotals(e).pct; }
+function hasHitRate(e){ return e.type === "ft" || !!myTotals(e); }
+
 function headline(e){
+  if(e.type === "match"){
+    var st = matchStandings(e); if(!st.length) return "Match";
+    var d = e.data, me = d.me != null ? st.find(function(r){ return r.i === d.me; }) : null;
+    if(me && st.length > 1) return "You: " + me.hits + "/" + me.shots + " · " + (me.tie ? "T-" : "") + ordinal(me.place) + " of " + st.length;
+    if(me) return me.hits + " / " + me.shots + " · " + pct(me.hits, me.shots) + "%";
+    return (st[0].tie ? "Tie: " : "Winner: ") + st[0].name + " " + st[0].hits + "/" + st[0].shots;
+  }
   if(e.type === "ft"){ var t = ftTotals(e); return t.hits + " / " + t.shots + " · " + t.pct + "%"; }
   if(e.type === "group"){
     var g = groupStats(e); if(!g) return "No groups";
@@ -245,6 +301,7 @@ function headline(e){
 function r2(n){ return Math.round(n * 100) / 100; }
 function subline(e){
   var parts = [];
+  if(e.type === "match") parts.push((e.data.shooters || []).length + " shooter" + ((e.data.shooters || []).length === 1 ? "" : "s"));
   if(e.type === "ft" && e.data.discipline) parts.push(e.data.discipline);
   if(e.type === "group") parts.push(e.data.distance + " " + e.data.distUnit + (e.data.shots ? " · " + e.data.shots + " shots" : ""));
   if(e.type === "points" && e.data.discipline) parts.push(e.data.discipline);
@@ -273,9 +330,18 @@ function backupBanner(){
   return '<div class="banner"><b>Back up your scores.</b> They live on this phone only. If it is lost or the browser is cleared, so are they. Saving a backup file takes a few seconds.<br><button class="small" data-act="backup-now">Save a backup now</button></div>';
 }
 function viewLog(){
-  main.innerHTML = backupBanner() +
-    '<div class="card"><h2>Log a score</h2><p>What are you recording?</p><div class="types">' +
-    Object.keys(TYPES).map(function(k){ return '<button data-new="' + k + '"><b>' + esc(TYPES[k].name) + '</b><span>' + esc(TYPES[k].blurb) + '</span></button>'; }).join("") +
+  loadLive();
+  var resume = "";
+  if(LIVE){
+    var names = LIVE.shooters.map(function(x){ return x.name; }).join(", ");
+    resume = '<div class="card"><h2>Match in progress</h2><p>' + esc(LIVE.title || "Friendly match") + ' · ' + esc(names) + '</p>' +
+      '<div class="stack"><button class="good bigbtn" data-m="resume" style="min-height:64px;font-size:20px">Continue scoring</button>' +
+      '<button class="danger" data-m="discard">Throw this match away</button></div></div>';
+  }
+  main.innerHTML = backupBanner() + resume +
+    '<div class="card"><button class="bigstart" data-m="setup"><b>Start scoring</b><span>Tap a big green HIT or red MISS after each shot. Works for one shooter or a whole backyard match.</span></button></div>' +
+    '<div class="card"><h3>Or log something else</h3><div class="types">' +
+    ["ft","group","points","practice"].map(function(k){ return '<button data-new="' + k + '"><b>' + esc(TYPES[k].name) + '</b><span>' + esc(TYPES[k].blurb) + '</span></button>'; }).join("") +
     '</div></div>' + recentCard() + installCard();
 }
 function recentCard(){
@@ -291,6 +357,120 @@ function installCard(){
   if(deferredInstall) return '<div class="card"><h3>Add to your home screen</h3><p>Open it like an app, even with no signal.</p><button data-act="install">Install My Scores</button></div>';
   if(ios) return '<div class="card"><h3>Add to your home screen</h3><p>Tap the Share button in Safari, then “Add to Home Screen.” It then opens like an app and keeps your scores safer.</p></div>';
   return "";
+}
+
+/* ====================================================================
+   TAP-TO-SCORE: big HIT / MISS buttons, one or many shooters
+   The match in progress is saved after every tap, so a phone that locks,
+   dies or is closed by accident picks up exactly where it was.
+   ==================================================================== */
+var LIVE = null, SETUP = null;
+function loadLive(){ try{ LIVE = JSON.parse(localStorage.getItem("gm-live-match") || "null"); }catch(e){ LIVE = null; } }
+function saveLive(){ try{ if(LIVE) localStorage.setItem("gm-live-match", JSON.stringify(LIVE)); else localStorage.removeItem("gm-live-match"); }catch(e){} }
+
+function viewSetup(){
+  if(!SETUP) SETUP = { title: "", names: [""], me: 0, shots: 10, rotate: false };
+  var S = SETUP;
+  main.innerHTML = '<div class="card"><h2>Who is shooting?</h2><p>Add each person. Tap the ★ next to your own name to have your score counted in your stats.</p>' +
+    S.names.map(function(n, i){
+      return '<div class="srow"><input class="nm" value="' + esc(n) + '" placeholder="Name ' + (i+1) + '" maxlength="30" aria-label="Shooter ' + (i+1) + ' name" autocomplete="off">' +
+        '<button class="star" type="button" data-m="me" data-i="' + i + '" aria-pressed="' + (S.me === i) + '" aria-label="This is me">★ Me</button>' +
+        (S.names.length > 1 ? '<button class="ghost small" type="button" data-m="rm" data-i="' + i + '" aria-label="Remove shooter ' + (i+1) + '" style="min-height:54px">✕</button>' : '<span></span>') + '</div>';
+    }).join("") +
+    '<button class="ghost" type="button" data-m="add" style="width:100%;min-height:56px">＋ Add another shooter</button></div>' +
+    '<div class="card"><h3>How many shots each?</h3><div class="bigstep"><button class="ghost" data-m="shots" data-d="-1" aria-label="One fewer shot">−</button><b id="sh-n">' + S.shots + '</b><button data-m="shots" data-d="1" aria-label="One more shot">+</button></div>' +
+    '<label class="chk"><input type="checkbox" id="rot"' + (S.rotate ? " checked" : "") + '> Take turns after every shot</label>' +
+    '<p class="sm" style="margin-top:4px">Leave this off if each person shoots all their shots in a row.</p>' +
+    '<label for="mtitle">Match name (optional)</label><input id="mtitle" value="' + esc(S.title) + '" maxlength="60" placeholder="e.g. Saturday backyard shoot-out"></div>' +
+    '<div class="actions"><button class="good" data-m="start" style="min-height:68px;font-size:22px">Start scoring</button><button class="ghost" data-m="home" style="min-height:68px">Back</button></div>';
+  window.scrollTo(0, 0);
+}
+function readSetup(){
+  if(!SETUP) return;
+  var nm = $$(".nm"); if(nm.length) SETUP.names = nm.map(function(i){ return i.value; });
+  var r = $("#rot"); if(r) SETUP.rotate = r.checked;
+  var t = $("#mtitle"); if(t) SETUP.title = t.value.trim();
+}
+function startMatch(){
+  readSetup();
+  var S = SETUP, names = S.names.map(function(n, i){ return (n || "").trim() || "Shooter " + (i + 1); });
+  LIVE = { id: uid(), title: S.title, date: todayISO(), shots: S.shots, rotate: S.rotate, me: Math.min(S.me, names.length - 1),
+           shooters: names.map(function(n){ return { name: n, results: [] }; }), cur: 0, log: [], done: false, note: "" };
+  SETUP = null; saveLive(); viewPlay();
+}
+function remaining(i){ return LIVE.shots - LIVE.shooters[i].results.length; }
+function viewPlay(){
+  var m = LIVE; if(!m){ go("log"); return; }
+  if(m.done){ viewResults(); return; }
+  var s = m.shooters[m.cur], n = s.results.length, hits = mHits(s);
+  var dots = ""; for(var i = 0; i < m.shots; i++){
+    var r = s.results[i], cls = r === 1 ? "h" : r === 0 ? "m" : "";
+    dots += '<span class="dot ' + cls + (i === n ? " cur" : "") + '" role="img" aria-label="Shot ' + (i+1) + ': ' + (r === 1 ? "hit" : r === 0 ? "miss" : "not yet") + '"></span>';
+  }
+  main.innerHTML = (m.note ? '<div class="note">' + esc(m.note) + '</div>' : "") +
+    '<div class="card"><p class="whoshoots">' + esc(s.name) + '</p><p class="shotof">Shot ' + (n + 1) + ' of ' + m.shots + ' · ' + hits + ' hit' + (hits === 1 ? "" : "s") + ' so far</p>' +
+    '<div class="dots" aria-label="This shooter\'s shots">' + dots + '</div>' +
+    '<div class="hitmiss"><button class="hit" data-m="shot" data-v="1" aria-label="Hit"><i aria-hidden="true">✓</i>HIT</button>' +
+    '<button class="miss" data-m="shot" data-v="0" aria-label="Miss"><i aria-hidden="true">✕</i>MISS</button></div>' +
+    '<button class="ghost" data-m="undo" style="width:100%;min-height:60px;font-size:19px"' + (m.log.length ? "" : " disabled") + '>↶ Undo last shot</button></div>' +
+    (m.shooters.length > 1 ? '<div class="card board"><h3>Scoreboard</h3>' + m.shooters.map(function(sh, i){
+      return '<button class="row2' + (i === m.cur ? " now" : "") + '" data-m="pick" data-i="' + i + '"' + (remaining(i) <= 0 && i !== m.cur ? " disabled" : "") + '><span>' + (i === m.cur ? "▶ " : "") + esc(sh.name) + '</span><b>' + mHits(sh) + ' / ' + sh.results.length + '</b></button>';
+    }).join("") + '</div>' : "") +
+    '<div class="actions"><button class="ghost" data-m="finish">Finish early</button><button class="danger" data-m="discard">Throw this match away</button></div>';
+  m.note = ""; saveLive();
+  window.scrollTo(0, 0);
+}
+function shoot(hit){
+  var m = LIVE; if(!m || m.done) return;
+  var from = m.cur, sh = m.shooters[from];
+  if(sh.results.length >= m.shots) return;
+  sh.results.push(hit ? 1 : 0); m.log.push(from);
+  if(navigator.vibrate) try{ navigator.vibrate(hit ? 40 : [30, 50, 30]); }catch(e){}
+  // who is next?
+  if(m.rotate || remaining(from) <= 0){
+    var k = m.shooters.length, next = -1;
+    for(var j = 1; j <= k; j++){ var idx = (from + j) % k; if(remaining(idx) > 0){ next = idx; break; } }
+    if(next < 0){ m.done = true; }
+    else {
+      if(next !== from && !m.rotate) m.note = sh.name + " finished with " + mHits(sh) + " of " + m.shots + ". Next up: " + m.shooters[next].name + ".";
+      m.cur = next;
+    }
+  }
+  saveLive(); viewPlay();
+}
+function undoShot(){
+  var m = LIVE; if(!m || !m.log.length) return;
+  var idx = m.log.pop(); m.shooters[idx].results.pop(); m.cur = idx; m.done = false; m.note = "Last shot removed.";
+  saveLive(); viewPlay();
+}
+function viewResults(){
+  var m = LIVE, e = { type: "match", data: { shooters: m.shooters, me: m.me } }, st = matchStandings(e);
+  var top = st[0], tops = st.filter(function(r){ return r.place === 1; });
+  var win = tops.length > 1 ? "It's a tie: " + tops.map(function(r){ return r.name; }).join(" and ") : top.name + " wins!";
+  main.innerHTML = '<div class="card"><h2>Match finished</h2><p class="winner">' + esc(win) + '</p>' +
+    st.map(function(r){
+      return '<div class="place"><span class="pn">' + (r.tie ? "T-" : "") + ordinal(r.place) + '</span><span>' + esc(r.name) + (r.i === m.me ? ' ★' : "") + '</span><b>' + r.hits + ' / ' + r.shots + '</b></div>';
+    }).join("") + '</div>' +
+    '<div class="card"><label for="rtitle" style="margin-top:0">Match name</label><input id="rtitle" value="' + esc(m.title) + '" maxlength="60" placeholder="Friendly match"></div>' +
+    '<div class="stack"><button class="good" data-m="save" style="min-height:68px;font-size:21px">Save to My Scores</button>' +
+    '<button class="ghost" data-m="share-live">Share the results</button>' +
+    '<button class="ghost" data-m="undo">↶ Fix the last shot</button>' +
+    '<button class="danger" data-m="discard">Throw this match away</button></div>';
+  window.scrollTo(0, 0);
+}
+function liveShareText(m){
+  var st = matchStandings({ type: "match", data: { shooters: m.shooters, me: m.me } });
+  return (m.title || "Friendly match") + "\n" + st.map(function(r){ return (r.tie ? "T-" : "") + ordinal(r.place) + "  " + r.name + "  " + r.hits + "/" + r.shots; }).join("\n") + "\nScored with GunMatches My Scores: " + location.origin + "/my";
+}
+function saveMatch(){
+  var m = LIVE, t = $("#rtitle");
+  var entry = { id: m.id, type: "match", date: m.date, title: (t ? t.value.trim() : m.title) || "Friendly match", gun: "", ammo: "", notes: "", wind: "", temp: "", location: "", matchId: "",
+                created: Date.now(), updated: Date.now(), data: { shots: m.shots, me: m.me, shooters: m.shooters } };
+  return saveEntry(entry).then(function(){
+    LIVE = null; saveLive(); toast("Saved to My Scores."); FILTER = { type: "", q: "", gun: "" };
+    if(navigator.storage && navigator.storage.persist) navigator.storage.persist();
+    go("history");
+  });
 }
 
 /* ---------- entries list ---------- */
@@ -337,7 +517,13 @@ document.addEventListener("keydown", function(e){ if(e.key === "Escape") closeSh
 function detail(id){
   var e = ENTRIES.find(function(x){ return x.id === id; }); if(!e) return;
   var body = "";
-  if(e.type === "ft"){
+  if(e.type === "match"){
+    body += '<div>' + matchStandings(e).map(function(r){
+      var sh = e.data.shooters[r.i];
+      return '<div class="place"><span class="pn">' + (r.tie ? "T-" : "") + ordinal(r.place) + '</span><span>' + esc(r.name) + (r.i === e.data.me ? ' ★' : "") +
+        '<br><span class="dots" style="display:inline-flex">' + (sh.results || []).map(function(v){ return '<span class="dot ' + (v ? "h" : "m") + '" style="width:14px;height:14px"></span>'; }).join("") + '</span></span><b>' + r.hits + ' / ' + r.shots + '</b></div>';
+    }).join("") + '</div>';
+  } else if(e.type === "ft"){
     var t = ftTotals(e);
     body += '<div class="total">' + t.hits + ' / ' + t.shots + ' <span class="muted sm">(' + t.pct + '%)</span></div>' +
       '<div>' + (e.data.stages || []).map(function(s, i){ return '<div class="stage"><span class="n">' + (i+1) + '</span><span>' + esc(s.name || "Stage " + (i+1)) + '</span><b>' + s.hits + ' / ' + s.shots + '</b></div>'; }).join("") + '</div>';
@@ -358,7 +544,7 @@ function detail(id){
     (e.wind ? '<dt>Wind</dt><dd>' + esc(e.wind) + '</dd>' : "") + (e.temp ? '<dt>Temp</dt><dd>' + esc(e.temp) + '</dd>' : "") + '</dl>';
   openSheet('<h2>' + esc(e.title || TYPES[e.type].name) + '</h2><p>' + esc(fmtDate(e.date)) + ' · <span class="pill ' + e.type + '">' + esc(TYPES[e.type].short) + '</span></p>' + body + meta +
     (e.notes ? '<h3>Notes</h3><p style="white-space:pre-wrap;color:var(--text)">' + esc(e.notes) + '</p>' : "") +
-    '<div class="actions"><button data-edit="' + esc(e.id) + '">Edit</button><button class="ghost" data-share="' + esc(e.id) + '">Share</button><button class="danger" data-del="' + esc(e.id) + '">Delete</button></div>' +
+    '<div class="actions">' + (e.type === "match" ? "" : '<button data-edit="' + esc(e.id) + '">Edit</button>') + '<button class="ghost" data-share="' + esc(e.id) + '">Share</button><button class="danger" data-del="' + esc(e.id) + '">Delete</button></div>' +
     '<div class="actions"><button class="ghost" data-act="close">Close</button></div>');
 }
 function shareText(e){
@@ -553,6 +739,7 @@ function viewStats(){
   var rounds = 0;
   set.forEach(function(e){
     if(e.type === "ft") rounds += ftTotals(e).shots;
+    else if(e.type === "match"){ var mt = myTotals(e); if(mt) rounds += mt.shots; }
     else if(e.type === "practice") rounds += e.data.rounds || 0;
     else if(e.type === "group") rounds += (e.data.shots || 0) * (e.data.groups || []).length;
   });
@@ -560,11 +747,11 @@ function viewStats(){
   h += '<div class="card"><h2>Overview</h2><div class="kpis"><div class="kpi"><b>' + set.length + '</b><span>Entries logged</span></div><div class="kpi"><b>' + thisMonth + '</b><span>This month</span></div>' +
     '<div class="kpi"><b>' + rounds.toLocaleString() + '</b><span>Shots recorded</span></div><div class="kpi"><b>' + uniq(set.map(function(e){ return e.date; })).length + '</b><span>Days shot</span></div></div></div>';
 
-  var ft = set.filter(function(e){ return e.type === "ft"; });
+  var ft = set.filter(hasHitRate);
   if(ft.length){
-    var ps = ft.map(function(e){ return ftTotals(e).pct; }), recent = ps.slice(-20);
+    var ps = ft.map(hitPct), recent = ps.slice(-20);
     var avg = ps.reduce(function(a,b){ return a+b; }, 0) / ps.length;
-    h += '<div class="card"><h2>Field target / silhouette</h2><div class="kpis"><div class="kpi"><b>' + r2(avg) + '%</b><span>Average hit rate</span></div><div class="kpi"><b>' + Math.max.apply(null, ps) + '%</b><span>Best session</span></div></div>' +
+    h += '<div class="card"><h2>Hit rate</h2><div class="kpis"><div class="kpi"><b>' + r2(avg) + '%</b><span>Average hit rate</span></div><div class="kpi"><b>' + Math.max.apply(null, ps) + '%</b><span>Best session</span></div></div>' +
       '<p class="sm">Hit rate, last ' + recent.length + ' sessions</p>' + (recent.length > 1 ? spark(recent) : '<p class="sm">Log one more to see a trend.</p>') + '</div>';
   }
   var grp = set.filter(function(e){ return e.type === "group" && groupStats(e) && groupStats(e).bestMOA != null; });
@@ -677,6 +864,31 @@ document.addEventListener("click", function(ev){
   }
   if(t.dataset.rmgroup !== undefined){ readForm(); DRAFT.data.groups.splice(Number(t.dataset.rmgroup), 1); if(!DRAFT.data.groups.length) DRAFT.data.groups = [""]; $("#typeform").innerHTML = typeForm(DRAFT); return; }
   if(t.dataset.match) return;
+  if(t.dataset.m){
+    var mm = t.dataset.m, ix = Number(t.dataset.i);
+    switch(mm){
+      case "setup": SETUP = null; viewSetup(); break;
+      case "home": SETUP = null; go("log"); break;
+      case "add": readSetup(); if(SETUP.names.length < 12){ SETUP.names.push(""); viewSetup(); var all = $$(".nm"); all[all.length - 1].focus(); } else toast("That's the most we can fit: 12 shooters."); break;
+      case "rm": readSetup(); SETUP.names.splice(ix, 1); if(SETUP.me >= SETUP.names.length) SETUP.me = 0; else if(SETUP.me > ix) SETUP.me--; viewSetup(); break;
+      case "me": readSetup(); SETUP.me = ix; viewSetup(); break;
+      case "shots": readSetup(); SETUP.shots = Math.max(1, Math.min(100, SETUP.shots + Number(t.dataset.d))); $("#sh-n").textContent = SETUP.shots; break;
+      case "start": startMatch(); break;
+      case "resume": loadLive(); viewPlay(); break;
+      case "shot": shoot(t.dataset.v === "1"); break;
+      case "undo": undoShot(); break;
+      case "pick": if(LIVE && remaining(ix) > 0){ LIVE.cur = ix; saveLive(); viewPlay(); } break;
+      case "finish": if(confirm("Finish now? Shots not taken yet won't count.")){ LIVE.done = true; saveLive(); viewResults(); } break;
+      case "discard": if(confirm("Throw this match away? The scores will be lost.")){ LIVE = null; saveLive(); SETUP = null; go("log"); } break;
+      case "share-live":
+        var txt = liveShareText(LIVE);
+        if(navigator.share) navigator.share({ title: "Match results", text: txt }).catch(function(){});
+        else if(navigator.clipboard) navigator.clipboard.writeText(txt).then(function(){ toast("Copied to your clipboard."); });
+        break;
+      case "save": t.disabled = true; saveMatch(); break;
+    }
+    return;
+  }
   switch(t.dataset.act){
     case "close": closeSheet(); break;
     case "cancel": go("log"); break;
