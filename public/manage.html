@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Manage your listing · GunMatches.com</title>
+<style>
+  :root{--navy:#12263f;--navy-2:#1f3b5c;--steel:#4a6785;--bg:#f3f5f8;--card:#fff;--line:#dde3ea;--text:#1b2530;--muted:#5b6876;
+        --green:#14603c;--red:#b71d1c;--amber:#b86e00}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+  header{background:var(--navy);color:#fff;padding:18px 20px}
+  header a{color:#fff;text-decoration:none;font-weight:800;font-size:18px;letter-spacing:-.2px}
+  main{max-width:680px;margin:0 auto;padding:22px 16px 60px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(18,38,63,.06)}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:17px;margin:0 0 6px}
+  p{margin:0 0 12px;color:var(--muted)}
+  label{display:block;font-size:12px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin:14px 0 5px}
+  input,textarea,select{width:100%;font:inherit;font-size:16px;padding:10px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--text)}
+  input:focus,textarea:focus,select:focus,button:focus-visible{outline:3px solid #8fb4e0;outline-offset:1px}
+  textarea{min-height:90px;resize:vertical}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:520px){.row{grid-template-columns:1fr}}
+  button{font:inherit;font-weight:700;font-size:16px;padding:12px 18px;border-radius:10px;border:1px solid var(--navy-2);background:var(--navy-2);color:#fff;cursor:pointer}
+  button.big{width:100%;background:var(--green);border-color:var(--green);padding:15px;font-size:18px}
+  button.ghost{background:#fff;color:var(--navy-2)}
+  button:disabled{opacity:.6;cursor:default}
+  .msg{padding:12px 14px;border-radius:10px;margin:12px 0;font-weight:600}
+  .msg.ok{background:#eaf6ef;color:var(--green);border:1px solid #b9dfc9}
+  .msg.bad{background:#fdecea;color:#8f2419;border:1px solid #f1c0ba}
+  .meta{font-size:14px;color:var(--muted)}
+  .flag{display:inline-block;font-size:12px;font-weight:800;letter-spacing:.5px;padding:3px 9px;border-radius:999px;margin-left:6px;vertical-align:middle}
+  .flag.cancelled{background:#fdecea;color:#8f2419}
+  .flag.postponed{background:#fff4e0;color:#8a5200}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header><a href="/">GunMatches.com</a></header>
+<main>
+  <div id="loading" class="card">Loading your listing…</div>
+  <div id="bad" class="card msg bad" hidden></div>
+
+  <div id="app" hidden>
+    <div class="card">
+      <h1 id="title"></h1>
+      <p class="meta" id="sub" aria-live="polite"></p>
+      <h2>Is this match still happening?</h2>
+      <p>One tap tells shooters the listing is current.</p>
+      <button class="big" id="confirm" type="button">Yes, it's still on as listed</button>
+      <div id="confirmmsg" class="msg ok" role="status" hidden></div>
+    </div>
+
+    <form class="card" id="form" novalidate>
+      <h2>Change something</h2>
+      <p>Changes go live on the calendar right away.</p>
+
+      <div class="row">
+        <div><label for="start">Start date</label><input id="start" type="date" required></div>
+        <div><label for="end">End date (if more than one day)</label><input id="end" type="date"></div>
+      </div>
+      <label for="venue">Venue / club</label><input id="venue" maxlength="160" required>
+      <div class="row">
+        <div><label for="city">City</label><input id="city" maxlength="100" required></div>
+        <div><label for="state">State (2 letters)</label><input id="state" maxlength="2" style="text-transform:uppercase" required></div>
+      </div>
+      <label for="url">Registration or info link</label><input id="url" type="url" placeholder="https://">
+      <label for="note">Details</label><textarea id="note" maxlength="1000"></textarea>
+
+      <label for="ls">Status</label>
+      <select id="ls">
+        <option value="">On as scheduled</option>
+        <option value="postponed">Postponed</option>
+        <option value="cancelled">Cancelled</option>
+      </select>
+      <label for="lsnote">Note for shooters (optional)</label>
+      <input id="lsnote" maxlength="200" placeholder="e.g. Rained out. New date to follow.">
+
+      <div id="formmsg" class="msg" role="status" hidden></div>
+      <div class="actions"><button type="submit" id="save">Save changes</button></div>
+    </form>
+  </div>
+</main>
+
+<script>
+(function(){
+  var qs = new URLSearchParams(location.search);
+  var E = qs.get("e") || "", K = qs.get("k") || "";
+  var $ = function(id){ return document.getElementById(id); };
+  var MO = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+  function show(el, text, kind){ el.hidden = false; el.textContent = text; if(kind) el.className = "msg " + kind; }
+  function fmt(iso){ if(!iso) return ""; var p = iso.slice(0,10).split("-"); return MO[+p[1]-1] + " " + (+p[2]) + ", " + p[0]; }
+  function when(ev){ return ev.end_date && ev.end_date !== ev.start_date ? fmt(ev.start_date) + " – " + fmt(ev.end_date) : fmt(ev.start_date); }
+
+  function fill(ev){
+    $("title").innerHTML = "";
+    $("title").appendChild(document.createTextNode(ev.name));
+    if(ev.listing_status){
+      var f = document.createElement("span");
+      f.className = "flag " + ev.listing_status; f.textContent = ev.listing_status.toUpperCase();
+      $("title").appendChild(f);
+    }
+    $("sub").textContent = when(ev) + " · " + ev.city + ", " + ev.state +
+      (ev.confirmed_at ? " · last confirmed " + fmt(ev.confirmed_at) : "");
+    $("start").value = ev.start_date || ""; $("end").value = ev.end_date || "";
+    $("venue").value = ev.venue || ""; $("city").value = ev.city || ""; $("state").value = ev.state || "";
+    $("url").value = ev.url || ""; $("note").value = ev.note || "";
+    $("ls").value = ev.listing_status || ""; $("lsnote").value = ev.status_note || "";
+  }
+
+  async function call(method, body){
+    var res = await fetch("/api/manage" + (method === "GET" ? "?e=" + encodeURIComponent(E) + "&k=" + encodeURIComponent(K) : ""), {
+      method: method,
+      headers: method === "POST" ? { "content-type": "application/json" } : undefined,
+      body: method === "POST" ? JSON.stringify(Object.assign({ e: E, k: K }, body)) : undefined
+    });
+    var out = await res.json().catch(function(){ return {}; });
+    if(!res.ok) throw new Error(out.error || "Something went wrong. Please try again.");
+    return out;
+  }
+
+  call("GET").then(function(out){
+    $("loading").hidden = true; $("app").hidden = false; fill(out.event);
+  }).catch(function(err){
+    $("loading").hidden = true; show($("bad"), err.message);
+  });
+
+  $("confirm").addEventListener("click", async function(){
+    var b = this; b.disabled = true;
+    try{
+      var out = await call("POST", { action: "confirm" });
+      fill(out.event); show($("confirmmsg"), "Thank you. Your listing is marked as confirmed today.", "ok");
+    }catch(err){ show($("confirmmsg"), err.message, "bad"); }
+    b.disabled = false;
+  });
+
+  $("form").addEventListener("submit", async function(e){
+    e.preventDefault();
+    var b = $("save"); b.disabled = true; b.textContent = "Saving…";
+    try{
+      var out = await call("POST", { action: "update", fields: {
+        start_date: $("start").value, end_date: $("end").value, venue: $("venue").value,
+        city: $("city").value, state: $("state").value, url: $("url").value, note: $("note").value,
+        listing_status: $("ls").value, status_note: $("lsnote").value
+      }});
+      fill(out.event); show($("formmsg"), "Saved. The calendar now shows your changes.", "ok");
+    }catch(err){ show($("formmsg"), err.message, "bad"); }
+    b.disabled = false; b.textContent = "Save changes";
+  });
+})();
+</script>
+</body>
+</html>

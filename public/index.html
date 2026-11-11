@@ -265,6 +265,8 @@
   @media (max-width:760px){
     .fgrid{grid-template-columns:1fr 1fr}
     .fgrid .field.searchfield,.fgrid .field.btnfield{grid-column:1/-1}
+    .fgrid .field:nth-child(4){grid-column:1/-1}
+    body{overflow-x:clip}
     .event{grid-template-columns:64px 1fr}
     .eactions{grid-column:1/-1;flex-direction:row}
     .eactions .minibtn{flex:1}
@@ -285,7 +287,7 @@
      ===================================================================== */
   .filters{margin-bottom:12px;position:relative;z-index:35}
   .field .msopt{display:flex;text-transform:none;letter-spacing:0;font-size:14.5px;font-weight:400;color:var(--text);margin:0}
-  .field .msopt.zero{color:#a3acb7}
+  .field .msopt.zero{color:#6b7684}
   .field .msopt .n{font-size:12.5px;color:var(--muted)}
   .fgrid{grid-template-columns:1.4fr 1fr 1fr 1.2fr auto}
   .quick{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;margin-top:13px;padding-top:13px;border-top:1px solid var(--line)}
@@ -331,7 +333,7 @@
   .msopt:hover{background:var(--bg)}
   .msopt input{width:16px;height:16px;accent-color:var(--navy-2);flex:none;margin:0}
   .msopt .n{margin-left:auto;color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums}
-  .msopt.zero{color:#a3acb7}
+  .msopt.zero{color:#6b7684}
   .msopt[hidden]{display:none}
   .msfoot{display:flex;justify-content:space-between;padding:8px 10px;border-top:1px solid var(--line);background:#fafbfc}
   .msfoot button{font:inherit;font-size:13.5px;font-weight:700;background:none;border:0;color:var(--navy-2);cursor:pointer;padding:4px 6px}
@@ -371,12 +373,29 @@
   #livestrip .lscard .lsgo{font-weight:700;opacity:1;margin-top:2px}
   #livestrip .lsmore{align-self:center;font-size:13px;font-weight:700}
   @media (prefers-reduced-motion:reduce){ #livestrip .dot{animation:none} }
+  /* keyboard users can always see where they are */
+  .qbtn:focus-visible,.msbtn:focus-visible,.seg button:focus-visible,.clearbtn:focus-visible,.fchip button:focus-visible,
+  .gcell:focus-visible,.minibtn:focus-visible,.event:focus-visible,.srow:focus-visible,.subpop a:focus-visible,
+  .subpop button:focus-visible,.gridnav button:focus-visible,#livestrip a:focus-visible{outline:3px solid #2f6db5;outline-offset:2px}
+  .event.compact .eactions .minibtn{min-height:36px}
+  @media (pointer:coarse){
+    .qbtn,.seg button,.clearbtn,.msbtn,.barctl select,.quick select,.quick input#zip{min-height:44px}
+    .msopt{padding:11px 8px}
+    .fchip button{width:26px;height:26px}
+  }
 
   /* status pills and badges */
   .tag.st{letter-spacing:.3px}
   .tag.st.up{background:#fff;border-color:#c8d6e6;color:var(--navy-2)}
   .tag.st.today{background:#fff4e0;border-color:#f0d49a;color:#8a5200}
-  .tag.st.past{background:#f0f2f5;border-color:#e1e6ec;color:#7b8794}
+  .tag.st.cancelled{background:#fdecea;border-color:#f1c0ba;color:#8f2419}
+  .tag.st.postponed{background:#fff4e0;border-color:#f0d49a;color:#8a5200}
+  .event.cancelled h3{text-decoration:line-through;color:var(--muted)}
+  .event.cancelled .date{opacity:.6}
+  .statusnote{margin:2px 0 6px;font-size:14px;font-weight:600;color:#8f2419}
+  .gp.cancelled{background:var(--red,#b71d1c)}
+  .gp.postponed{background:#b86e00}
+  .tag.st.past{background:#f0f2f5;border-color:#e1e6ec;color:#56626f}
   .tag.mi{background:#eaf6ef;border-color:#b9dfc9;color:#14603c}
   .tag.stale{background:#fff4e0;border-color:#f0d49a;color:#8a5200;font-weight:600}
   .tag.series{background:#eef2ff;border-color:#c9d2f5;color:#2f3f8f}
@@ -425,7 +444,7 @@
   .gcell{background:#fff;min-height:96px;padding:6px;cursor:pointer;display:flex;flex-direction:column;gap:3px;text-align:left;
     border:0;font:inherit;color:inherit;position:relative}
   .gcell:hover{background:#f7f9fb}
-  .gcell.other{background:#fafbfc;color:#a3acb7}
+  .gcell.other{background:#fafbfc;color:#6b7684}
   .gcell.today .gd{background:var(--amber);color:#fff}
   .gcell.sel{outline:2px solid var(--navy-2);outline-offset:-2px;background:#f3f6fa}
   .gd{font-size:12.5px;font-weight:700;width:24px;height:24px;border-radius:50%;display:grid;place-items:center}
@@ -436,12 +455,20 @@
   .gp.past{background:#9aa5b1}
   .gp.today{background:#b86e00}
   .gmore{font-size:11.5px;font-weight:700;color:var(--steel);padding-left:3px}
+  .morebtn{display:none;width:100%;margin-top:10px;font:inherit;font-weight:700;font-size:14.5px;padding:10px;border-radius:8px;
+    border:1px solid var(--line);background:#fff;color:var(--navy-2);cursor:pointer;min-height:44px}
+  @media (max-width:760px){
+    .morebtn{display:block}
+    .filters:not(.open) #filters-more{display:none}
+  }
   .gpwrap{display:flex;flex-direction:column;gap:3px;min-width:0}
   .daypanel{margin-top:16px}
   .daypanel h3{margin:0 0 10px;font-size:15px}
   @media (max-width:760px){
     .fgrid{grid-template-columns:1fr 1fr}
     .fgrid .field.searchfield,.fgrid .field.btnfield{grid-column:1/-1}
+    .fgrid .field:nth-child(4){grid-column:1/-1}
+    body{overflow-x:clip}
     .subpop{right:auto;left:0}
     .gcell{min-height:56px;padding:4px}
     .gp{font-size:0;height:6px;width:6px;padding:0;border-radius:50%;display:inline-block;margin-right:2px}
@@ -516,6 +543,8 @@
       </div>
     </div>
 
+    <button type="button" class="morebtn" id="morefilters" aria-expanded="false" aria-controls="filters-more">Dates, distance &amp; more ▾</button>
+    <div id="filters-more">
     <div class="quick">
       <div class="qgroup" role="group" aria-label="When">
         <span class="qlabel">When</span>
@@ -555,11 +584,12 @@
       </div>
       <button class="clearbtn" id="clear" type="button">Reset filters</button>
     </div>
+    </div>
   </div>
 
   <div class="stickybar" id="bar">
     <div class="barrow">
-      <div class="count" id="count"></div>
+      <div class="count" id="count" aria-live="polite"></div>
       <div class="barctl">
         <select id="monthjump" aria-label="Jump to a month"></select>
         <div class="seg" role="group" aria-label="Card size">
@@ -950,7 +980,9 @@ async function loadEvents(){
     lat: r.lat == null ? null : Number(r.lat),
     lng: r.lng == null ? null : Number(r.lng),
     confirmed: r.confirmed_at || "",
-    resultsAt: r.results_updated_at || ""
+    resultsAt: r.results_updated_at || "",
+    listingStatus: r.listing_status || "",
+    statusNote: r.status_note || ""
   }));
 }
 
@@ -1125,11 +1157,11 @@ function buildMS(key){
   const root = document.querySelector(`.ms[data-ms="${key}"]`);
   const cfg = MS[key];
   root.innerHTML = `
-    <button type="button" class="msbtn" aria-haspopup="listbox" aria-expanded="false">
+    <button type="button" class="msbtn" aria-haspopup="true" aria-expanded="false" aria-labelledby="lbl-${key}">
       <span class="mstxt">${esc(cfg.all)}</span><span class="mscaret">▾</span></button>
-    <div class="mspanel" hidden>
+    <div class="mspanel" hidden role="group" aria-labelledby="lbl-${key}">
       ${cfg.search ? `<input type="search" class="mssearch" placeholder="Search…" aria-label="Search the list">` : ""}
-      <div class="mslist" role="listbox" aria-multiselectable="true">${cfg.options().map(o =>
+      <div class="mslist">${cfg.options().map(o =>
         `<label class="msopt" data-v="${esc(o.v)}" data-t="${esc(o.t.toLowerCase())}"><input type="checkbox" value="${esc(o.v)}"> <span>${esc(o.t)}</span><span class="n"></span></label>`
       ).join("")}</div>
       <div class="msfoot"><button type="button" data-msclear>Clear</button><button type="button" data-msdone>Done</button></div>
@@ -1327,7 +1359,7 @@ function downloadICS(i){
     "DTSTAMP:" + icsDate(todayLocal()) + "T000000Z",
     "DTSTART;VALUE=DATE:" + icsDate(s),
     "DTEND;VALUE=DATE:" + icsDate(dayAfter),
-    "SUMMARY:" + fold(ev.name),
+    "SUMMARY:" + fold((ev.listingStatus === "cancelled" ? "CANCELLED: " : ev.listingStatus === "postponed" ? "POSTPONED: " : "") + ev.name),
     "LOCATION:" + fold([ev.venue, ev.city, ev.state].filter(Boolean).join(", ")),
     "DESCRIPTION:" + fold([[(ev.gunTypes || []).join(", "), (ev.disciplines || []).join(", ")].filter(Boolean).join(" — "), ev.org, ev.note, ev.url]
                           .filter(Boolean).join(" — ")),
@@ -1366,6 +1398,7 @@ function seriesCell(ev){
 
 /* ---------- Status, badges, distance ---------- */
 function statusOf(ev){
+  if(ev.listingStatus === "cancelled" || ev.listingStatus === "postponed") return ev.listingStatus;
   if(ev.live) return "live";
   const t = todayLocal(), st = parseDate(ev.start), en = parseDate(ev.end) || st;
   if(ev.results) return "results";
@@ -1379,6 +1412,8 @@ function fmtMD(iso){
 }
 function statusTag(ev){
   const k = statusOf(ev);
+  if(k === "cancelled") return `<span class="tag st cancelled keep">Cancelled</span>`;
+  if(k === "postponed") return `<span class="tag st postponed keep">Postponed</span>`;
   if(k === "live") return `<a class="tag live keep" href="${esc(ev.path)}"><span class="dot"></span>LIVE NOW</a>`;
   if(k === "results"){
     const when = fmtMD(ev.resultsAt);
@@ -1437,7 +1472,7 @@ function cardHTML(ev, i){
   const s = parseDate(ev.start), e = parseDate(ev.end);
   const multi = e && e.getTime() !== s.getTime();
   const open = OPEN.has(ev.id), hasResults = !!ev.results;
-  return `<article class="event${isPast(ev) ? " past" : ""}${open ? " open" : ""}${F.density === "compact" ? " compact" : ""}"
+  return `<article class="event${isPast(ev) ? " past" : ""}${ev.listingStatus === "cancelled" ? " cancelled" : ""}${open ? " open" : ""}${F.density === "compact" ? " compact" : ""}"
                     data-open="${esc(ev.id)}" tabindex="0" role="button" aria-expanded="${open}">
     <div class="date">
       <span class="mo">${MO_ABBR[s.getMonth()]}</span>
@@ -1448,6 +1483,7 @@ function cardHTML(ev, i){
     <div class="ebody">
       <h3>${esc(ev.name)}<span class="chev">▾</span></h3>
       <p class="meta">${esc(fmtRange(ev))}<span class="sep">|</span>${esc(ev.venue)} — ${esc(ev.city)}, ${esc(ev.state)}</p>
+      ${ev.statusNote && ev.listingStatus ? `<p class="statusnote">${esc(ev.statusNote)}</p>` : ""}
       <div class="tags">
         ${statusTag(ev)}
         ${distTag(ev)}
@@ -1573,7 +1609,7 @@ function gridHTML(rows){
   for(let n = 0; n < 42; n++){
     const d = addDays(start, n), iso = isoOf(d), list = byDay[iso] || [];
     const cls = ["gcell", d.getMonth() !== m ? "other" : "", d.getTime() === t.getTime() ? "today" : "", F.gridDay === iso ? "sel" : ""].join(" ");
-    cells += `<button type="button" class="${cls}" data-day="${iso}" aria-label="${esc(fmtShort(iso))}, ${list.length} match${list.length === 1 ? "" : "es"}">
+    cells += `<button type="button" class="${cls}" data-day="${iso}" aria-pressed="${F.gridDay === iso}" aria-label="${esc(fmtShort(iso))}, ${list.length} match${list.length === 1 ? "" : "es"}">
       <span class="gd">${d.getDate()}</span>
       <span class="gpwrap">${list.slice(0, 2).map(r => `<span class="gp ${statusOf(r.ev)}">${esc(r.ev.name)}</span>`).join("")}</span>
       ${list.length > 2 ? `<span class="gmore">+${list.length - 2} more</span>` : ""}</button>`;
@@ -1609,7 +1645,7 @@ function render(){
   document.getElementById("count").innerHTML =
     `Showing <b>${rows.length}</b> of ${total} event${total === 1 ? "" : "s"}`;
   const t = todayLocal();
-  const up = EVENTS.filter(e => !isPast(e) && parseDate(e.start));
+  const up = EVENTS.filter(e => !isPast(e) && parseDate(e.start) && e.listingStatus !== "cancelled");
   const stN = new Set(up.map(e => e.state)).size;
   document.getElementById("coverage").textContent =
     up.length ? `${up.length} upcoming across ${stN} state${stN === 1 ? "" : "s"}` : "";
@@ -1658,7 +1694,7 @@ function render(){
     if(F.sort !== "near"){
       const d = parseDate(b.first.start), k = monthKey(d);
       if(k !== lastKey){
-        html += `<div class="monthhead" id="m-${k}">${MONTHS[d.getMonth()]} ${d.getFullYear()}</div>`;
+        html += `<div class="monthhead" id="m-${k}" role="heading" aria-level="2">${MONTHS[d.getMonth()]} ${d.getFullYear()}</div>`;
         keys.push(k); lastKey = k;
       }
     }
@@ -2031,6 +2067,13 @@ async function init(){
     $("nearclear").addEventListener("click", clearNear);
     $("radius").addEventListener("change", e => { F.radius = Number(e.target.value); if(F.near) applyNear(F.near); else render(); });
     $("clear").addEventListener("click", resetFilters);
+    $("morefilters").addEventListener("click", e => {
+      const box = $("filters"), open = !box.classList.contains("open");
+      box.classList.toggle("open", open);
+      e.currentTarget.setAttribute("aria-expanded", String(open));
+      e.currentTarget.textContent = open ? "Fewer filters ▴" : "Dates, distance & more ▾";
+      afterRender();
+    });
     $("copylink").addEventListener("click", e => copyText(location.href, e.currentTarget, "Link copied"));
     $("subbtn").addEventListener("click", openSubscribe);
     $("sub-copy").addEventListener("click", e => copyText(feedHttps(), e.currentTarget, "Copied"));

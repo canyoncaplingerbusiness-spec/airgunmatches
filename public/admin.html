@@ -256,6 +256,7 @@
     <div class="tabs" id="tabs">
       <button class="tab on" data-tab="pending">Pending<span class="n" id="n-pending">0</span></button>
       <button class="tab" data-tab="approved">Approved<span class="n" id="n-approved">0</span></button>
+      <button class="tab" data-tab="stale" title="Approved, upcoming listings nobody has confirmed in 60 days">Needs confirming<span class="n" id="n-stale">0</span></button>
       <button class="tab" data-tab="denied">Denied<span class="n" id="n-denied">0</span></button>
       <button class="tab" data-tab="all">All<span class="n" id="n-all">0</span></button>
       <button class="tab" data-tab="merge">Duplicate shooters<span class="n" id="n-merge">·</span></button>
@@ -450,6 +451,26 @@ function fmtRange(r){
     return `${MONTHS[s.getMonth()]} ${s.getDate()}–${e.getDate()}, ${s.getFullYear()}`;
   return `${fmtDate(r.start_date)} – ${fmtDate(r.end_date)}`;
 }
+/* An email to the organizer with their private link, ready to send from your own
+   mail program. Nothing is sent from the site, so it is always your name on it. */
+function orgMailto(r){
+  const body =
+`Hi ${r.submitter_name || "there"},
+
+Thanks for listing "${r.name}" on GunMatches.com.
+
+Is it still happening on ${fmtRange(r)}? One click confirms it, and the same page lets you change the date, venue or registration link, or mark the match cancelled or postponed:
+
+${r.manage_url}
+
+This link is private to your listing. Please don't share it.
+
+Thanks,
+GunMatches.com`;
+  return "mailto:" + encodeURIComponent(r.submitter_email || "") +
+    "?subject=" + encodeURIComponent("Is " + r.name + " still on?") + "&body=" + encodeURIComponent(body);
+}
+
 function ago(ts){
   const then = new Date(ts), mins = Math.floor((Date.now() - then) / 60000);
   if(mins < 1) return "just now";
@@ -639,12 +660,16 @@ function seriesCodes(sibs){
 function render(){
   const counts = { pending:0, approved:0, denied:0, all:ROWS.length };
   ROWS.forEach(r => counts[r.status]++);
+  const today = new Date().toISOString().slice(0,10);
+  const isStale = r => r.status === "approved" && (r.end_date || r.start_date) >= today && !r.is_test
+    && r.confirmed_at && (Date.now() - new Date(r.confirmed_at)) / 86400000 >= 60;
+  document.getElementById("n-stale").textContent = ROWS.filter(isStale).length;
   ["pending","approved","denied","all"].forEach(k => {
     document.getElementById("n-" + k).textContent = counts[k];
   });
 
   const q = document.getElementById("search").value.trim().toLowerCase();
-  let list = ROWS.filter(r => TAB === "all" || r.status === TAB);
+  let list = ROWS.filter(r => TAB === "all" || (TAB === "stale" ? isStale(r) : r.status === TAB));
   if(q){
     list = list.filter(r =>
       [r.name,r.venue,r.city,r.state,STATES[r.state],(r.gun_types||[]).join(" "),(r.disciplines||[]).join(" "),
@@ -671,6 +696,7 @@ function render(){
     box.innerHTML = `<div class="empty"><strong>${
       q ? "Nothing matches that search."
         : TAB === "pending" ? "Nothing waiting for review."
+        : TAB === "stale" ? "Every upcoming listing has been confirmed recently."
         : "Nothing here yet."
     }</strong>${
       TAB === "pending" && !q ? "New submissions will appear here automatically." : ""
@@ -708,7 +734,8 @@ function render(){
             r.reviewed_at && !isPending ? " · reviewed " + esc(ago(r.reviewed_at)) : ""
           }</div>
         </div>
-        <span class="pill ${esc(r.status)}">${esc(r.status)}</span>${r.is_test
+        <span class="pill ${esc(r.status)}">${esc(r.status)}</span>${r.listing_status
+          ? ` <span class="pill" style="background:#fdecea;color:#8f2419;margin-left:6px">${esc(r.listing_status.toUpperCase())}</span>` : ""}${r.is_test
           ? ` <span class="pill" style="background:#fff4e0;color:#b86e00;margin-left:6px">TEST EVENT</span>` : ""}
       </div>
 
@@ -754,6 +781,16 @@ function render(){
         }">${esc(r.submitter_email)}</a>
       </div>
 
+      ${r.status === "approved" && r.manage_url ? `<div class="codebar">
+        <div>
+          <span class="k">Organizer link</span>
+          <span style="font-size:13px">${r.confirmed_at
+            ? "Last confirmed " + esc(ago(r.confirmed_at)) : "Never confirmed"}</span>
+        </div>
+        <a class="act neutral" style="text-decoration:none" href="${esc(orgMailto(r))}">Email organizer</a>
+        <button type="button" data-copymanage="${esc(r.manage_url)}">Copy link</button>
+      </div>` : ""}
+
       ${EDITING.has(r.id) ? `
       <form class="editform" data-editform="${esc(r.id)}">
         <div class="full">
@@ -784,6 +821,18 @@ function render(){
           <input name="video_url" value="${esc(r.video_url || "")}" placeholder="https://www.youtube.com/watch?v=…"></div>
         <div class="full"><label>Details</label>
           <textarea name="note" maxlength="1000">${esc(r.note || "")}</textarea></div>
+        <div><label>Listing status</label>
+          <select name="listing_status">
+            <option value=""${r.listing_status ? "" : " selected"}>Normal</option>
+            <option value="postponed"${r.listing_status === "postponed" ? " selected" : ""}>Postponed</option>
+            <option value="cancelled"${r.listing_status === "cancelled" ? " selected" : ""}>Cancelled</option>
+          </select></div>
+        <div><label>Status note (shown to visitors)</label>
+          <input name="status_note" value="${esc(r.status_note || "")}" maxlength="200" placeholder="e.g. Rained out, new date to follow"></div>
+        <div><label>Latitude (leave both blank to look up from the city)</label>
+          <input name="lat" inputmode="decimal" value="${r.lat == null ? "" : esc(r.lat)}"></div>
+        <div><label>Longitude</label>
+          <input name="lng" inputmode="decimal" value="${r.lng == null ? "" : esc(r.lng)}"></div>
         <div class="full" style="display:flex;gap:9px;flex-wrap:wrap">
           <button class="act approve" type="submit">Save changes</button>
           <button class="act neutral" type="button" data-canceledit="${esc(r.id)}">Cancel</button>
@@ -967,9 +1016,13 @@ document.getElementById("rows").addEventListener("click", async e => {
     const out = await res.json().catch(() => ({}));
     if(!res.ok){ alert("Couldn't issue a new code: " + (out.error || res.status)); return; }
     const i = ROWS.findIndex(r => r.id === nc.dataset.newcode);
-    if(i > -1 && out.event) ROWS[i] = out.event;
+    if(i > -1 && out.event) ROWS[i] = { ...out.event, manage_url: ROWS[i].manage_url };
     render();
   }
+
+  const cm = e.target.closest("button[data-copymanage]");
+  if(cm){ await navigator.clipboard.writeText(cm.dataset.copymanage);
+          cm.textContent = "Copied"; setTimeout(()=>cm.textContent="Copy link",1500); }
 });
 
 document.getElementById("rows").addEventListener("click", e => {
@@ -993,8 +1046,14 @@ document.getElementById("rows").addEventListener("submit", async e => {
     gun_types: [...form.querySelectorAll('input[name="gun_types"]:checked')].map(b => b.value),
     disciplines: f.disciplines.split(",").map(s => s.trim()).filter(Boolean),
     org: f.org || null, url: f.url || null, video_url: f.video_url || null,
-    note: f.note || null
+    note: f.note || null,
+    listing_status: f.listing_status || "", status_note: f.status_note || ""
   };
+  // Only send a map position if it was changed by hand; otherwise a changed
+  // town would keep its old coordinates.
+  const prev = ROWS.find(r => r.id === id) || {};
+  const nl = (f.lat || "").trim(), ng = (f.lng || "").trim();
+  if(nl !== String(prev.lat ?? "") || ng !== String(prev.lng ?? "")){ payload.lat = nl; payload.lng = ng; }
 
   const btn = form.querySelector('button[type="submit"]');
   btn.disabled = true; btn.textContent = "Saving…";
@@ -1015,7 +1074,7 @@ document.getElementById("rows").addEventListener("submit", async e => {
   }
 
   const i = ROWS.findIndex(r => r.id === id);
-  if(i > -1 && out.event) ROWS[i] = out.event;
+  if(i > -1 && out.event) ROWS[i] = { ...out.event, manage_url: ROWS[i].manage_url };
   EDITING.delete(id);
   render();
 });

@@ -129,7 +129,9 @@ export function eventJsonLd(ev, origin) {
     "@type": "Event",
     name: ev.name,
     startDate: ev.start_date,
-    eventStatus: "https://schema.org/EventScheduled",
+    eventStatus: ev.listing_status === "cancelled" ? "https://schema.org/EventCancelled"
+               : ev.listing_status === "postponed" ? "https://schema.org/EventPostponed"
+               : "https://schema.org/EventScheduled",
     eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
     url,
     location: {
@@ -520,6 +522,7 @@ export function eventPageHtml(ev, origin) {
 
   <div class="card">
     <h1>${esc(ev.name)}</h1>
+    ${ev.listing_status ? `<p class="when" style="color:#8f2419;font-weight:700">${ev.listing_status === "cancelled" ? "This match has been cancelled." : "This match has been postponed."}${ev.status_note ? " " + esc(ev.status_note) : ""}</p>` : ""}
     <p class="when">${esc(when)}</p>
 
     <div class="tags">

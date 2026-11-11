@@ -47,7 +47,7 @@ import {
    by construction rather than filtered out afterwards. */
 const PUBLIC_COLUMNS =
   "id, name, start_date, end_date, venue, city, state, gun_types, disciplines, org, juniors, url, video_url, note, series_id, " +
-  "lat, lng, geo_at, confirmed_at, results_updated_at";
+  "lat, lng, geo_at, confirmed_at, results_updated_at, listing_status, status_note";
 
 /* A club running the same match every month submits it once and gets one
    listing per date, all sharing a series id.
@@ -302,6 +302,15 @@ function isRealDate(s) {
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const YT_RE = /^https:\/\/((www\.|m\.)?youtube\.com\/|youtu\.be\/)/;
 
+/* A city is a place, not a title. Catches the name or venue pasted into the
+   City box, and street addresses or long text, which also break distance search. */
+function cityLooksWrong(city, name, venue) {
+  const c = String(city || "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (!c) return false;
+  const same = x => x && String(x).trim().toLowerCase().replace(/\s+/g, " ") === c;
+  return same(name) || same(venue) || c.length > 60 || /\d{3,}/.test(c) || /\b(tournament|match|club|range|association|challenge|championship)\b/.test(c);
+}
+
 function validateSubmission(b) {
   const e = [];
   const name = str(b.name, 160);
@@ -316,6 +325,7 @@ function validateSubmission(b) {
   if (!name || name.length < 3) e.push("Event name must be at least 3 characters.");
   if (!venue || venue.length < 2) e.push("Venue is required.");
   if (!city || city.length < 2) e.push("City is required.");
+  else if (cityLooksWrong(city, name, venue)) e.push("City should be the town or city the match is in, not the event or club name.");
   if (!STATES.has(state)) e.push("A valid two-letter state code is required.");
   /* Dates.
    *
@@ -740,11 +750,11 @@ async function calendarFeed(request, env, origin) {
       `LAST-MODIFIED:${modified.length === 16 ? modified : now}`,
       `DTSTART;VALUE=DATE:${first}`,
       `DTEND;VALUE=DATE:${dayAfter(last)}`,
-      `SUMMARY:${icsEsc(e.name)}`,
+      `SUMMARY:${icsEsc((e.listing_status === "cancelled" ? "CANCELLED: " : e.listing_status === "postponed" ? "POSTPONED: " : "") + e.name)}`,
       `LOCATION:${icsEsc([e.venue, e.city, e.state].filter(Boolean).join(", "))}`,
       `DESCRIPTION:${icsEsc(about)}`,
       `URL:${origin}${eventPath(e)}`,
-      "STATUS:CONFIRMED", "TRANSP:TRANSPARENT",
+      e.listing_status === "cancelled" ? "STATUS:CANCELLED" : "STATUS:CONFIRMED", "TRANSP:TRANSPARENT",
       "END:VEVENT"
     );
   }
@@ -954,14 +964,22 @@ async function liveEventIds(env) {
 
 /* Every approved event, shaped the way the SEO module expects. One query
    serves the sitemap, the calendar injection and the ItemList alike. */
+/* Kept for ten seconds inside the running worker. A busy page asks for this on
+   every view; the list only changes when someone edits it, and ten seconds is
+   well inside what a director switching standings on or off can tolerate. */
+let APPROVED_MEMO = { at: 0, rows: null };
 async function approvedEvents(env) {
+  if (APPROVED_MEMO.rows && Date.now() - APPROVED_MEMO.at < 10000) return APPROVED_MEMO.rows;
   const live = await liveEventIds(env);
   const { results } = await env.DB.prepare(
     `SELECT id, name, start_date, end_date, venue, city, state, gun_types,
-            disciplines, org, juniors, url, note, created_at, results_updated_at
+            disciplines, org, juniors, url, note, created_at, results_updated_at,
+            listing_status
        FROM events WHERE status = 'approved' ORDER BY start_date ASC`
   ).all();
-  return (results || []).map(parseRow).map(e => ({ ...e, live: live.has(e.id) }));
+  const rows = (results || []).map(parseRow).map(e => ({ ...e, live: live.has(e.id) }));
+  APPROVED_MEMO = { at: Date.now(), rows };
+  return rows;
 }
 
 /**
@@ -1801,11 +1819,98 @@ async function adminMerge(request, env) {
   return json({ ok: true });
 }
 
-async function adminList(env) {
+async function adminList(env, origin) {
   const { results } = await env.DB.prepare(
     "SELECT * FROM events ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, created_at DESC"
   ).all();
-  return json({ events: (results || []).map(parseRow) });
+  const events = await Promise.all((results || []).map(async r => ({
+    ...parseRow(r),
+    manage_url: `${origin}/manage.html?e=${encodeURIComponent(r.id)}&k=${await manageToken(env, r.id)}`
+  })));
+  return json({ events });
+}
+
+/* ------------------------------------------------------------------ */
+/* Organizer self-service                                              */
+/*                                                                     */
+/* Each listing has one private link, derived from the listing's id and */
+/* a server secret. Nothing is stored, so there is nothing to leak from */
+/* the database, and the owner can mint the link for any listing.       */
+/* ------------------------------------------------------------------ */
+
+async function manageToken(env, id) {
+  const secret = String(env.ADMIN_PASSWORD || "");
+  if (!secret) return "";
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("manage:" + id));
+  return [...new Uint8Array(sig)].slice(0, 16).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+async function manageAuthorised(env, id, k) {
+  const want = await manageToken(env, String(id || ""));
+  const got = String(k || "");
+  if (!want || got.length !== want.length) return false;
+  let d = 0;
+  for (let i = 0; i < want.length; i++) d |= want.charCodeAt(i) ^ got.charCodeAt(i);
+  return d === 0;
+}
+
+const MANAGE_SELECT = "id, name, start_date, end_date, venue, city, state, url, note, status, listing_status, status_note, confirmed_at";
+
+async function manageGet(request, env) {
+  const u = new URL(request.url);
+  const id = u.searchParams.get("e"), k = u.searchParams.get("k");
+  if (!(await manageAuthorised(env, id, k))) return fail("This link isn't valid. Ask GunMatches for a new one.", 403);
+  const row = await env.DB.prepare(`SELECT ${MANAGE_SELECT} FROM events WHERE id = ?`).bind(id).first();
+  if (!row || row.status === "denied") return fail("Listing not found.", 404);
+  return json({ event: row }, 200, { "cache-control": "no-store" });
+}
+
+async function managePost(request, env) {
+  let b;
+  try { b = await request.json(); } catch { return fail("Malformed request."); }
+  if (!(await manageAuthorised(env, b.e, b.k))) return fail("This link isn't valid. Ask GunMatches for a new one.", 403);
+  const cur = await env.DB.prepare("SELECT id, name, venue, status, start_date, end_date FROM events WHERE id = ?").bind(b.e).first();
+  if (!cur || cur.status === "denied") return fail("Listing not found.", 404);
+
+  const sets = ["confirmed_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')"], binds = [];
+  if (b.action === "update") {
+    const f = b.fields || {};
+    const start = str(f.start_date ?? cur.start_date, 10), end = str(f.end_date ?? "", 10);
+    if (!isRealDate(start)) return fail("Start date must be a real date.");
+    if (end && !isRealDate(end)) return fail("End date must be a real date.");
+    if (end && end < start) return fail("End date cannot be before the start date.");
+    sets.push("start_date = ?", "end_date = ?"); binds.push(start, end || null);
+
+    const venue = str(f.venue ?? cur.venue, 160);
+    if (!venue || venue.length < 2) return fail("Venue is required.");
+    sets.push("venue = ?"); binds.push(venue);
+
+    if (f.city !== undefined || f.state !== undefined) {
+      const city = str(f.city ?? "", 100), state = String(f.state || "").toUpperCase();
+      if (!city || city.length < 2) return fail("City is required.");
+      if (cityLooksWrong(city, cur.name, venue)) return fail("City should be the town or city the match is in, not the event or club name.");
+      if (!STATES.has(state)) return fail("A valid two-letter state code is required.");
+      sets.push("city = ?", "state = ?", "lat = NULL", "lng = NULL", "geo_at = NULL"); binds.push(city, state);
+    }
+    const url = str(f.url ?? "", 500);
+    if (url && !/^https?:\/\/.+/i.test(url)) return fail("The registration link must start with http:// or https://");
+    sets.push("url = ?"); binds.push(url);
+    sets.push("note = ?"); binds.push(str(f.note ?? "", 1000));
+
+    const ls = f.listing_status || null;
+    if (ls && !["cancelled", "postponed"].includes(ls)) return fail("Invalid status.");
+    sets.push("listing_status = ?", "status_note = ?"); binds.push(ls, str(f.status_note ?? "", 200));
+  } else if (b.action !== "confirm") return fail("Unknown action.");
+
+  binds.push(b.e);
+  try { await env.DB.prepare(`UPDATE events SET ${sets.join(", ")} WHERE id = ?`).bind(...binds).run(); }
+  catch (err) {
+    if (String(err).includes("UNIQUE")) return fail("Another listing already has that name, date and venue.", 409);
+    throw err;
+  }
+  const row = await env.DB.prepare(`SELECT ${MANAGE_SELECT} FROM events WHERE id = ?`).bind(b.e).first();
+  return json({ ok: true, event: row }, 200, { "cache-control": "no-store" });
 }
 
 const EDITABLE = new Set(["name","start_date","end_date","venue","city","state","gun_types","disciplines",
@@ -1861,13 +1966,37 @@ async function adminUpdate(request, env, id, email) {
     }
   }
 
+  if (body.city !== undefined) {
+    const cur = await env.DB.prepare("SELECT name, venue FROM events WHERE id = ?").bind(id).first();
+    if (cur && cityLooksWrong(String(body.city), body.name ?? cur.name, body.venue ?? cur.venue))
+      return fail("City should be the town or city the match is in, not the event or club name.");
+  }
+
+  // Manual map position, for towns the lookup gets wrong. Blank both to look it up again.
+  let manualGeo = false;
+  if (body.lat !== undefined || body.lng !== undefined) {
+    const blank = v => v === "" || v === null || v === undefined;
+    if (blank(body.lat) && blank(body.lng)) { sets.push("lat = NULL", "lng = NULL", "geo_at = NULL"); manualGeo = true; }
+    else {
+      const la = Number(body.lat), lo = Number(body.lng);
+      if (!Number.isFinite(la) || !Number.isFinite(lo) || la < 17 || la > 72 || lo < -180 || lo > -64)
+        return fail("Latitude and longitude must be numbers inside the United States.");
+      sets.push("lat = ?", "lng = ?", "geo_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')"); binds.push(la, lo); manualGeo = true;
+    }
+  }
+  if (body.listing_status !== undefined) {
+    if (!["", null, "cancelled", "postponed"].includes(body.listing_status)) return fail("Invalid listing status.");
+    sets.push("listing_status = ?"); binds.push(body.listing_status || null);
+  }
+  if (body.status_note !== undefined) { sets.push("status_note = ?"); binds.push(str(String(body.status_note ?? ""), 200)); }
+
   if (!sets.length) return fail("Nothing to update.");
 
   /* An admin edit or approval counts as the listing having been checked. A
      change of town clears the stored coordinates so they are looked up again. */
   const touched = body.status === "approved" || Object.keys(body).some(k => EDITABLE.has(k));
   if (touched) sets.push("confirmed_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')");
-  if ("city" in body || "state" in body) sets.push("lat = NULL", "lng = NULL", "geo_at = NULL");
+  if (!manualGeo && ("city" in body || "state" in body)) sets.push("lat = NULL", "lng = NULL", "geo_at = NULL");
   binds.push(id);
 
   try {
@@ -2048,7 +2177,7 @@ function movedPermanently(url, request, env) {
   if (url.pathname.startsWith("/api/")) return null;
 
   const host = url.hostname.toLowerCase();
-  if (host === target || host === `www.${target}` || host.endsWith(".workers.dev")) return null;
+  if (host === target || host.endsWith(".workers.dev")) return null;
 
   const to = new URL(url.toString());
   to.protocol = "https:";
@@ -2088,6 +2217,8 @@ export default {
         // ---- public ----
         if (path === "/api/events" && method === "GET")  return await edgeCached(request, ctx, 10, () => getPublicEvents(env, ctx));
         if (path === "/api/geo" && method === "GET")     return await apiGeo(request);
+        if (path === "/api/manage" && method === "GET")  return await manageGet(request, env);
+        if (path === "/api/manage" && method === "POST") return await managePost(request, env);
         if (path === "/api/events" && method === "POST") return await createSubmission(request, env);
 
         // Results upload — authorised by the event's own code, nothing else
@@ -2118,7 +2249,7 @@ export default {
           const auth = await requireAdmin(request, env);
           if (auth.error) return auth.error;
 
-          if (path === "/api/admin/events" && method === "GET")  return await adminList(env);
+          if (path === "/api/admin/events" && method === "GET")  return await adminList(env, CANONICAL_ORIGIN);
           if (path === "/api/admin/duplicates" && method === "GET")  return await adminDuplicates(env);
           if (path === "/api/admin/merge" && method === "POST") return await adminMerge(request, env);
           if (path === "/api/admin/export" && method === "GET")  return await adminExport(request, env);
