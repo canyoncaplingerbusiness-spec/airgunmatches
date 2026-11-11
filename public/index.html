@@ -283,7 +283,10 @@
      Calendar organisation: live strip, quick filters, multi-select,
      sticky bar, views, status, series, month grid
      ===================================================================== */
-  .filters{margin-bottom:12px}
+  .filters{margin-bottom:12px;position:relative;z-index:35}
+  .field .msopt{display:flex;text-transform:none;letter-spacing:0;font-size:14.5px;font-weight:400;color:var(--text);margin:0}
+  .field .msopt.zero{color:#a3acb7}
+  .field .msopt .n{font-size:12.5px;color:var(--muted)}
   .fgrid{grid-template-columns:1.4fr 1fr 1fr 1.2fr auto}
   .quick{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;margin-top:13px;padding-top:13px;border-top:1px solid var(--line)}
   .qgroup{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
@@ -2108,11 +2111,11 @@ function watchLive(){
         render();
         window.scrollTo(0, y);
       }
-    }catch(_){ /* a missed check is fine; the next one is 15 seconds away */ }
+    }catch(_){ /* a missed check is fine; the next one is 30 seconds away */ }
     finally{ busy = false; }
   }
 
-  setInterval(check, 15000);
+  setInterval(check, 30000);
   document.addEventListener("visibilitychange", () => { if(!document.hidden) check(); });
   window.addEventListener("focus", check);
 }

@@ -645,8 +645,11 @@ async function apiGeo(request) {
  *  can't be found is remembered for a week rather than asked about on every
  *  page view. Runs after the response has gone out. */
 async function geocodeMissing(env, rows) {
+  const seen = new Map();   // one lookup per city, however many matches are there
   for (const r of rows) {
-    const hit = await geocodeCity(r.city, r.state);
+    const k = `${String(r.city).toLowerCase()}|${String(r.state).toLowerCase()}`;
+    if (!seen.has(k)) seen.set(k, await geocodeCity(r.city, r.state));
+    const hit = seen.get(k);
     await env.DB.prepare(
       "UPDATE events SET lat = ?, lng = ?, geo_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?"
     ).bind(hit ? hit.lat : null, hit ? hit.lng : null, r.id).run();
@@ -757,6 +760,33 @@ async function calendarFeed(request, env, origin) {
   });
 }
 
+/**
+ * Keeps a busy GET answer at the edge for a few seconds. The events list costs
+ * several database queries, and every open calendar re-asks for it, so without
+ * this the database does the same work over and over. Ten seconds is short
+ * enough that a director's LIVE switch still shows up almost at once.
+ * Browsers are still told to revalidate, so they always ask, but the answer
+ * comes from the edge rather than the database.
+ */
+async function edgeCached(request, ctx, ttl, produce) {
+  const cache = typeof caches !== "undefined" ? caches.default : null;
+  if (!cache) return produce();
+  const key = new Request(new URL(request.url).toString(), { method: "GET" });
+  const hit = await cache.match(key);
+  if (hit) {
+    const out = new Response(hit.body, hit);
+    out.headers.set("cache-control", "public, max-age=0, must-revalidate");
+    return out;
+  }
+  const res = await produce();
+  if (res.ok && ctx && ctx.waitUntil) {
+    const copy = new Response(res.clone().body, res);
+    copy.headers.set("cache-control", `public, max-age=${ttl}`);
+    ctx.waitUntil(cache.put(key, copy).catch(() => {}));
+  }
+  return res;
+}
+
 async function getPublicEvents(env, ctx) {
   const { results } = await env.DB.prepare(
     `SELECT ${PUBLIC_COLUMNS} FROM events WHERE status = 'approved' ORDER BY start_date ASC`
@@ -764,7 +794,7 @@ async function getPublicEvents(env, ctx) {
 
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
   const need = (results || []).filter(r =>
-    (r.lat === null || r.lat === undefined) && (!r.geo_at || r.geo_at < weekAgo)).slice(0, 6);
+    (r.lat === null || r.lat === undefined) && (!r.geo_at || r.geo_at < weekAgo)).slice(0, 30);
   if (need.length && ctx && ctx.waitUntil) ctx.waitUntil(geocodeMissing(env, need).catch(() => {}));
 
   const events = (results || []).map(parseRow);
@@ -2056,7 +2086,7 @@ export default {
 
       if (path.startsWith("/api/")) {
         // ---- public ----
-        if (path === "/api/events" && method === "GET")  return await getPublicEvents(env, ctx);
+        if (path === "/api/events" && method === "GET")  return await edgeCached(request, ctx, 10, () => getPublicEvents(env, ctx));
         if (path === "/api/geo" && method === "GET")     return await apiGeo(request);
         if (path === "/api/events" && method === "POST") return await createSubmission(request, env);
 
