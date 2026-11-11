@@ -278,6 +278,174 @@
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
     clip:rect(0 0 0 0);white-space:nowrap;border:0}
   @media (max-width:620px){ .brandlogo{height:60px} }
+
+  /* =====================================================================
+     Calendar organisation: live strip, quick filters, multi-select,
+     sticky bar, views, status, series, month grid
+     ===================================================================== */
+  .filters{margin-bottom:12px}
+  .fgrid{grid-template-columns:1.4fr 1fr 1fr 1.2fr auto}
+  .quick{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;margin-top:13px;padding-top:13px;border-top:1px solid var(--line)}
+  .qgroup{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .qlabel{font-size:11.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:800}
+  .qbtn{font:inherit;font-size:13.5px;font-weight:600;padding:7px 12px;border-radius:999px;border:1px solid var(--line);
+    background:#fff;color:var(--navy-2);cursor:pointer}
+  .qbtn:hover{border-color:var(--steel);background:var(--bg)}
+  .qbtn[aria-pressed=true]{background:var(--navy-2);border-color:var(--navy-2);color:#fff}
+  .quick input#zip{width:110px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:14.5px;font-family:inherit}
+  .quick select{padding:7px 8px;border:1px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit;background:#fff}
+  .nearmsg{font-size:13px;color:var(--muted);margin-top:8px;min-height:0}
+  .nearmsg:empty{display:none}
+  .nearmsg.err{color:#8f2419}
+  .tspacer{flex:1}
+  .toggles{gap:10px 16px}
+  .clearbtn{margin-left:0}
+  .subwrap{position:relative}
+  .subpop{position:absolute;right:0;top:calc(100% + 6px);width:280px;z-index:40;background:#fff;border:1px solid var(--line);
+    border-radius:12px;box-shadow:0 12px 32px rgba(18,38,63,.18);padding:14px;display:flex;flex-direction:column;gap:8px}
+  .subpop[hidden]{display:none}
+  .subpop p{margin:0;font-size:13.5px;color:var(--muted)}
+  .subpop a,.subpop button{font:inherit;font-size:14px;font-weight:600;text-align:center;text-decoration:none;
+    padding:9px 10px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--navy-2);cursor:pointer}
+  .subpop a:hover,.subpop button:hover{background:var(--bg);border-color:var(--steel)}
+  .subpop small{font-size:12px;color:var(--muted);line-height:1.4}
+
+  /* multi-select */
+  .ms{position:relative}
+  .msbtn{width:100%;display:flex;justify-content:space-between;align-items:center;gap:8px;text-align:left;
+    padding:10px 11px;border:1px solid var(--line);border-radius:8px;font-size:15px;background:#fff;color:var(--text);
+    font-family:inherit;cursor:pointer}
+  .msbtn:hover{border-color:var(--steel)}
+  .msbtn.active{border-color:var(--navy-2);background:#f3f6fa;font-weight:600}
+  .msbtn .mstxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .msbtn .mscaret{color:var(--steel);font-size:11px;flex:none}
+  .mspanel{position:absolute;left:0;top:calc(100% + 4px);min-width:100%;width:max(100%,260px);z-index:50;background:#fff;
+    border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(18,38,63,.18);overflow:hidden}
+  .mspanel[hidden]{display:none}
+  .mssearch{display:block;width:calc(100% - 16px);margin:8px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:14px;font-family:inherit}
+  .mslist{max-height:260px;overflow:auto;padding:2px 4px 6px}
+  .msopt{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:7px;cursor:pointer;font-size:14.5px;user-select:none}
+  .msopt:hover{background:var(--bg)}
+  .msopt input{width:16px;height:16px;accent-color:var(--navy-2);flex:none;margin:0}
+  .msopt .n{margin-left:auto;color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums}
+  .msopt.zero{color:#a3acb7}
+  .msopt[hidden]{display:none}
+  .msfoot{display:flex;justify-content:space-between;padding:8px 10px;border-top:1px solid var(--line);background:#fafbfc}
+  .msfoot button{font:inherit;font-size:13.5px;font-weight:700;background:none;border:0;color:var(--navy-2);cursor:pointer;padding:4px 6px}
+
+  /* sticky bar */
+  .stickybar{position:sticky;top:0;z-index:30;background:var(--bg);padding:8px 0 6px;margin:0 0 4px;
+    border-bottom:1px solid transparent}
+  .stickybar.stuck{border-bottom-color:var(--line);box-shadow:0 6px 12px -10px rgba(18,38,63,.35)}
+  .barrow{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+  .barctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .barctl select{padding:6px 8px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;font-family:inherit;background:#fff;max-width:170px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+  .seg button{font:inherit;font-size:13px;font-weight:600;padding:6px 11px;border:0;background:#fff;color:var(--navy-2);cursor:pointer}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button[aria-pressed=true]{background:var(--navy-2);color:#fff}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+  .chips:empty{display:none}
+  .fchip{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:999px;
+    padding:4px 6px 4px 11px;font-size:13px;font-weight:600;color:var(--navy-2)}
+  .fchip button{border:0;background:#eef1f5;border-radius:50%;width:19px;height:19px;line-height:1;font-size:13px;cursor:pointer;color:var(--steel);padding:0}
+  .fchip button:hover{background:var(--amber);color:#fff}
+  .fchip.clearall{padding:4px 11px;cursor:pointer;background:none;border-style:dashed;font-family:inherit}
+  .monthhead{position:sticky;top:var(--barh,0px);z-index:5;background:var(--bg);scroll-margin-top:calc(var(--barh,0px) + 4px);padding-top:8px}
+  .resultbar{margin-bottom:6px}
+
+  /* live strip */
+  #livestrip{margin:-8px 0 14px;position:relative;z-index:3}
+  #livestrip .lsmain{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch;background:linear-gradient(135deg,#8E1615,#B71D1C);
+    border-radius:var(--radius);padding:12px 14px;color:#fff;box-shadow:var(--shadow)}
+  #livestrip .lslabel{display:inline-flex;align-items:center;gap:7px;font-weight:800;letter-spacing:.8px;font-size:13px;align-self:center}
+  #livestrip .dot{width:9px;height:9px;border-radius:50%;background:#fff;animation:pulse 1.6s ease-in-out infinite}
+  #livestrip .lscard{display:flex;flex-direction:column;gap:1px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);
+    border-radius:9px;padding:8px 12px;color:#fff;text-decoration:none;min-width:200px}
+  #livestrip .lscard:hover{background:rgba(255,255,255,.24)}
+  #livestrip .lscard b{font-size:15px}
+  #livestrip .lscard span{font-size:12.5px;opacity:.9}
+  #livestrip .lscard .lsgo{font-weight:700;opacity:1;margin-top:2px}
+  #livestrip .lsmore{align-self:center;font-size:13px;font-weight:700}
+  @media (prefers-reduced-motion:reduce){ #livestrip .dot{animation:none} }
+
+  /* status pills and badges */
+  .tag.st{letter-spacing:.3px}
+  .tag.st.up{background:#fff;border-color:#c8d6e6;color:var(--navy-2)}
+  .tag.st.today{background:#fff4e0;border-color:#f0d49a;color:#8a5200}
+  .tag.st.past{background:#f0f2f5;border-color:#e1e6ec;color:#7b8794}
+  .tag.mi{background:#eaf6ef;border-color:#b9dfc9;color:#14603c}
+  .tag.stale{background:#fff4e0;border-color:#f0d49a;color:#8a5200;font-weight:600}
+  .tag.series{background:#eef2ff;border-color:#c9d2f5;color:#2f3f8f}
+
+  /* compact rows */
+  .event.compact{grid-template-columns:60px 1fr auto;gap:12px;padding:9px 12px;margin-bottom:6px;align-items:center}
+  .event.compact .date{padding:4px 2px 5px}
+  .event.compact .date .dy{font-size:19px}
+  .event.compact .date .yr,.event.compact .date .span{display:none}
+  .event.compact .ebody h3{font-size:15.5px;margin:0}
+  .event.compact .meta{margin:1px 0 3px;font-size:13px}
+  .event.compact .tags .tag:not(.keep){display:none}
+  .event.compact .eactions{flex-direction:row;min-width:0}
+  .event.compact .eactions .minibtn:nth-child(n+2){display:none}
+  .event.compact .details{margin:10px -12px -9px}
+
+  /* past matches */
+  details.pastfold{margin:22px 0 10px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  details.pastfold>summary{padding:13px 16px;font-weight:700;cursor:pointer;color:var(--steel);list-style:none}
+  details.pastfold>summary::-webkit-details-marker{display:none}
+  details.pastfold>summary::before{content:"▸ ";color:var(--muted)}
+  details.pastfold[open]>summary::before{content:"▾ "}
+  details.pastfold .pastbody{padding:0 14px 8px}
+
+  /* series groups */
+  .event.series .seriesbody{grid-column:1/-1;margin:14px -16px -15px;border-top:1px solid var(--line);background:#fafbfc;
+    border-radius:0 0 var(--radius) var(--radius);cursor:default}
+  .srow{padding:11px 16px;border-bottom:1px solid var(--line);cursor:pointer}
+  .srow:last-child{border-bottom:0;border-radius:0 0 var(--radius) var(--radius)}
+  .srow .sline{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}
+  .srow .sdate{font-weight:700;min-width:150px}
+  .srow .sloc{color:var(--muted);font-size:13.5px;flex:1;min-width:140px}
+  .srow .tags{margin:0}
+  .srow .sbtns{display:flex;gap:6px;margin-left:auto}
+  .srow.open{background:#fff}
+  .srow .details{margin:10px -16px -11px}
+
+  /* month grid */
+  .gridnav{display:flex;align-items:center;gap:10px;margin:8px 0 12px;flex-wrap:wrap}
+  .gridnav h2{margin:0;font-size:20px;flex:1;min-width:150px;letter-spacing:-.2px}
+  .gridnav button{font:inherit;font-weight:700;font-size:14px;padding:7px 13px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--navy-2);cursor:pointer}
+  .gridnav button:hover{background:var(--bg)}
+  .mgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);
+    border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
+  .mgrid .gh{background:#f1f3f6;padding:7px 6px;text-align:center;font-size:11.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
+  .gcell{background:#fff;min-height:96px;padding:6px;cursor:pointer;display:flex;flex-direction:column;gap:3px;text-align:left;
+    border:0;font:inherit;color:inherit;position:relative}
+  .gcell:hover{background:#f7f9fb}
+  .gcell.other{background:#fafbfc;color:#a3acb7}
+  .gcell.today .gd{background:var(--amber);color:#fff}
+  .gcell.sel{outline:2px solid var(--navy-2);outline-offset:-2px;background:#f3f6fa}
+  .gd{font-size:12.5px;font-weight:700;width:24px;height:24px;border-radius:50%;display:grid;place-items:center}
+  .gp{display:block;font-size:12px;font-weight:600;line-height:1.25;padding:2px 6px;border-radius:5px;background:var(--navy-2);color:#fff;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .gp.live{background:var(--amber)}
+  .gp.results{background:var(--green)}
+  .gp.past{background:#9aa5b1}
+  .gp.today{background:#b86e00}
+  .gmore{font-size:11.5px;font-weight:700;color:var(--steel);padding-left:3px}
+  .gpwrap{display:flex;flex-direction:column;gap:3px;min-width:0}
+  .daypanel{margin-top:16px}
+  .daypanel h3{margin:0 0 10px;font-size:15px}
+  @media (max-width:760px){
+    .fgrid{grid-template-columns:1fr 1fr}
+    .fgrid .field.searchfield,.fgrid .field.btnfield{grid-column:1/-1}
+    .subpop{right:auto;left:0}
+    .gcell{min-height:56px;padding:4px}
+    .gp{font-size:0;height:6px;width:6px;padding:0;border-radius:50%;display:inline-block;margin-right:2px}
+    .gcell .gpwrap{flex-direction:row;flex-wrap:wrap}
+    .barctl select{max-width:130px}
+    .srow .sbtns{margin-left:0;width:100%}
+  }
 </style>
 </head>
 <body>
@@ -315,41 +483,96 @@
 </header>
 
 <main class="wrap">
-  <div class="filters">
+  <div id="livestrip" hidden></div>
+
+  <div class="filters" id="filters">
     <div class="fgrid">
       <div class="field searchfield">
         <label for="q">Search</label>
         <input type="search" id="q" placeholder="Match name, city, club, organization…" autocomplete="off">
       </div>
       <div class="field">
-        <label for="state">State</label>
-        <select id="state"><option value="">All states</option></select>
+        <label id="lbl-state">State</label>
+        <div class="ms" data-ms="state"></div>
       </div>
       <div class="field">
-        <label for="guntype">Type</label>
-        <select id="guntype"><option value="">All types</option></select>
+        <label id="lbl-gun">Type</label>
+        <div class="ms" data-ms="gun"></div>
       </div>
       <div class="field">
-        <label for="discipline">Discipline</label>
-        <select id="discipline"><option value="">All disciplines</option></select>
+        <label id="lbl-disc">Discipline</label>
+        <div class="ms" data-ms="disc"></div>
       </div>
       <div class="field btnfield">
         <label for="sort">Order</label>
         <select id="sort">
           <option value="asc">Soonest first</option>
           <option value="desc">Latest first</option>
+          <option value="near" disabled>Nearest first</option>
         </select>
       </div>
     </div>
+
+    <div class="quick">
+      <div class="qgroup" role="group" aria-label="When">
+        <span class="qlabel">When</span>
+        <button type="button" class="qbtn" data-range="">Any date</button>
+        <button type="button" class="qbtn" data-range="weekend">This weekend</button>
+        <button type="button" class="qbtn" data-range="30d">Next 30 days</button>
+      </div>
+      <div class="qgroup" role="group" aria-label="Near me">
+        <span class="qlabel">Near me</span>
+        <input type="text" id="zip" inputmode="numeric" maxlength="5" placeholder="ZIP code" autocomplete="postal-code" aria-label="Your ZIP code">
+        <button type="button" class="qbtn" id="zipgo">Find</button>
+        <button type="button" class="qbtn" id="usegeo">Use my location</button>
+        <select id="radius" aria-label="Distance">
+          <option value="25">25 mi</option><option value="50">50 mi</option>
+          <option value="100" selected>100 mi</option><option value="200">200 mi</option>
+          <option value="500">500 mi</option>
+        </select>
+        <button type="button" class="qbtn" id="nearclear" hidden>Clear</button>
+      </div>
+    </div>
+    <div class="nearmsg" id="nearmsg" aria-live="polite"></div>
+
     <div class="toggles">
       <label class="chk"><input type="checkbox" id="upcoming" checked> Hide past events</label>
       <label class="chk"><input type="checkbox" id="juniors"> Junior / youth eligible only</label>
+      <span class="tspacer"></span>
+      <button class="clearbtn" id="copylink" type="button">Copy link to this view</button>
+      <div class="subwrap">
+        <button class="clearbtn" id="subbtn" type="button" aria-expanded="false">Subscribe to this calendar</button>
+        <div class="subpop" id="subpop" hidden>
+          <p>Add these matches to your own calendar. It keeps itself up to date.</p>
+          <a id="sub-webcal" href="#">Apple Calendar / Outlook</a>
+          <a id="sub-google" href="#" target="_blank" rel="noopener noreferrer">Google Calendar</a>
+          <button type="button" id="sub-copy">Copy feed link</button>
+          <small>The feed follows your state, type, discipline and junior filters. Date and distance filters aren't included.</small>
+        </div>
+      </div>
       <button class="clearbtn" id="clear" type="button">Reset filters</button>
     </div>
   </div>
 
+  <div class="stickybar" id="bar">
+    <div class="barrow">
+      <div class="count" id="count"></div>
+      <div class="barctl">
+        <select id="monthjump" aria-label="Jump to a month"></select>
+        <div class="seg" role="group" aria-label="Card size">
+          <button type="button" data-density="cards">Cards</button>
+          <button type="button" data-density="compact">Compact</button>
+        </div>
+        <div class="seg" role="group" aria-label="View">
+          <button type="button" data-view="list">List</button>
+          <button type="button" data-view="grid">Month</button>
+        </div>
+      </div>
+    </div>
+    <div class="chips" id="chips"></div>
+  </div>
+
   <div class="resultbar">
-    <div class="count" id="count"></div>
     <div class="count"><span id="coverage"></span><span class="sep2">·</span><span id="asof"></span></div>
   </div>
 
@@ -720,18 +943,20 @@ async function loadEvents(){
     juniors: !!r.juniors, url: r.url || "", note: r.note || "",
     video: r.video_url || "",
     path: r.path || "",
-    live: !!r.live
+    live: !!r.live,
+    lat: r.lat == null ? null : Number(r.lat),
+    lng: r.lng == null ? null : Number(r.lng),
+    confirmed: r.confirmed_at || "",
+    resultsAt: r.results_updated_at || ""
   }));
 }
 
 /* ---------- Dropdowns ---------- */
 function buildOptions(){
-  const stateSel = document.getElementById("state");
   const fState   = document.getElementById("f-state");
   STATE_CODES.forEach(code => {
-    const opt = `<option value="${esc(code)}">${esc(STATES[code])}</option>`;
-    stateSel.insertAdjacentHTML("beforeend", opt);
-    fState.insertAdjacentHTML("beforeend", opt);
+    fState.insertAdjacentHTML("beforeend",
+      `<option value="${esc(code)}">${esc(STATES[code])}</option>`);
   });
   // Submission checklists
   document.getElementById("f-gunlist").innerHTML = GUN_TYPES.map((g,i) =>
@@ -762,63 +987,326 @@ function buildDisciplineChecklist(){
       wasTicked.has(d) ? " checked" : ""}> ${esc(d)}</label>`
   ).join("");
 }
-// Filter options come from live data — every discipline actually in use, including
-// write-ins you've approved. Counts show how many events run each one.
-//
-// The discipline list narrows to whatever gun type is selected, so choosing
-// Shotgun leaves Trap and Skeet rather than every discipline on the site. If
-// that would strand the discipline already chosen, it's cleared rather than
-// left applying invisibly and hiding everything.
-function buildDisciplineFilter(){
-  const sel = document.getElementById("discipline");
-  const gun = document.getElementById("guntype").value;
-  const keep = sel.value;
-  const tally = {};
-  EVENTS.forEach(e => {
-    if (gun && !(e.gunTypes || []).includes(gun)) return;
-    (e.disciplines || []).forEach(d => { tally[d] = (tally[d] || 0) + 1; });
-  });
-  sel.innerHTML = '<option value="">All disciplines</option>';
-  Object.keys(tally).sort().forEach(d => {
-    sel.insertAdjacentHTML("beforeend",
-      `<option value="${esc(d)}">${esc(d)} (${tally[d]})</option>`);
-  });
-  sel.value = [...sel.options].some(o => o.value === keep) ? keep : "";
+/* ==================================================================
+   FILTER STATE
+
+   One object holds every choice a visitor has made. It is read from the
+   address when the page opens and written back as they change things, so any
+   view of the calendar can be copied and sent to someone else.
+   ================================================================== */
+const F = {
+  q: "", states: new Set(), guns: new Set(), discs: new Set(),
+  juniors: false, hidePast: true, sort: "asc", range: "",
+  near: null, radius: 100,
+  view: "list", density: "cards", gridY: null, gridM: null, gridDay: ""
+};
+let PAST_OPEN = false;
+const RADII = [25, 50, 100, 200, 500];
+
+function readURL(){
+  const p = new URLSearchParams(location.search);
+  const list = k => (p.get(k) || "").split(",").map(x => x.trim()).filter(Boolean);
+  F.q = p.get("q") || "";
+  list("state").map(x => x.toUpperCase()).filter(x => STATES[x]).forEach(x => F.states.add(x));
+  list("gun").filter(x => GUN_TYPES.includes(x)).forEach(x => F.guns.add(x));
+  list("disc").forEach(x => F.discs.add(x));
+  F.juniors  = p.get("juniors") === "1";
+  F.hidePast = p.get("past") !== "1";
+  F.sort     = ["asc","desc","near"].includes(p.get("sort")) ? p.get("sort") : "asc";
+  F.range    = ["weekend","30d"].includes(p.get("range")) ? p.get("range") : "";
+  F.radius   = RADII.includes(Number(p.get("radius"))) ? Number(p.get("radius")) : 100;
+  F.view     = p.get("view") === "grid" ? "grid" : "list";
+  F.density  = p.get("density") === "compact" ? "compact" : "cards";
+  const m = (p.get("month") || "").match(/^(\d{4})-(\d{2})$/);
+  if(m){ F.gridY = Number(m[1]); F.gridM = Number(m[2]) - 1; }
+  const zip = p.get("near") || "";
+  return /^\d{5}$/.test(zip) ? zip : "";
 }
 
-// Gun types come from live data too, so a type nobody has listed yet doesn't
-// sit in the filter promising results that don't exist.
-function buildGunFilter(){
-  const sel = document.getElementById("guntype");
-  const keep = sel.value;
-  const tally = {};
-  EVENTS.forEach(e => (e.gunTypes || []).forEach(g => { tally[g] = (tally[g] || 0) + 1; }));
-  sel.innerHTML = '<option value="">All types</option>';
-  GUN_TYPES.filter(g => tally[g]).forEach(g => {
-    sel.insertAdjacentHTML("beforeend",
-      `<option value="${esc(g)}">${esc(g)} (${tally[g]})</option>`);
-  });
-  if([...sel.options].some(o => o.value === keep)) sel.value = keep;
+function writeURL(){
+  const p = new URLSearchParams();
+  if(F.q) p.set("q", F.q);
+  if(F.states.size) p.set("state", [...F.states].join(","));
+  if(F.guns.size)   p.set("gun",   [...F.guns].join(","));
+  if(F.discs.size)  p.set("disc",  [...F.discs].join(","));
+  if(F.juniors)     p.set("juniors", "1");
+  if(!F.hidePast)   p.set("past", "1");
+  if(F.sort !== "asc" && !(F.sort === "near" && !F.near)) p.set("sort", F.sort);
+  if(F.range)       p.set("range", F.range);
+  // Only a ZIP goes in the address. A location taken from the device never does.
+  if(F.near && F.near.zip){ p.set("near", F.near.zip); if(F.radius !== 100) p.set("radius", String(F.radius)); }
+  if(F.view === "grid"){
+    p.set("view", "grid");
+    if(F.gridY !== null) p.set("month", `${F.gridY}-${String(F.gridM + 1).padStart(2,"0")}`);
+  }
+  if(F.density === "compact") p.set("density", "compact");
+  const qs = p.toString();
+  history.replaceState(null, "", location.pathname + (qs ? "?" + qs : "") + location.hash);
 }
-function refreshStateCounts(){
-  const stateSel = document.getElementById("state");
-  const hidePast = document.getElementById("upcoming").checked;
-  const tally = {};
+
+/* ---------- Dates ---------- */
+function addDays(d, n){ return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+function isoOf(d){
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+}
+/* "This weekend" is Friday to Sunday. On a Saturday or Sunday it is the weekend
+   that is already under way, so a match happening right now still counts. */
+function rangeWindow(){
+  const t = todayLocal();
+  if(F.range === "30d") return [t, addDays(t, 30)];
+  const dow = t.getDay();
+  const fri = dow === 0 ? addDays(t, -2) : dow === 6 ? addDays(t, -1) : dow === 5 ? t : addDays(t, 5 - dow);
+  return [fri, addDays(fri, 2)];
+}
+function inRange(ev){
+  if(!F.range) return true;
+  const [a, b] = rangeWindow();
+  const s = parseDate(ev.start), e = parseDate(ev.end) || s;
+  return s <= b && e >= a;
+}
+
+/* ---------- Distance ---------- */
+function miles(lat1, lng1, lat2, lng2){
+  const R = 3958.8, rad = x => x * Math.PI / 180;
+  const dLat = rad(lat2 - lat1), dLng = rad(lng2 - lng1);
+  const h = Math.sin(dLat/2)**2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function computeDistances(){
   EVENTS.forEach(ev => {
-    if(!ev.state || !parseDate(ev.start)) return;
-    if(hidePast && isPast(ev)) return;
-    tally[ev.state] = (tally[ev.state] || 0) + 1;
+    ev._mi = (F.near && ev.lat != null && ev.lng != null)
+      ? miles(F.near.lat, F.near.lng, ev.lat, ev.lng) : null;
   });
-  const total = Object.values(tally).reduce((a,b) => a+b, 0);
-  const covered = Object.keys(tally).length;
-  [...stateSel.options].forEach(opt => {
-    if(!opt.value){ opt.textContent = `All states (${total})`; return; }
-    const n = tally[opt.value] || 0;
-    opt.textContent = `${STATES[opt.value]} (${n})`;
-    opt.disabled = (n === 0 && opt.value !== stateSel.value);
+}
+
+/* ---------- Does a match pass the filters? ----------
+   `skip` leaves one filter out, which is how each option in a dropdown can show
+   how many matches it would give you with everything else as it is. */
+function passes(ev, skip, gridMode){
+  if(!parseDate(ev.start)) return false;
+  // Past matches stay listed only if they have results; a date range overrides this.
+  if(!gridMode && !F.range && F.hidePast && isPast(ev) && !ev.results) return false;
+  if(!inRange(ev)) return false;
+  if(skip !== "state" && F.states.size && !F.states.has(ev.state)) return false;
+  if(skip !== "gun"   && F.guns.size   && !(ev.gunTypes || []).some(g => F.guns.has(g))) return false;
+  if(skip !== "disc"  && F.discs.size  && !(ev.disciplines || []).some(d => F.discs.has(d))) return false;
+  if(F.juniors && !ev.juniors) return false;
+  if(F.near && (ev._mi == null || ev._mi > F.radius)) return false;
+  if(F.q){
+    if(ev._hay === undefined){
+      const competitors = ev.results ? Object.values(ev.results).flat().map(r => r.competitor).join(" ") : "";
+      ev._hay = [ev.name, ev.venue, ev.city, ev.state, STATES[ev.state],
+                 (ev.gunTypes || []).join(" "), (ev.disciplines || []).join(" "), ev.org, ev.note, competitors]
+        .filter(Boolean).join(" ").toLowerCase();
+    }
+    if(!ev._hay.includes(F.q.toLowerCase())) return false;
+  }
+  return true;
+}
+
+/* ==================================================================
+   MULTI-SELECT DROPDOWNS (state, type, discipline)
+   ================================================================== */
+const MS = {
+  state: { all: "All states", set: () => F.states, search: true,
+           options: () => STATE_CODES.map(c => ({ v: c, t: STATES[c] })), tally: ev => [ev.state] },
+  gun:   { all: "All types", set: () => F.guns, search: false,
+           options: () => GUN_TYPES.map(g => ({ v: g, t: g })), tally: ev => ev.gunTypes || [] },
+  disc:  { all: "All disciplines", set: () => F.discs, search: true,
+           options: () => [...new Set([...EVENTS.flatMap(e => e.disciplines || []), ...F.discs])].sort().map(d => ({ v: d, t: d })),
+           tally: ev => ev.disciplines || [] }
+};
+const msLabel = (key, v) => key === "state" ? STATES[v] : v;
+
+function buildMS(key){
+  const root = document.querySelector(`.ms[data-ms="${key}"]`);
+  const cfg = MS[key];
+  root.innerHTML = `
+    <button type="button" class="msbtn" aria-haspopup="listbox" aria-expanded="false">
+      <span class="mstxt">${esc(cfg.all)}</span><span class="mscaret">▾</span></button>
+    <div class="mspanel" hidden>
+      ${cfg.search ? `<input type="search" class="mssearch" placeholder="Search…" aria-label="Search the list">` : ""}
+      <div class="mslist" role="listbox" aria-multiselectable="true">${cfg.options().map(o =>
+        `<label class="msopt" data-v="${esc(o.v)}" data-t="${esc(o.t.toLowerCase())}"><input type="checkbox" value="${esc(o.v)}"> <span>${esc(o.t)}</span><span class="n"></span></label>`
+      ).join("")}</div>
+      <div class="msfoot"><button type="button" data-msclear>Clear</button><button type="button" data-msdone>Done</button></div>
+    </div>`;
+
+  const btn = root.querySelector(".msbtn"), panel = root.querySelector(".mspanel");
+  const close = () => { panel.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+  btn.addEventListener("click", () => {
+    const open = panel.hidden;
+    document.querySelectorAll(".mspanel").forEach(p => { p.hidden = true; });
+    document.querySelectorAll(".msbtn").forEach(b => b.setAttribute("aria-expanded", "false"));
+    panel.hidden = !open;
+    btn.setAttribute("aria-expanded", String(open));
+    if(open){ const sb = panel.querySelector(".mssearch"); if(sb && window.matchMedia("(min-width:761px)").matches) sb.focus(); }
   });
-  const cov = document.getElementById("coverage");
-  if(cov) cov.textContent = covered === 0 ? "No states covered yet" : `${covered} of 51 states covered`;
+  root.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener("change", () => {
+    const set = cfg.set();
+    if(cb.checked) set.add(cb.value); else set.delete(cb.value);
+    render();
+  }));
+  const sb = root.querySelector(".mssearch");
+  if(sb) sb.addEventListener("input", () => {
+    const needle = sb.value.trim().toLowerCase();
+    root.querySelectorAll(".msopt").forEach(o => { o.hidden = !!needle && !o.dataset.t.includes(needle); });
+  });
+  root.querySelector("[data-msclear]").addEventListener("click", () => { cfg.set().clear(); render(); });
+  root.querySelector("[data-msdone]").addEventListener("click", close);
+}
+
+/* Counts and labels, updated in place so an open list doesn't jump. */
+function updateMS(key){
+  const root = document.querySelector(`.ms[data-ms="${key}"]`);
+  if(!root) return;
+  const cfg = MS[key], set = cfg.set();
+  const tally = {};
+  EVENTS.forEach(ev => { if(passes(ev, key)) cfg.tally(ev).forEach(v => { tally[v] = (tally[v] || 0) + 1; }); });
+  root.querySelectorAll(".msopt").forEach(o => {
+    const v = o.dataset.v, n = tally[v] || 0;
+    o.querySelector(".n").textContent = n;
+    o.classList.toggle("zero", n === 0 && !set.has(v));
+    o.querySelector("input").checked = set.has(v);
+  });
+  const sel = [...set];
+  const text = !sel.length ? cfg.all
+    : sel.length === 1 ? msLabel(key, sel[0])
+    : `${msLabel(key, sel[0])} +${sel.length - 1}`;
+  root.querySelector(".mstxt").textContent = text;
+  root.querySelector(".msbtn").classList.toggle("active", sel.length > 0);
+}
+document.addEventListener("click", e => {
+  if(e.target.closest(".ms")) return;
+  document.querySelectorAll(".mspanel").forEach(p => { p.hidden = true; });
+  document.querySelectorAll(".msbtn").forEach(b => b.setAttribute("aria-expanded", "false"));
+  if(!e.target.closest(".subwrap")){ const sp = document.getElementById("subpop"); if(sp) sp.hidden = true; }
+});
+document.addEventListener("keydown", e => {
+  if(e.key !== "Escape") return;
+  document.querySelectorAll(".mspanel").forEach(p => { p.hidden = true; });
+  const sp = document.getElementById("subpop"); if(sp) sp.hidden = true;
+});
+
+/* ---------- Active filter chips ---------- */
+function chipList(){
+  const c = [];
+  if(F.q) c.push({ k: "q", t: `“${F.q}”` });
+  F.states.forEach(s => c.push({ k: "state:" + s, t: STATES[s] }));
+  F.guns.forEach(g => c.push({ k: "gun:" + g, t: g }));
+  F.discs.forEach(d => c.push({ k: "disc:" + d, t: d }));
+  if(F.juniors) c.push({ k: "juniors", t: "Junior eligible" });
+  if(F.range) c.push({ k: "range", t: F.range === "weekend" ? "This weekend" : "Next 30 days" });
+  if(F.near) c.push({ k: "near", t: `Within ${F.radius} mi of ${F.near.label}` });
+  if(!F.hidePast) c.push({ k: "past", t: "Including past matches" });
+  return c;
+}
+function removeChip(k){
+  if(k === "q") F.q = "";
+  else if(k === "juniors") F.juniors = false;
+  else if(k === "range") F.range = "";
+  else if(k === "near") return clearNear();
+  else if(k === "past") F.hidePast = true;
+  else if(k.startsWith("state:")) F.states.delete(k.slice(6));
+  else if(k.startsWith("gun:"))   F.guns.delete(k.slice(4));
+  else if(k.startsWith("disc:"))  F.discs.delete(k.slice(5));
+  syncControls();
+  render();
+}
+function resetFilters(){
+  F.q = ""; F.states.clear(); F.guns.clear(); F.discs.clear();
+  F.juniors = false; F.hidePast = true; F.range = ""; F.sort = "asc";
+  F.near = null; EVENTS.forEach(e => { e._mi = null; });
+  setNearMsg("");
+  syncControls();
+  render();
+}
+
+/* Puts the controls on screen in line with F (after a reset, a chip removal, or
+   when the page opens from a shared link). */
+function syncControls(){
+  const qEl = document.getElementById("q");
+  if(qEl.value.trim() !== F.q) qEl.value = F.q;
+  document.getElementById("juniors").checked = F.juniors;
+  document.getElementById("upcoming").checked = F.hidePast;
+  document.getElementById("radius").value = String(F.radius);
+  document.querySelectorAll("[data-range]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.range === F.range)));
+  document.querySelectorAll("[data-density]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.density === F.density)));
+  document.querySelectorAll("[data-view]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.view === F.view)));
+  const sort = document.getElementById("sort");
+  sort.querySelector('option[value="near"]').disabled = !F.near;
+  if(F.sort === "near" && !F.near) F.sort = "asc";
+  sort.value = F.sort;
+  document.getElementById("nearclear").hidden = !F.near;
+}
+
+/* ---------- Near me ---------- */
+function setNearMsg(text, isErr){
+  const el = document.getElementById("nearmsg");
+  el.textContent = text || "";
+  el.classList.toggle("err", !!isErr);
+}
+function applyNear(near){
+  F.near = near;
+  computeDistances();
+  if(F.sort === "asc") F.sort = "near";
+  const unplaced = EVENTS.filter(e => e.lat == null && !(F.hidePast && isPast(e))).length;
+  setNearMsg(unplaced
+    ? `Showing matches within ${F.radius} miles of ${near.label}. ${unplaced} listing${unplaced === 1 ? " doesn't" : "s don't"} have a location yet, so ${unplaced === 1 ? "it isn't" : "they aren't"} included.`
+    : `Showing matches within ${F.radius} miles of ${near.label}.`);
+  syncControls();
+  render();
+}
+async function nearByZip(zip){
+  if(!/^\d{5}$/.test(zip)){ setNearMsg("Enter a 5-digit ZIP code.", true); return; }
+  setNearMsg("Looking up that ZIP code…");
+  try{
+    const res = await fetch(`${API}/geo?zip=${zip}`);
+    const out = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(out.error || "We couldn't find that ZIP code.");
+    applyNear({ lat: out.lat, lng: out.lng, label: out.label || zip, zip });
+  }catch(err){ setNearMsg(err.message || "We couldn't find that ZIP code.", true); }
+}
+function nearByDevice(){
+  if(!navigator.geolocation){ setNearMsg("Your browser can't share a location. Enter a ZIP code instead.", true); return; }
+  setNearMsg("Asking your device for its location…");
+  navigator.geolocation.getCurrentPosition(
+    pos => applyNear({ lat: pos.coords.latitude, lng: pos.coords.longitude, label: "your location" }),
+    () => setNearMsg("We couldn't get your location. Enter a ZIP code instead.", true),
+    { timeout: 10000, maximumAge: 600000 });
+}
+function clearNear(){
+  F.near = null;
+  EVENTS.forEach(e => { e._mi = null; });
+  if(F.sort === "near") F.sort = "asc";
+  setNearMsg("");
+  document.getElementById("zip").value = "";
+  syncControls();
+  render();
+}
+
+/* ---------- Subscribe feed ---------- */
+function feedParams(){
+  const p = new URLSearchParams();
+  if(F.states.size) p.set("state", [...F.states].join(","));
+  if(F.guns.size)   p.set("gun",   [...F.guns].join(","));
+  if(F.discs.size)  p.set("disc",  [...F.discs].join(","));
+  if(F.juniors)     p.set("juniors", "1");
+  return p.toString();
+}
+function feedHttps(){ const q = feedParams(); return `${location.origin}/calendar.ics${q ? "?" + q : ""}`; }
+function openSubscribe(){
+  const pop = document.getElementById("subpop"), btn = document.getElementById("subbtn");
+  const https = feedHttps(), webcal = https.replace(/^https?:/, "webcal:");
+  document.getElementById("sub-webcal").href = webcal;
+  document.getElementById("sub-google").href = "https://calendar.google.com/calendar/r?cid=" + encodeURIComponent(webcal);
+  pop.hidden = !pop.hidden;
+  btn.setAttribute("aria-expanded", String(!pop.hidden));
+}
+async function copyText(text, btn, doneLabel){
+  try{ await navigator.clipboard.writeText(text); }
+  catch(_){ window.prompt("Copy this:", text); return; }
+  if(btn){ const was = btn.textContent; btn.textContent = doneLabel; setTimeout(() => { btn.textContent = was; }, 1500); }
 }
 
 /* ---------- Calendar export ---------- */
@@ -873,137 +1361,321 @@ function seriesCell(ev){
     `</span></div>`;
 }
 
-function render(){
-  const q     = document.getElementById("q").value.trim().toLowerCase();
-  const st    = document.getElementById("state").value;
-  const disc  = document.getElementById("discipline").value;
-  const gun   = document.getElementById("guntype").value;
-  const sort  = document.getElementById("sort").value;
-  const upcom = document.getElementById("upcoming").checked;
-  const jrs   = document.getElementById("juniors").checked;
+/* ---------- Status, badges, distance ---------- */
+function statusOf(ev){
+  if(ev.live) return "live";
+  const t = todayLocal(), st = parseDate(ev.start), en = parseDate(ev.end) || st;
+  if(ev.results) return "results";
+  if(en < t) return "past";
+  if(st <= t) return "today";
+  return "up";
+}
+function fmtMD(iso){
+  const d = parseDate(iso);
+  return d ? `${MO_ABBR[d.getMonth()]} ${d.getDate()}` : "";
+}
+function statusTag(ev){
+  const k = statusOf(ev);
+  if(k === "live") return `<a class="tag live keep" href="${esc(ev.path)}"><span class="dot"></span>LIVE NOW</a>`;
+  if(k === "results"){
+    const when = fmtMD(ev.resultsAt);
+    return `<span class="tag results keep">Results posted${when ? " " + esc(when) : ""}</span>`;
+  }
+  if(k === "past") return `<span class="tag st past keep">Past</span>`;
+  if(k === "today"){
+    const same = parseDate(ev.start).getTime() === todayLocal().getTime();
+    return `<span class="tag st today keep">${same ? "Today" : "In progress"}</span>`;
+  }
+  return `<span class="tag st up keep">Upcoming</span>`;
+}
+/* A listing nobody has touched for two months is probably worth double-checking
+   before someone drives hours to it, so it says when it was last confirmed. */
+function staleTag(ev){
+  const k = statusOf(ev);
+  if((k !== "up" && k !== "today") || !ev.confirmed) return "";
+  const c = parseDate(ev.confirmed);
+  if(!c) return "";
+  const days = Math.round((todayLocal() - c) / 86400000);
+  return days >= 60
+    ? `<span class="tag stale keep" title="The organizer or our team last checked this listing ${days} days ago. Check the registration link before you travel.">Last confirmed ${esc(fmtMD(ev.confirmed))}</span>`
+    : "";
+}
+const distTag = ev => ev._mi == null ? "" : `<span class="tag mi keep">${Math.round(ev._mi)} mi away</span>`;
 
-  let rows = EVENTS.map((ev,i) => ({ev,i})).filter(({ev}) => {
-    if(!parseDate(ev.start)) return false;
-    // Events with published results stay listed even when past events are hidden,
-    // since results are the reason someone looks a match up afterwards.
-    if(upcom && isPast(ev) && !ev.results) return false;
-    if(st && ev.state !== st) return false;
-    // A match counts if ANY of its types is the selected one — a club running
-    // both airgun and rimfire relays should show up under either.
-    if(gun && !(ev.gunTypes || []).includes(gun)) return false;
-    // An event matches if ANY of its disciplines is the selected one
-    if(disc && !(ev.disciplines || []).includes(disc)) return false;
-    if(jrs && !ev.juniors) return false;
-    if(q){
-      const competitors = ev.results
-        ? Object.values(ev.results).flat().map(r => r.competitor).join(" ") : "";
-      const hay = [ev.name, ev.venue, ev.city, ev.state, STATES[ev.state],
-                   (ev.gunTypes || []).join(" "), (ev.disciplines || []).join(" "), ev.org, ev.note, competitors]
-        .filter(Boolean).join(" ").toLowerCase();
-      if(!hay.includes(q)) return false;
-    }
-    return true;
+/* ---------- Pieces of a card ---------- */
+function detailsHTML(ev, i){
+  const hasResults = !!ev.results;
+  const s = parseDate(ev.start), e = parseDate(ev.end);
+  const days = e && e.getTime() !== s.getTime() ? Math.round((e - s) / 86400000) + 1 : 1;
+  return `<div class="details">
+    <div class="dgrid">
+      ${dcell("When", fmtRange(ev) + (days > 1 ? ` · ${days} days` : ""))}
+      ${dcell("Venue", ev.venue)}
+      ${dcell("Location", `${ev.city}, ${STATES[ev.state] || ev.state}`)}
+      ${seriesCell(ev)}
+      ${dcell("Shot with", (ev.gunTypes || []).join(" · ") || "Not specified")}
+      ${dcell("Disciplines", (ev.disciplines || []).join(" · ") || "Not specified")}
+      ${dcell("Organization", ev.org || "Not specified")}
+      ${dcell("Junior / youth", ev.juniors ? "Eligible" : "Not junior eligible")}
+      ${ev.confirmed ? dcell("Last confirmed", fmtRange({ start: ev.confirmed.slice(0,10), end: "" })) : ""}
+    </div>
+    ${ev.note ? `<div class="dnote"><span class="k">Event details</span>${esc(ev.note)}</div>` : ""}
+    ${resultsTable(ev)}
+    ${videoEmbed(ev.video)}
+    <div class="dactions">
+      ${ev.url ? `<a class="go" href="${esc(ev.url)}" target="_blank" rel="noopener noreferrer">Registration &amp; info ↗</a>` : ""}
+      ${hasResults ? "" : `<button type="button" data-ics="${i}">Add to calendar</button>`}
+      <a href="${esc(mapLink(ev))}" target="_blank" rel="noopener noreferrer">Directions ↗</a>
+    </div>
+  </div>`;
+}
+
+function cardHTML(ev, i){
+  const s = parseDate(ev.start), e = parseDate(ev.end);
+  const multi = e && e.getTime() !== s.getTime();
+  const open = OPEN.has(ev.id), hasResults = !!ev.results;
+  return `<article class="event${isPast(ev) ? " past" : ""}${open ? " open" : ""}${F.density === "compact" ? " compact" : ""}"
+                    data-open="${esc(ev.id)}" tabindex="0" role="button" aria-expanded="${open}">
+    <div class="date">
+      <span class="mo">${MO_ABBR[s.getMonth()]}</span>
+      <span class="dy">${s.getDate()}</span>
+      <span class="yr">${s.getFullYear()}</span>
+      ${multi ? `<span class="span">thru ${MO_ABBR[e.getMonth()]} ${e.getDate()}</span>` : ""}
+    </div>
+    <div class="ebody">
+      <h3>${esc(ev.name)}<span class="chev">▾</span></h3>
+      <p class="meta">${esc(fmtRange(ev))}<span class="sep">|</span>${esc(ev.venue)} — ${esc(ev.city)}, ${esc(ev.state)}</p>
+      <div class="tags">
+        ${statusTag(ev)}
+        ${distTag(ev)}
+        ${staleTag(ev)}
+        <span class="tag state keep">${esc(STATES[ev.state] || ev.state)}</span>
+        ${(ev.gunTypes || []).map(g => `<span class="tag gun">${esc(g)}</span>`).join("")}
+        ${(ev.disciplines || []).map(d => `<span class="tag">${esc(d)}</span>`).join("")}
+        ${ev.org ? `<span class="tag org">${esc(ev.org)}</span>` : ""}
+        ${ev.juniors ? `<span class="tag">Junior eligible</span>` : ""}
+      </div>
+    </div>
+    <div class="eactions">
+      <button class="minibtn ${open ? "" : (hasResults ? "res" : "primary")}" type="button" data-open="${esc(ev.id)}">
+        ${open ? (hasResults ? "Hide results" : "Hide details") : (hasResults ? "Results" : "View details")}
+      </button>
+      ${hasResults ? "" : `<button class="minibtn" type="button" data-ics="${i}">Add to calendar</button>`}
+      ${ev.path ? `<a class="minibtn" href="${esc(ev.path)}">Event page</a>` : ""}
+    </div>
+    ${open ? detailsHTML(ev, i) : ""}
+  </article>`;
+}
+
+/* One row for a recurring match instead of a dozen near-identical cards. */
+function groupHTML(g){
+  const key = "s:" + g.id, open = OPEN.has(key);
+  const head = (g.items.find(x => !isPast(x.ev)) || g.items[0]).ev;
+  const s = parseDate(head.start), n = g.items.length;
+  const places = new Set(g.items.map(x => x.ev.city + "," + x.ev.state));
+  const states = new Set(g.items.map(x => x.ev.state));
+  const where = places.size === 1 ? `${esc(head.city)}, ${esc(head.state)}` : "Multiple locations";
+  const guns = [...new Set(g.items.flatMap(x => x.ev.gunTypes || []))];
+  return `<article class="event series${open ? " open" : ""}${F.density === "compact" ? " compact" : ""}"
+                    data-open="${esc(key)}" tabindex="0" role="button" aria-expanded="${open}">
+    <div class="date">
+      <span class="mo">${MO_ABBR[s.getMonth()]}</span>
+      <span class="dy">${s.getDate()}</span>
+      <span class="yr">${s.getFullYear()}</span>
+    </div>
+    <div class="ebody">
+      <h3>${esc(head.name)}<span class="chev">▾</span></h3>
+      <p class="meta">${n} dates<span class="sep">|</span>${isPast(head) ? "Latest" : "Next"}: ${esc(fmtShort(head.start))}<span class="sep">|</span>${where}</p>
+      <div class="tags">
+        ${statusTag(head)}
+        <span class="tag series keep">Series · ${n} dates</span>
+        ${states.size === 1 ? `<span class="tag state keep">${esc(STATES[head.state] || head.state)}</span>` : ""}
+        ${guns.map(x => `<span class="tag gun">${esc(x)}</span>`).join("")}
+        ${head.juniors ? `<span class="tag">Junior eligible</span>` : ""}
+      </div>
+    </div>
+    <div class="eactions">
+      <button class="minibtn ${open ? "" : "primary"}" type="button" data-open="${esc(key)}">${open ? "Hide dates" : `Show ${n} dates`}</button>
+    </div>
+    ${open ? `<div class="seriesbody">${g.items.map(({ev, i}) => `
+      <div class="srow" data-open="${esc(ev.id)}" tabindex="0" role="button" aria-expanded="${OPEN.has(ev.id)}">
+        <div class="sline">
+          <span class="sdate">${esc(fmtRange(ev))}</span>
+          <span class="sloc">${esc(ev.city)}, ${esc(ev.state)}</span>
+          <span class="tags">${statusTag(ev)}${distTag(ev)}${staleTag(ev)}</span>
+          <span class="sbtns">${ev.results ? "" : `<button class="minibtn" type="button" data-ics="${i}">Add to calendar</button>`}
+            ${ev.path ? `<a class="minibtn" href="${esc(ev.path)}">Event page</a>` : ""}</span>
+        </div>
+        ${OPEN.has(ev.id) ? detailsHTML(ev, i) : ""}
+      </div>`).join("")}</div>` : ""}
+  </article>`;
+}
+
+/* Turns a sorted run of matches into rows, collapsing recurring series. A series
+   is shown once, where its first match falls. */
+function buildBlocks(rows){
+  const bySeries = new Map();
+  rows.forEach(r => { if(r.ev.seriesId){ (bySeries.get(r.ev.seriesId) || bySeries.set(r.ev.seriesId, []).get(r.ev.seriesId)).push(r); } });
+  const done = new Set(), blocks = [];
+  rows.forEach(r => {
+    const sid = r.ev.seriesId, grp = sid && bySeries.get(sid);
+    if(grp && grp.length >= 2){
+      if(done.has(sid)) return;
+      done.add(sid);
+      const items = grp.slice().sort((a, b) => a.ev.start.localeCompare(b.ev.start));
+      blocks.push({ group: { id: sid, items }, first: items[0].ev });
+    }else blocks.push({ row: r, first: r.ev });
   });
+  return blocks;
+}
 
-  rows.sort((a,b) => {
+function renderLiveStrip(){
+  const el = document.getElementById("livestrip");
+  const live = EVENTS.filter(e => e.live && e.path);
+  if(!live.length){ el.hidden = true; el.innerHTML = ""; return; }
+  el.hidden = false;
+  el.innerHTML = `<div class="lsmain"><span class="lslabel"><span class="dot"></span>LIVE NOW</span>` +
+    live.slice(0, 3).map(e => `<a class="lscard" href="${esc(e.path)}"><b>${esc(e.name)}</b><span>${esc(e.city)}, ${esc(e.state)}</span><span class="lsgo">Watch live standings →</span></a>`).join("") +
+    (live.length > 3 ? `<span class="lsmore">+${live.length - 3} more live</span>` : "") + `</div>`;
+}
+
+function renderChips(){
+  const c = chipList(), el = document.getElementById("chips");
+  el.innerHTML = c.map(x => `<span class="fchip">${esc(x.t)}<button type="button" data-chip="${esc(x.k)}" aria-label="Remove filter ${esc(x.t)}">×</button></span>`).join("") +
+    (c.length > 1 ? `<button type="button" class="fchip clearall" data-clearall>Clear all</button>` : "");
+}
+
+function monthKey(d){ return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); }
+function monthName(key){ const [y, m] = key.split("-").map(Number); return `${MONTHS[m - 1]} ${y}`; }
+
+function fillMonthJump(keys, current){
+  const sel = document.getElementById("monthjump");
+  if(F.view === "list" && F.sort === "near"){ sel.hidden = true; return; }
+  sel.hidden = !keys.length;
+  sel.innerHTML = (F.view === "list" ? `<option value="">Jump to month…</option>` : "") +
+    keys.map(k => `<option value="${k}"${k === current ? " selected" : ""}>${esc(monthName(k))}</option>`).join("");
+}
+
+function gridHTML(rows){
+  const t = todayLocal();
+  if(F.gridY === null){ F.gridY = t.getFullYear(); F.gridM = t.getMonth(); }
+  const y = F.gridY, m = F.gridM;
+  const first = new Date(y, m, 1), start = addDays(first, -first.getDay());
+  const byDay = {};
+  rows.forEach(r => {
+    const s = parseDate(r.ev.start), e = parseDate(r.ev.end) || s;
+    for(let d = s, n = 0; d <= e && n < 62; d = addDays(d, 1), n++) (byDay[isoOf(d)] = byDay[isoOf(d)] || []).push(r);
+  });
+  let cells = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(x => `<div class="gh">${x}</div>`).join("");
+  for(let n = 0; n < 42; n++){
+    const d = addDays(start, n), iso = isoOf(d), list = byDay[iso] || [];
+    const cls = ["gcell", d.getMonth() !== m ? "other" : "", d.getTime() === t.getTime() ? "today" : "", F.gridDay === iso ? "sel" : ""].join(" ");
+    cells += `<button type="button" class="${cls}" data-day="${iso}" aria-label="${esc(fmtShort(iso))}, ${list.length} match${list.length === 1 ? "" : "es"}">
+      <span class="gd">${d.getDate()}</span>
+      <span class="gpwrap">${list.slice(0, 2).map(r => `<span class="gp ${statusOf(r.ev)}">${esc(r.ev.name)}</span>`).join("")}</span>
+      ${list.length > 2 ? `<span class="gmore">+${list.length - 2} more</span>` : ""}</button>`;
+  }
+  const inMonth = rows.filter(r => {
+    const s = parseDate(r.ev.start), e = parseDate(r.ev.end) || s;
+    return s <= new Date(y, m + 1, 0) && e >= first;
+  });
+  let panelRows = inMonth, title = `All matches in ${MONTHS[m]} ${y}`;
+  if(F.gridDay){ panelRows = byDay[F.gridDay] || []; title = fmtRange({ start: F.gridDay, end: "" }); }
+  const panel = panelRows.length
+    ? panelRows.map(r => cardHTML(r.ev, r.i)).join("")
+    : `<div class="empty">No matches ${F.gridDay ? "on this day" : "this month"} with the current filters.</div>`;
+  return `<div class="gridnav"><button type="button" data-gridnav="prev" aria-label="Previous month">‹</button>
+      <h2>${MONTHS[m]} ${y}</h2>
+      <button type="button" data-gridnav="today">Today</button>
+      <button type="button" data-gridnav="next" aria-label="Next month">›</button></div>
+    <div class="mgrid">${cells}</div>
+    <div class="daypanel"><h3>${esc(title)}</h3>${panel}</div>`;
+}
+
+function render(){
+  const grid = F.view === "grid";
+  let rows = EVENTS.map((ev, i) => ({ ev, i })).filter(({ ev }) => passes(ev, null, grid));
+  rows.sort((a, b) => {
     const d = parseDate(a.ev.start) - parseDate(b.ev.start);
-    return sort === "asc" ? d : -d;
+    if(grid) return d;
+    if(F.sort === "near") return ((a.ev._mi ?? 1e9) - (b.ev._mi ?? 1e9)) || d;
+    return F.sort === "asc" ? d : -d;
   });
 
   const total = EVENTS.length;
   document.getElementById("count").innerHTML =
-    `Showing <b>${rows.length}</b> of ${total} event${total === 1 ? "" : "s"}` +
-    (st ? ` in ${esc(STATES[st] || st)}` : "");
+    `Showing <b>${rows.length}</b> of ${total} event${total === 1 ? "" : "s"}`;
   const t = todayLocal();
+  const up = EVENTS.filter(e => !isPast(e) && parseDate(e.start));
+  const stN = new Set(up.map(e => e.state)).size;
+  document.getElementById("coverage").textContent =
+    up.length ? `${up.length} upcoming across ${stN} state${stN === 1 ? "" : "s"}` : "";
   document.getElementById("asof").textContent =
     "Updated " + MONTHS[t.getMonth()] + " " + t.getDate() + ", " + t.getFullYear();
-  refreshStateCounts();
+  ["state", "gun", "disc"].forEach(updateMS);
+  renderChips();
+  renderLiveStrip();
+  syncControls();
+  writeURL();
 
   const list = document.getElementById("list");
-  if(!rows.length){
-    const msg = total === 0
-      ? `<strong>No events listed yet.</strong>
-         This calendar is brand new — if you run a match,
-         <a href="#submit">be the first to add it</a>.`
-      : st
-        ? `<strong>Nothing listed in ${esc(STATES[st] || st)} yet.</strong>
-           This calendar is only as complete as what gets submitted — if you know of a
-           match in ${esc(STATES[st] || st)}, <a href="#submit">add it here</a>.`
-        : `<strong>No events match those filters.</strong>
-           Try clearing the state or discipline — or
-           <a href="#submit">add the match you're hosting</a>.`;
-    list.innerHTML = `<div class="empty">${msg}</div>`;
-    return;
+  let html = "";
+
+  if(grid){
+    const keys = new Set(rows.map(r => monthKey(parseDate(r.ev.start))));
+    keys.add(monthKey(t));
+    const cur = `${F.gridY ?? t.getFullYear()}-${String((F.gridM ?? t.getMonth()) + 1).padStart(2, "0")}`;
+    keys.add(cur);
+    fillMonthJump([...keys].sort(), cur);
+    list.innerHTML = gridHTML(rows);
+    return afterRender();
   }
 
-  let html = "", lastKey = "";
-  rows.forEach(({ev,i}) => {
-    const s = parseDate(ev.start);
-    const key = s.getFullYear() + "-" + s.getMonth();
-    if(key !== lastKey){
-      html += `<div class="monthhead">${MONTHS[s.getMonth()]} ${s.getFullYear()}</div>`;
-      lastKey = key;
+  if(!rows.length){
+    const onlyState = F.states.size === 1 && !F.q && !F.guns.size && !F.discs.size && !F.juniors && !F.range && !F.near;
+    const sName = onlyState ? STATES[[...F.states][0]] : "";
+    const msg = total === 0
+      ? `<strong>No events listed yet.</strong> This calendar is brand new — if you run a match, <a href="#submit">be the first to add it</a>.`
+      : onlyState
+        ? `<strong>Nothing listed in ${esc(sName)} yet.</strong> This calendar is only as complete as what gets submitted — if you know of a match in ${esc(sName)}, <a href="#submit">add it here</a>.`
+        : `<strong>No events match those filters.</strong> ${F.near ? "Try a wider distance, remove " : "Try removing "}a filter with the × buttons above, or
+           <button type="button" class="minibtn" data-reset>Reset filters</button>
+           — or <a href="#submit">add the match you're hosting</a>.`;
+    list.innerHTML = `<div class="empty">${msg}</div>`;
+    fillMonthJump([], "");
+    return afterRender();
+  }
+
+  const current = rows.filter(r => !isPast(r.ev));
+  const past = rows.filter(r => isPast(r.ev));
+  const blocks = buildBlocks(current);
+  const keys = [];
+  let lastKey = "";
+  blocks.forEach(b => {
+    if(F.sort !== "near"){
+      const d = parseDate(b.first.start), k = monthKey(d);
+      if(k !== lastKey){
+        html += `<div class="monthhead" id="m-${k}">${MONTHS[d.getMonth()]} ${d.getFullYear()}</div>`;
+        keys.push(k); lastKey = k;
+      }
     }
-    const e = parseDate(ev.end);
-    const multi = e && e.getTime() !== s.getTime();
-    const open = OPEN.has(ev.id);
-    const hasResults = !!ev.results;
-    const days = multi ? Math.round((e - s) / 86400000) + 1 : 1;
-
-    html += `<article class="event${isPast(ev) ? " past" : ""}${open ? " open" : ""}"
-                      data-open="${esc(ev.id)}" tabindex="0" role="button"
-                      aria-expanded="${open}">
-      <div class="date">
-        <span class="mo">${MO_ABBR[s.getMonth()]}</span>
-        <span class="dy">${s.getDate()}</span>
-        <span class="yr">${s.getFullYear()}</span>
-        ${multi ? `<span class="span">thru ${MO_ABBR[e.getMonth()]} ${e.getDate()}</span>` : ""}
-      </div>
-      <div class="ebody">
-        <h3>${esc(ev.name)}<span class="chev">▾</span></h3>
-        <p class="meta">${esc(fmtRange(ev))}<span class="sep">|</span>${esc(ev.venue)} — ${esc(ev.city)}, ${esc(ev.state)}</p>
-        <div class="tags">
-          <span class="tag state">${esc(STATES[ev.state] || ev.state)}</span>
-          ${(ev.gunTypes || []).map(g => `<span class="tag gun">${esc(g)}</span>`).join("")}
-          ${(ev.disciplines || []).map(d => `<span class="tag">${esc(d)}</span>`).join("")}
-          ${ev.org ? `<span class="tag org">${esc(ev.org)}</span>` : ""}
-          ${ev.juniors ? `<span class="tag">Junior eligible</span>` : ""}
-          ${ev.live ? `<a class="tag live" href="${esc(ev.path)}"><span class="dot"></span>LIVE NOW</a>`
-                    : ev.results ? `<span class="tag results">Results</span>` : ""}
-        </div>
-      </div>
-      <div class="eactions">
-        <button class="minibtn ${open ? "" : (hasResults ? "res" : "primary")}" type="button" data-open="${esc(ev.id)}">
-          ${open ? (hasResults ? "Hide results" : "Hide details")
-                 : (hasResults ? "Results" : "View details")}
-        </button>
-        ${hasResults ? "" : `<button class="minibtn" type="button" data-ics="${i}">Add to calendar</button>`}
-        ${ev.path ? `<a class="minibtn" href="${esc(ev.path)}">Event page</a>` : ""}
-      </div>
-
-      ${open ? `<div class="details">
-        <div class="dgrid">
-          ${dcell("When", fmtRange(ev) + (days > 1 ? ` · ${days} days` : ""))}
-          ${dcell("Venue", ev.venue)}
-          ${dcell("Location", `${ev.city}, ${STATES[ev.state] || ev.state}`)}
-          ${seriesCell(ev)}
-          ${dcell("Shot with", (ev.gunTypes || []).join(" · ") || "Not specified")}
-          ${dcell("Disciplines", (ev.disciplines || []).join(" · ") || "Not specified")}
-          ${dcell("Organization", ev.org || "Not specified")}
-          ${dcell("Junior / youth", ev.juniors ? "Eligible" : "Not junior eligible")}
-        </div>
-        ${ev.note ? `<div class="dnote"><span class="k">Event details</span>${esc(ev.note)}</div>` : ""}
-        ${resultsTable(ev)}
-        ${videoEmbed(ev.video)}
-        <div class="dactions">
-          ${ev.url ? `<a class="go" href="${esc(ev.url)}" target="_blank" rel="noopener noreferrer">Registration &amp; info ↗</a>` : ""}
-          ${hasResults ? "" : `<button type="button" data-ics="${i}">Add to calendar</button>`}
-          <a href="${esc(mapLink(ev))}" target="_blank" rel="noopener noreferrer">Directions ↗</a>
-        </div>
-      </div>` : ""}
-    </article>`;
+    html += b.group ? groupHTML(b.group) : cardHTML(b.row.ev, b.row.i);
   });
+  if(past.length){
+    html += `<details class="pastfold"${PAST_OPEN || !current.length ? " open" : ""}>
+      <summary>Past matches (${past.length})</summary>
+      <div class="pastbody">${past.map(r => cardHTML(r.ev, r.i)).join("")}</div></details>`;
+  }
   list.innerHTML = html;
+  fillMonthJump(keys, "");
+  afterRender();
+}
+
+/* Keeps the month headings stuck just under the filter bar, whatever height it is. */
+function afterRender(){
+  const bar = document.getElementById("bar");
+  document.documentElement.style.setProperty("--barh", bar.offsetHeight + "px");
+  bar.classList.toggle("stuck", bar.getBoundingClientRect().top <= 0);
 }
 
 /* ---------- Expand / collapse a card ---------- */
@@ -1011,7 +1683,7 @@ function toggleDetails(id){
   if(OPEN.has(id)) OPEN.delete(id); else OPEN.add(id);
   render();
   // Keep the card under the cursor after the list re-renders
-  const el = document.querySelector(`article[data-open="${CSS.escape(id)}"]`);
+  const el = document.querySelector(`[data-open="${CSS.escape(id)}"]`);
   if(el && OPEN.has(id)){
     const box = el.getBoundingClientRect();
     if(box.bottom > window.innerHeight) el.scrollIntoView({behavior:"smooth", block:"nearest"});
@@ -1289,37 +1961,38 @@ async function init(){
   buildOptions();
   initForm();
   initRepeat();
-  ["q","state","guntype","discipline","sort","upcoming","juniors"].forEach(id => {
-    const el = document.getElementById(id);
-    el.addEventListener(el.type === "search" ? "input" : "change", render);
-  });
-  // Changing the gun type rebuilds the discipline list under it before redrawing.
-  document.getElementById("guntype").addEventListener("change", buildDisciplineFilter);
-  document.getElementById("clear").addEventListener("click", () => {
-    document.getElementById("q").value = "";
-    document.getElementById("state").value = "";
-    document.getElementById("guntype").value = "";
-    buildDisciplineFilter();
-    document.getElementById("discipline").value = "";
-    document.getElementById("sort").value = "asc";
-    document.getElementById("upcoming").checked = true;
-    document.getElementById("juniors").checked = false;
-    render();
-  });
-  const list = document.getElementById("list");
+  const startZip = readURL();
+  const $ = id => document.getElementById(id);
+
+  const list = $("list");
   list.addEventListener("click", e => {
     // Calendar download must not also toggle the panel
     const ics = e.target.closest("[data-ics]");
     if(ics){ e.stopPropagation(); downloadICS(Number(ics.dataset.ics)); return; }
+    if(e.target.closest("[data-reset]")){ resetFilters(); return; }
+    const day = e.target.closest("[data-day]");
+    if(day){ F.gridDay = F.gridDay === day.dataset.day ? "" : day.dataset.day; render(); return; }
+    const nav = e.target.closest("[data-gridnav]");
+    if(nav){
+      const t = todayLocal();
+      let y = F.gridY ?? t.getFullYear(), m = F.gridM ?? t.getMonth();
+      if(nav.dataset.gridnav === "today"){ y = t.getFullYear(); m = t.getMonth(); }
+      else { m += nav.dataset.gridnav === "next" ? 1 : -1; if(m < 0){ m = 11; y--; } if(m > 11){ m = 0; y++; } }
+      F.gridY = y; F.gridM = m; F.gridDay = "";
+      render(); return;
+    }
     // Jumping to another date of the same recurring match
     const jump = e.target.closest("[data-jump]");
     if(jump){
       e.stopPropagation();
-      const card = document.querySelector(`[data-open="${jump.dataset.jump}"]`);
-      if(card){
-        if(!card.classList.contains("open")) toggleDetails(jump.dataset.jump);
-        card.scrollIntoView({behavior:"smooth", block:"center"});
-      }
+      const id = jump.dataset.jump, ev = EVENTS.find(x => x.id === id);
+      if(!ev) return;
+      OPEN.add(id);
+      if(ev.seriesId) OPEN.add("s:" + ev.seriesId);
+      if(isPast(ev)) PAST_OPEN = true;
+      render();
+      const card = document.querySelector(`[data-open="${CSS.escape(id)}"]`);
+      if(card) card.scrollIntoView({behavior:"smooth", block:"center"});
       return;
     }
     // Links inside the details panel behave normally
@@ -1330,25 +2003,56 @@ async function init(){
   // Keyboard support: Enter or Space on a focused card
   list.addEventListener("keydown", e => {
     if(e.key !== "Enter" && e.key !== " ") return;
-    const card = e.target.closest("article[data-open]");
-    if(!card) return;
+    const card = e.target.closest("[data-open]");
+    if(!card || e.target !== card) return;
     e.preventDefault();
     toggleDetails(card.dataset.open);
   });
+  // Remember whether the "Past matches" fold was left open
+  list.addEventListener("toggle", e => { if(e.target.classList && e.target.classList.contains("pastfold")) PAST_OPEN = e.target.open; }, true);
 
   try{
     await loadEvents();
-    buildGunFilter();
+    ["state", "gun", "disc"].forEach(buildMS);
 
-    /* A link can arrive with a filter already chosen — which is how anyone
-       following the old airgun address lands on airgun matches rather than
-       the whole calendar. */
-    const wanted = new URLSearchParams(location.search).get("gun");
-    const gunSel = document.getElementById("guntype");
-    if (wanted && [...gunSel.options].some(o => o.value === wanted)) gunSel.value = wanted;
+    $("q").addEventListener("input", e => { F.q = e.target.value.trim(); render(); });
+    $("sort").addEventListener("change", e => { F.sort = e.target.value; render(); });
+    $("upcoming").addEventListener("change", e => { F.hidePast = e.target.checked; render(); });
+    $("juniors").addEventListener("change", e => { F.juniors = e.target.checked; render(); });
+    document.querySelectorAll("[data-range]").forEach(b => b.addEventListener("click", () => {
+      F.range = F.range === b.dataset.range ? "" : b.dataset.range; render();
+    }));
+    $("zipgo").addEventListener("click", () => nearByZip($("zip").value.trim()));
+    $("zip").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); nearByZip($("zip").value.trim()); } });
+    $("usegeo").addEventListener("click", nearByDevice);
+    $("nearclear").addEventListener("click", clearNear);
+    $("radius").addEventListener("change", e => { F.radius = Number(e.target.value); if(F.near) applyNear(F.near); else render(); });
+    $("clear").addEventListener("click", resetFilters);
+    $("copylink").addEventListener("click", e => copyText(location.href, e.currentTarget, "Link copied"));
+    $("subbtn").addEventListener("click", openSubscribe);
+    $("sub-copy").addEventListener("click", e => copyText(feedHttps(), e.currentTarget, "Copied"));
+    $("chips").addEventListener("click", e => {
+      if(e.target.closest("[data-clearall]")){ resetFilters(); return; }
+      const c = e.target.closest("[data-chip]");
+      if(c) removeChip(c.dataset.chip);
+    });
+    document.querySelectorAll("[data-density]").forEach(b => b.addEventListener("click", () => { F.density = b.dataset.density; render(); }));
+    document.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click", () => { F.view = b.dataset.view; F.gridDay = ""; render(); }));
+    $("monthjump").addEventListener("change", e => {
+      const v = e.target.value;
+      if(!v) return;
+      if(F.view === "grid"){ const [y, m] = v.split("-").map(Number); F.gridY = y; F.gridM = m - 1; F.gridDay = ""; render(); return; }
+      const el = document.getElementById("m-" + v);
+      if(el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - $("bar").offsetHeight - 4, behavior: "smooth" });
+      e.target.value = "";
+    });
+    const onScroll = () => { const b = $("bar"); b.classList.toggle("stuck", b.getBoundingClientRect().top <= 0); };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", afterRender);
 
-    buildDisciplineFilter();
-    render();
+    syncControls();
+    if(startZip){ $("zip").value = startZip; render(); await nearByZip(startZip); }
+    else render();
     watchLive();
   }catch(err){
     document.getElementById("list").innerHTML =
@@ -1368,9 +2072,7 @@ async function init(){
  */
 function watchLive(){
   let busy = false;
-  const tag = ev => ev.live
-    ? `<a class="tag live" href="${esc(ev.path)}"><span class="dot"></span>LIVE NOW</a>`
-    : ev.results ? `<span class="tag results">Results</span>` : "";
+  const tag = ev => statusTag(ev);
 
   async function check(){
     if(busy || document.hidden) return;
@@ -1390,15 +2092,16 @@ function watchLive(){
         const resultsChanged = !!results !== !!ev.results;
         if(!liveChanged && !resultsChanged) continue;
 
-        ev.live = live; ev.results = results; ev.path = r.path || ev.path;
+        ev.live = live; ev.results = results; ev.resultsAt = r.results_updated_at || ev.resultsAt; ev.path = r.path || ev.path;
         if(resultsChanged){ redraw = true; continue; }
 
         const card = document.querySelector(`article[data-open="${CSS.escape(ev.id)}"]`);
         const tags = card && card.querySelector(".tags");
-        if(!tags) continue;
-        tags.querySelectorAll(".tag.live, .tag.results").forEach(n => n.remove());
-        tags.insertAdjacentHTML("beforeend", tag(ev));
+        if(!tags){ redraw = true; continue; }   // inside a series row or the month grid
+        tags.querySelectorAll(".tag.live, .tag.results, .tag.st").forEach(n => n.remove());
+        tags.insertAdjacentHTML("afterbegin", tag(ev));
       }
+      renderLiveStrip();
 
       if(redraw){
         const y = window.scrollY;

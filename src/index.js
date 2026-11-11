@@ -46,7 +46,8 @@ import {
 /* Columns the public may ever see. Submitter and review fields are absent
    by construction rather than filtered out afterwards. */
 const PUBLIC_COLUMNS =
-  "id, name, start_date, end_date, venue, city, state, gun_types, disciplines, org, juniors, url, video_url, note, series_id";
+  "id, name, start_date, end_date, venue, city, state, gun_types, disciplines, org, juniors, url, video_url, note, series_id, " +
+  "lat, lng, geo_at, confirmed_at, results_updated_at";
 
 /* A club running the same match every month submits it once and gets one
    listing per date, all sharing a series id.
@@ -593,11 +594,181 @@ function readAccuracy(score) {
 /* Handlers                                                            */
 /* ------------------------------------------------------------------ */
 
-async function getPublicEvents(env) {
+/* ------------------------------------------------------------------ */
+/* Where things are                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * City and ZIP lookups for the "near me" filter. zippopotam.us is free, needs
+ * no key, and answers both "which ZIP is this" and "where is Orlando, FL". The
+ * answer is a place's centre, which is exactly as precise as a shooter driving
+ * three hours needs and no more. Results are cached at the edge for a week.
+ */
+async function lookupPlace(path) {
+  try {
+    const res = await fetch(`https://api.zippopotam.us/us/${path}`, {
+      cf: { cacheTtl: 604800, cacheEverything: true }
+    });
+    if (!res.ok) return null;
+    const j = await res.json();
+    const p = (j.places || [])[0];
+    const lat = p ? parseFloat(p.latitude) : NaN, lng = p ? parseFloat(p.longitude) : NaN;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng, label: `${p["place name"]}, ${p["state abbreviation"]}` };
+  } catch { return null; }
+}
+
+async function geocodeCity(city, state) {
+  const c = String(city || "").trim().toLowerCase();
+  const st = String(state || "").trim().toLowerCase();
+  if (!c || !/^[a-z]{2}$/.test(st)) return null;
+  const tries = [c];
+  const alt = c.replace(/^st\.?\s+/, "saint ").replace(/^mt\.?\s+/, "mount ").replace(/^ft\.?\s+/, "fort ");
+  if (alt !== c) tries.push(alt);
+  for (const t of tries) {
+    const hit = await lookupPlace(`${st}/${encodeURIComponent(t)}`);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** GET /api/geo?zip=32801 — the point a ZIP code stands for. */
+async function apiGeo(request) {
+  const zip = String(new URL(request.url).searchParams.get("zip") || "").trim();
+  if (!/^\d{5}$/.test(zip)) return fail("Enter a 5-digit ZIP code.");
+  const hit = await lookupPlace(zip);
+  if (!hit) return fail("We couldn't find that ZIP code.", 404);
+  return json(hit, 200, { "cache-control": "public, max-age=86400" });
+}
+
+/** Fills in coordinates for matches that don't have them yet. A match that
+ *  can't be found is remembered for a week rather than asked about on every
+ *  page view. Runs after the response has gone out. */
+async function geocodeMissing(env, rows) {
+  for (const r of rows) {
+    const hit = await geocodeCity(r.city, r.state);
+    await env.DB.prepare(
+      "UPDATE events SET lat = ?, lng = ?, geo_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?"
+    ).bind(hit ? hit.lat : null, hit ? hit.lng : null, r.id).run();
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Subscribable calendar feed                                          */
+/* ------------------------------------------------------------------ */
+
+const icsEsc = t => String(t ?? "").replace(/\\/g, "\\\\").replace(/;/g, "\\;")
+  .replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+
+/** Lines in a calendar file may not run past 75 bytes; longer ones are folded
+ *  onto continuation lines that start with a space. */
+function icsFold(line) {
+  const enc = new TextEncoder();
+  if (enc.encode(line).length <= 75) return line;
+  const out = [];
+  let cur = "", bytes = 0;
+  for (const ch of line) {
+    const b = enc.encode(ch).length;
+    if (bytes + b > 75) { out.push(cur); cur = " "; bytes = 1; }
+    cur += ch; bytes += b;
+  }
+  out.push(cur);
+  return out.join("\r\n");
+}
+
+/**
+ * GET /calendar.ics?state=FL,GA&gun=Airgun&disc=Silhouette&juniors=1
+ *
+ * The same filters as the calendar page, as a feed a phone or desktop calendar
+ * can subscribe to. It updates itself: new matches appear and changed dates
+ * move without anyone doing anything. Matches from the last 45 days onward are
+ * included so a subscriber still sees what just happened. Test events are never
+ * included.
+ */
+async function calendarFeed(request, env, origin) {
+  const u = new URL(request.url);
+  const list = k => (u.searchParams.get(k) || "").split(",").map(x => x.trim()).filter(Boolean).slice(0, 60);
+  const states = list("state").map(x => x.toUpperCase());
+  const guns = list("gun"), discs = list("disc");
+  const juniors = u.searchParams.get("juniors") === "1";
+
+  const { results } = await env.DB.prepare(
+    `SELECT ${PUBLIC_COLUMNS} FROM events
+      WHERE status = 'approved' AND is_test = 0
+        AND date(COALESCE(end_date, start_date)) >= date('now','-45 days')
+      ORDER BY start_date ASC`
+  ).all();
+
+  const events = (results || []).map(parseRow).map(e => ({
+    ...e, gun_types: e.gun_types.length ? e.gun_types : ["Airgun"]
+  })).filter(e =>
+    (!states.length || states.includes(e.state)) &&
+    (!guns.length || e.gun_types.some(g => guns.includes(g))) &&
+    (!discs.length || e.disciplines.some(d => discs.includes(d))) &&
+    (!juniors || e.juniors));
+
+  const stamp = d => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const day = iso => String(iso).slice(0, 10).replace(/-/g, "");
+  const dayAfter = iso => {
+    const [y, m, dd] = String(iso).slice(0, 10).split("-").map(Number);
+    return stamp(new Date(Date.UTC(y, m - 1, dd + 1))).slice(0, 8);
+  };
+  const now = stamp(new Date());
+
+  const title = ["GunMatches", [...states, ...guns, ...discs].join(" · ")].filter(Boolean).join(" — ");
+  const lines = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//GunMatches.com//Calendar//EN",
+    "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+    `X-WR-CALNAME:${icsEsc(title)}`,
+    "X-WR-CALDESC:Shooting matches from GunMatches.com",
+    "REFRESH-INTERVAL;VALUE=DURATION:PT6H", "X-PUBLISHED-TTL:PT6H"
+  ];
+  for (const e of events) {
+    const first = day(e.start_date), last = e.end_date || e.start_date;
+    const modified = e.confirmed_at ? stamp(new Date(e.confirmed_at)).replace(/Z?$/, "Z") : now;
+    const about = [
+      [e.gun_types.join(", "), e.disciplines.join(", ")].filter(Boolean).join(" — "),
+      e.org, e.note, e.url, `${origin}${eventPath(e)}`
+    ].filter(Boolean).join("\n");
+    lines.push(
+      "BEGIN:VEVENT",
+      `UID:${e.id}@gunmatches.com`,
+      `DTSTAMP:${now}`,
+      `LAST-MODIFIED:${modified.length === 16 ? modified : now}`,
+      `DTSTART;VALUE=DATE:${first}`,
+      `DTEND;VALUE=DATE:${dayAfter(last)}`,
+      `SUMMARY:${icsEsc(e.name)}`,
+      `LOCATION:${icsEsc([e.venue, e.city, e.state].filter(Boolean).join(", "))}`,
+      `DESCRIPTION:${icsEsc(about)}`,
+      `URL:${origin}${eventPath(e)}`,
+      "STATUS:CONFIRMED", "TRANSP:TRANSPARENT",
+      "END:VEVENT"
+    );
+  }
+  lines.push("END:VCALENDAR");
+
+  return new Response(lines.map(icsFold).join("\r\n") + "\r\n", {
+    headers: {
+      "content-type": "text/calendar; charset=utf-8",
+      "content-disposition": 'inline; filename="gunmatches.ics"',
+      "cache-control": "public, max-age=900",
+      ...securityHeaders()
+    }
+  });
+}
+
+async function getPublicEvents(env, ctx) {
   const { results } = await env.DB.prepare(
     `SELECT ${PUBLIC_COLUMNS} FROM events WHERE status = 'approved' ORDER BY start_date ASC`
   ).all();
+
+  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+  const need = (results || []).filter(r =>
+    (r.lat === null || r.lat === undefined) && (!r.geo_at || r.geo_at < weekAgo)).slice(0, 6);
+  if (need.length && ctx && ctx.waitUntil) ctx.waitUntil(geocodeMissing(env, need).catch(() => {}));
+
   const events = (results || []).map(parseRow);
+  events.forEach(e => { delete e.geo_at; });
 
   // Attach published results, grouped by discipline, in finishing order.
   const rows = await env.DB.prepare(
@@ -1661,6 +1832,12 @@ async function adminUpdate(request, env, id, email) {
   }
 
   if (!sets.length) return fail("Nothing to update.");
+
+  /* An admin edit or approval counts as the listing having been checked. A
+     change of town clears the stored coordinates so they are looked up again. */
+  const touched = body.status === "approved" || Object.keys(body).some(k => EDITABLE.has(k));
+  if (touched) sets.push("confirmed_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')");
+  if ("city" in body || "state" in body) sets.push("lat = NULL", "lng = NULL", "geo_at = NULL");
   binds.push(id);
 
   try {
@@ -1879,7 +2056,8 @@ export default {
 
       if (path.startsWith("/api/")) {
         // ---- public ----
-        if (path === "/api/events" && method === "GET")  return await getPublicEvents(env);
+        if (path === "/api/events" && method === "GET")  return await getPublicEvents(env, ctx);
+        if (path === "/api/geo" && method === "GET")     return await apiGeo(request);
         if (path === "/api/events" && method === "POST") return await createSubmission(request, env);
 
         // Results upload — authorised by the event's own code, nothing else
@@ -1975,6 +2153,9 @@ export default {
          replaces them the moment it runs, so this changes nothing a visitor
          sees — it exists for the first pass of a crawler, which does not wait
          for JavaScript. */
+      if (path === "/calendar.ics" && (method === "GET" || method === "HEAD"))
+        return await calendarFeed(request, env, canon);
+
       if ((path === "/" || path === "/index.html") && method === "GET") {
         const res = await calendarAsset(request, env, origin);
         if (!res || !res.ok) return res || fail("Not found", 404);

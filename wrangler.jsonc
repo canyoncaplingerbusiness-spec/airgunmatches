@@ -22,7 +22,7 @@
   // again undoes the move instantly, which is why it's a setting and not
   // something baked into the code.
   "vars": {
-    "REDIRECT_HOST": ""
+    "REDIRECT_HOST": "gunmatches.com"
   },
   "observability": { "enabled": true }
 }
