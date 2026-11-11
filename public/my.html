@@ -122,6 +122,24 @@
   .chk{display:flex;gap:12px;align-items:center;font-size:18px;font-weight:600;margin:14px 0 4px;text-transform:none;letter-spacing:0;color:var(--text)}
   .chk input{width:28px;height:28px;min-height:0;flex:none}
   .pill.match{background:#e3f6e8;color:var(--green)}
+  .fmt{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px}
+  .fmt button{min-height:72px;font-size:18px;background:#fff;color:var(--navy-2);border:2px solid var(--line);line-height:1.2}
+  .fmt button[aria-pressed=true]{background:#e8f6ec;border-color:#14603c;color:#14603c}
+  .stagecard{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;background:#fafbfc}
+  .stagecard input{font-size:18px;min-height:52px}
+  .srow2{display:flex;align-items:center;gap:12px;margin-top:10px}
+  .srow2 .muted{font-weight:700;font-size:16px}
+  .srow2 .bigstep button{width:56px;min-height:56px;font-size:26px}
+  .srow2 .bigstep b{font-size:28px;min-width:46px}
+  .stagebar{background:#12263f;color:#fff;border-radius:12px;padding:10px 14px;margin:0 0 10px;font-size:18px;font-weight:700}
+  .chipline{font-size:14.5px;color:var(--muted);margin-top:4px}
+  .tune{background:#f6f8fb;border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:12px}
+  .tune h3{margin:0 0 8px}
+  .tune table{width:100%;border-collapse:collapse;font-size:15px;margin:6px 0}
+  .tune th{font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);text-align:left;padding:4px 6px}
+  .tune td{padding:6px;border-top:1px solid var(--line)}
+  .tune .up{color:var(--red);font-weight:700}.tune .down{color:var(--green);font-weight:700}
+  .grp2{margin-bottom:12px}
   [hidden]{display:none!important}
   @media (min-width:700px){ .types{grid-template-columns:repeat(4,1fr)} }
   @media (prefers-reduced-motion:no-preference){ .sheet .panel{animation:up .18s ease-out} @keyframes up{from{transform:translateY(24px);opacity:.4}} }
@@ -236,7 +254,7 @@ function pct(a, b){ return b > 0 ? Math.round(a / b * 1000) / 10 : 0; }
 function toast(msg){ var t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(function(){ t.hidden = true; }, 2600); }
 var TYPES = {
   match:    { name: "Friendly match", short: "Match", blurb: "Tap HIT or MISS" },
-  ft:       { name: "Enter totals by stage", short: "Hits", blurb: "Field target or silhouette, after the fact" },
+  ft:       { name: "Hits by stage (older entry)", short: "Hits", blurb: "Totals typed in by stage" },
   group:    { name: "Benchrest groups", short: "Groups", blurb: "Group size and distance" },
   points:   { name: "Points / total", short: "Points", blurb: "Score and X count" },
   practice: { name: "Practice session", short: "Practice", blurb: "Rounds, notes, setup" }
@@ -263,6 +281,82 @@ function groupStats(e){
            bestMOA: groupToMOA(best, d.sizeUnit, d.distance, d.distUnit),
            avgMOA: groupToMOA(avg, d.sizeUnit, d.distance, d.distUnit) };
 }
+/* ---- airgun tuning: group-size consistency and shot speed (FPS) ---- */
+function mean(a){ return a.reduce(function(x, y){ return x + y; }, 0) / a.length; }
+function sdev(a){ if(a.length < 2) return 0; var m = mean(a); return Math.sqrt(a.reduce(function(x, y){ return x + (y - m) * (y - m); }, 0) / (a.length - 1)); }
+function parseFps(str){
+  if(Array.isArray(str)) return str;
+  return (String(str || "").match(/\d+(?:\.\d+)?/g) || []).map(Number).filter(function(x){ return x >= 50 && x <= 2500; });
+}
+function tuneStats(d){
+  var sizes = [], fps = [];
+  (d.groups || []).forEach(function(g, i){
+    var v = num(g); if(v > 0){ sizes.push(v); fps.push(parseFps(d.fps && d.fps[i] != null ? d.fps[i] : "")); }
+  });
+  if(!sizes.length) return null;
+  var t = { sizes: sizes, n: sizes.length, mean: mean(sizes), sd: sdev(sizes), min: Math.min.apply(null, sizes), max: Math.max.apply(null, sizes) };
+  t.range = t.max - t.min; t.cv = t.mean ? t.sd / t.mean * 100 : 0;
+  t.deltas = sizes.slice(1).map(function(v, i){ return v - sizes[i]; });
+  t.absDelta = t.deltas.length ? mean(t.deltas.map(Math.abs)) : null;
+  var all = [].concat.apply([], fps);
+  t.fpsPer = fps.map(function(a){ return a.length ? { avg: mean(a), es: Math.max.apply(null, a) - Math.min.apply(null, a), n: a.length } : null; });
+  if(all.length){ t.fpsMean = mean(all); t.fpsSD = sdev(all); t.fpsES = Math.max.apply(null, all) - Math.min.apply(null, all); t.fpsN = all.length; }
+  return t;
+}
+function consistencyWord(cv, n){
+  if(n < 2) return "—";
+  return cv <= 10 ? "Very consistent" : cv <= 20 ? "Consistent" : cv <= 35 ? "Some variation" : "Wide variation";
+}
+function moaOf(d, v){ return groupToMOA(v, d.sizeUnit, num(d.distance), d.distUnit); }
+function prevTuning(e){
+  return ENTRIES.filter(function(x){
+    return x.type === "group" && x.data && x.data.tuning && x.id !== e.id && (x.gun || "") === (e.gun || "") &&
+      ((x.date || "") < (e.date || "") || ((x.date || "") === (e.date || "") && (x.created || 0) < (e.created || 0)));
+  }).sort(byDateDesc)[0] || null;
+}
+function sgn(n, unit, lowerIsBetter){
+  if(Math.abs(n) < 0.005) return '<span>no change</span>';
+  var better = lowerIsBetter ? n < 0 : n > 0;
+  return '<span class="' + (better ? "down" : "up") + '">' + (n < 0 ? "▼ " : "▲ ") + r2(Math.abs(n)) + " " + unit + (lowerIsBetter ? (n < 0 ? " tighter" : " wider") : "") + '</span>';
+}
+/* The tuning report: how steady the groups are, and the speed behind them. */
+function tuningHTML(e){
+  var d = e.data, t = tuneStats(d); if(!t) return "";
+  var u = d.sizeUnit === "moa" ? "MOA" : d.sizeUnit, h = '<div class="tune"><h3>Tuning report</h3>';
+  h += '<div class="kpis" style="margin-bottom:8px"><div class="kpi"><b style="font-size:19px">' + consistencyWord(t.cv, t.n) + '</b><span>Consistency' + (t.n > 1 ? " · " + r2(t.cv) + "% spread" : "") + '</span></div>' +
+    '<div class="kpi"><b>' + r2(t.sd) + ' ' + u + '</b><span>Group size spread (std. dev.)</span></div>' +
+    '<div class="kpi"><b>' + r2(t.range) + ' ' + u + '</b><span>Smallest to largest group</span></div>' +
+    '<div class="kpi"><b>' + (t.absDelta == null ? "—" : r2(t.absDelta) + " " + u) + '</b><span>Average change, group to group</span></div></div>';
+  if(t.fpsMean != null){
+    h += '<div class="kpis" style="margin-bottom:8px"><div class="kpi"><b>' + Math.round(t.fpsMean) + ' FPS</b><span>Average speed (' + t.fpsN + ' shots)</span></div>' +
+      '<div class="kpi"><b>' + Math.round(t.fpsES) + ' FPS</b><span>Extreme spread (fastest − slowest)</span></div>' +
+      '<div class="kpi"><b>' + r2(t.fpsSD) + ' FPS</b><span>Speed std. deviation</span></div></div>';
+  }
+  h += '<table><tr><th>Group</th><th>Size</th><th>Change</th>' + (t.fpsMean != null ? '<th>Avg FPS</th><th>Spread</th>' : "") + '</tr>' +
+    t.sizes.map(function(v, i){
+      var dl = i ? t.deltas[i - 1] : null, f = t.fpsPer[i];
+      return '<tr><td>' + (i + 1) + '</td><td>' + r2(v) + ' ' + u + '</td><td>' + (dl == null ? "—" : '<span class="' + (dl < 0 ? "down" : dl > 0 ? "up" : "") + '">' + (dl < 0 ? "▼ " : dl > 0 ? "▲ " : "") + r2(Math.abs(dl)) + '</span>') + '</td>' +
+        (t.fpsMean != null ? '<td>' + (f ? Math.round(f.avg) : "—") + '</td><td>' + (f ? Math.round(f.es) : "—") + '</td>' : "") + '</tr>';
+    }).join("") + '</table>';
+  var pv = prevTuning(e);
+  if(pv){
+    var pt = tuneStats(pv.data);
+    if(pt){
+      var curM = t.sizes.map(function(v){ return moaOf(d, v); }), prM = pt.sizes.map(function(v){ return moaOf(pv.data, v); });
+      if(curM.every(function(x){ return x != null; }) && prM.every(function(x){ return x != null; })){
+        var dm = mean(curM) - mean(prM), ds = sdev(curM) - sdev(prM);
+        h += '<p class="sm" style="margin:8px 0 2px"><b>Compared with your last tuning session' + (e.gun ? " on " + esc(e.gun) : "") + ' (' + esc(fmtDate(pv.date)) + '):</b></p>' +
+          '<p class="sm" style="margin:2px 0">Average group: ' + sgn(dm, "MOA", true) + '</p>' +
+          '<p class="sm" style="margin:2px 0">Consistency (spread): ' + sgn(ds, "MOA", true) + '</p>';
+        if(t.fpsMean != null && pt.fpsMean != null)
+          h += '<p class="sm" style="margin:2px 0">Average speed: ' + (Math.abs(t.fpsMean - pt.fpsMean) < 0.5 ? "no change" : (t.fpsMean > pt.fpsMean ? "▲ " : "▼ ") + Math.round(Math.abs(t.fpsMean - pt.fpsMean)) + " FPS") + '</p>' +
+            '<p class="sm" style="margin:2px 0">Speed spread (ES): ' + sgn(t.fpsES - pt.fpsES, "FPS", true).replace(" tighter", " steadier") + '</p>';
+      }
+    }
+  }
+  return h + '<p class="sm" style="margin:8px 0 0">Consistency compares how far your groups stray from their own average. A lower spread means steadier shooting.</p></div>';
+}
+
 /* ---- friendly matches: shooters, each with a string of hit (1) / miss (0) ---- */
 function mHits(sh){ return (sh.results || []).reduce(function(a,b){ return a + b; }, 0); }
 function matchStandings(e){
@@ -270,6 +364,13 @@ function matchStandings(e){
   list.sort(function(a,b){ return b.hits - a.hits || a.i - b.i; });
   list.forEach(function(r){ r.place = 1 + list.filter(function(o){ return o.hits > r.hits; }).length; r.tie = list.filter(function(o){ return o.hits === r.hits; }).length > 1; });
   return list;
+}
+function entryStages(e){ var d = e.data; return d.stages && d.stages.length ? d.stages : [{ name: "", shots: d.shots || (d.shooters && d.shooters[0] ? d.shooters[0].results.length : 0) }]; }
+function stageOffset(stages, s){ var o = 0; for(var i = 0; i < s; i++) o += stages[i].shots; return o; }
+function stageHits(sh, stages, s){ var o = stageOffset(stages, s), r = (sh.results || []).slice(o, o + stages[s].shots); return { hits: r.reduce(function(a, b){ return a + b; }, 0), shots: r.length }; }
+function stageLine(e, i){
+  var st = entryStages(e); if(st.length < 2) return "";
+  return st.map(function(x, s){ var h = stageHits(e.data.shooters[i], st, s); return esc(x.name || "Stage " + (s + 1)) + " " + h.hits + "/" + h.shots; }).join(" · ");
 }
 function ordinal(n){ var s = ["th","st","nd","rd"], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
 function myTotals(e){
@@ -339,9 +440,9 @@ function viewLog(){
       '<button class="danger" data-m="discard">Throw this match away</button></div></div>';
   }
   main.innerHTML = backupBanner() + resume +
-    '<div class="card"><button class="bigstart" data-m="setup"><b>Start scoring</b><span>Tap a big green HIT or red MISS after each shot. Works for one shooter or a whole backyard match.</span></button></div>' +
+    '<div class="card"><button class="bigstart" data-m="setup"><b>Start scoring</b><span>Tap a big green HIT or red MISS after each shot. One shooter or a whole club, one round or a full set of stages.</span></button></div>' +
     '<div class="card"><h3>Or log something else</h3><div class="types">' +
-    ["ft","group","points","practice"].map(function(k){ return '<button data-new="' + k + '"><b>' + esc(TYPES[k].name) + '</b><span>' + esc(TYPES[k].blurb) + '</span></button>'; }).join("") +
+    ["group","points","practice"].map(function(k){ return '<button data-new="' + k + '"><b>' + esc(TYPES[k].name) + '</b><span>' + esc(TYPES[k].blurb) + '</span></button>'; }).join("") +
     '</div></div>' + recentCard() + installCard();
 }
 function recentCard(){
@@ -365,56 +466,88 @@ function installCard(){
    dies or is closed by accident picks up exactly where it was.
    ==================================================================== */
 var LIVE = null, SETUP = null;
-function loadLive(){ try{ LIVE = JSON.parse(localStorage.getItem("gm-live-match") || "null"); }catch(e){ LIVE = null; } }
+function loadLive(){
+  try{ LIVE = JSON.parse(localStorage.getItem("gm-live-match") || "null"); }catch(e){ LIVE = null; }
+  if(LIVE && !LIVE.stages){      // a match started before stages existed
+    LIVE.stages = [{ name: "", shots: LIVE.shots }]; LIVE.stage = 0;
+    LIVE.log = (LIVE.log || []).map(function(i){ return { i: i, s: 0 }; });
+  }
+}
 function saveLive(){ try{ if(LIVE) localStorage.setItem("gm-live-match", JSON.stringify(LIVE)); else localStorage.removeItem("gm-live-match"); }catch(e){} }
 
+function newSetup(){ return { title: "", location: "", names: [""], me: 0, format: "one", shots: 10, stages: [{ name: "", shots: 5 }, { name: "", shots: 5 }], rotate: false }; }
 function viewSetup(){
-  if(!SETUP) SETUP = { title: "", names: [""], me: 0, shots: 10, rotate: false };
-  var S = SETUP;
-  main.innerHTML = '<div class="card"><h2>Who is shooting?</h2><p>Add each person. Tap the ★ next to your own name to have your score counted in your stats.</p>' +
+  if(!SETUP) SETUP = newSetup();
+  var S = SETUP, multi = S.format === "stages";
+  main.innerHTML = '<div class="card"><h2>Set up your match</h2>' +
+    '<div class="fmt" role="group" aria-label="Match format"><button type="button" data-m="fmt" data-f="one" aria-pressed="' + !multi + '">One round<br><span class="sm" style="font-weight:500">a single string of shots</span></button>' +
+    '<button type="button" data-m="fmt" data-f="stages" aria-pressed="' + multi + '">Several stages<br><span class="sm" style="font-weight:500">set it up like a director</span></button></div>' +
+    '<label for="mtitle">Match name (optional)</label><input id="mtitle" value="' + esc(S.title) + '" maxlength="60" placeholder="e.g. Saturday backyard shoot-out">' +
+    '<label for="mloc">Where (optional)</label><input id="mloc" value="' + esc(S.location) + '" maxlength="80" placeholder="e.g. Dave\'s back yard"></div>' +
+    '<div class="card"><h2>Who is shooting?</h2><p>Add each person. Tap ★ next to your own name to have your score counted in your stats.</p>' +
     S.names.map(function(n, i){
       return '<div class="srow"><input class="nm" value="' + esc(n) + '" placeholder="Name ' + (i+1) + '" maxlength="30" aria-label="Shooter ' + (i+1) + ' name" autocomplete="off">' +
         '<button class="star" type="button" data-m="me" data-i="' + i + '" aria-pressed="' + (S.me === i) + '" aria-label="This is me">★ Me</button>' +
         (S.names.length > 1 ? '<button class="ghost small" type="button" data-m="rm" data-i="' + i + '" aria-label="Remove shooter ' + (i+1) + '" style="min-height:54px">✕</button>' : '<span></span>') + '</div>';
     }).join("") +
     '<button class="ghost" type="button" data-m="add" style="width:100%;min-height:56px">＋ Add another shooter</button></div>' +
-    '<div class="card"><h3>How many shots each?</h3><div class="bigstep"><button class="ghost" data-m="shots" data-d="-1" aria-label="One fewer shot">−</button><b id="sh-n">' + S.shots + '</b><button data-m="shots" data-d="1" aria-label="One more shot">+</button></div>' +
-    '<label class="chk"><input type="checkbox" id="rot"' + (S.rotate ? " checked" : "") + '> Take turns after every shot</label>' +
-    '<p class="sm" style="margin-top:4px">Leave this off if each person shoots all their shots in a row.</p>' +
-    '<label for="mtitle">Match name (optional)</label><input id="mtitle" value="' + esc(S.title) + '" maxlength="60" placeholder="e.g. Saturday backyard shoot-out"></div>' +
+    (multi
+      ? '<div class="card"><h2>Stages</h2><p>Name each stage and set how many shots are on it. Everyone shoots stage 1, then stage 2, and so on.</p>' +
+        S.stages.map(function(st, i){
+          return '<div class="stagecard"><input class="sn" value="' + esc(st.name) + '" placeholder="Stage ' + (i+1) + ' name (optional)" maxlength="40" aria-label="Stage ' + (i+1) + ' name">' +
+            '<div class="srow2"><span class="muted">Shots</span><div class="bigstep"><button class="ghost" type="button" data-m="ss" data-i="' + i + '" data-d="-1" aria-label="One fewer shot on stage ' + (i+1) + '">−</button><b>' + st.shots + '</b>' +
+            '<button type="button" data-m="ss" data-i="' + i + '" data-d="1" aria-label="One more shot on stage ' + (i+1) + '">+</button></div>' +
+            (S.stages.length > 1 ? '<button class="ghost small" type="button" data-m="rmstage" data-i="' + i + '" aria-label="Remove stage ' + (i+1) + '" style="margin-left:auto;min-height:56px">✕</button>' : "") + '</div></div>';
+        }).join("") +
+        '<button class="ghost" type="button" data-m="addstage" style="width:100%;min-height:56px">＋ Add a stage</button></div>'
+      : '<div class="card"><h2>How many shots each?</h2><div class="bigstep"><button class="ghost" data-m="shots" data-d="-1" aria-label="One fewer shot">−</button><b id="sh-n">' + S.shots + '</b><button data-m="shots" data-d="1" aria-label="One more shot">+</button></div></div>') +
+    '<div class="card"><label class="chk" style="margin-top:0"><input type="checkbox" id="rot"' + (S.rotate ? " checked" : "") + '> Take turns after every shot</label>' +
+    '<p class="sm" style="margin-top:4px">Leave this off if each person shoots all of their shots in a row.</p></div>' +
     '<div class="actions"><button class="good" data-m="start" style="min-height:68px;font-size:22px">Start scoring</button><button class="ghost" data-m="home" style="min-height:68px">Back</button></div>';
   window.scrollTo(0, 0);
 }
 function readSetup(){
   if(!SETUP) return;
   var nm = $$(".nm"); if(nm.length) SETUP.names = nm.map(function(i){ return i.value; });
+  $$(".sn").forEach(function(inp, i){ if(SETUP.stages[i]) SETUP.stages[i].name = inp.value; });
   var r = $("#rot"); if(r) SETUP.rotate = r.checked;
   var t = $("#mtitle"); if(t) SETUP.title = t.value.trim();
+  var l = $("#mloc"); if(l) SETUP.location = l.value.trim();
 }
 function startMatch(){
   readSetup();
   var S = SETUP, names = S.names.map(function(n, i){ return (n || "").trim() || "Shooter " + (i + 1); });
-  LIVE = { id: uid(), title: S.title, date: todayISO(), shots: S.shots, rotate: S.rotate, me: Math.min(S.me, names.length - 1),
-           shooters: names.map(function(n){ return { name: n, results: [] }; }), cur: 0, log: [], done: false, note: "" };
+  var stages = S.format === "stages"
+    ? S.stages.map(function(x, i){ return { name: (x.name || "").trim() || "Stage " + (i + 1), shots: x.shots }; })
+    : [{ name: "", shots: S.shots }];
+  LIVE = { id: uid(), title: S.title, location: S.location, date: todayISO(), stages: stages, stage: 0, rotate: S.rotate, me: Math.min(S.me, names.length - 1),
+           shooters: names.map(function(n){ return { name: n, results: [] }; }), cur: 0, log: [], done: false,
+           note: stages.length > 1 ? "Stage 1: " + stages[0].name + "." : "" };
   SETUP = null; saveLive(); viewPlay();
 }
-function remaining(i){ return LIVE.shots - LIVE.shooters[i].results.length; }
+function liveRemaining(i){
+  var st = LIVE.stages[LIVE.stage];
+  return st.shots - (LIVE.shooters[i].results.length - stageOffset(LIVE.stages, LIVE.stage));
+}
 function viewPlay(){
   var m = LIVE; if(!m){ go("log"); return; }
   if(m.done){ viewResults(); return; }
-  var s = m.shooters[m.cur], n = s.results.length, hits = mHits(s);
-  var dots = ""; for(var i = 0; i < m.shots; i++){
-    var r = s.results[i], cls = r === 1 ? "h" : r === 0 ? "m" : "";
+  var st = m.stages[m.stage], multi = m.stages.length > 1;
+  var s = m.shooters[m.cur], off = stageOffset(m.stages, m.stage), n = s.results.length - off;
+  var stageRes = s.results.slice(off, off + st.shots), hits = stageRes.reduce(function(a, b){ return a + b; }, 0);
+  var dots = ""; for(var i = 0; i < st.shots; i++){
+    var r = stageRes[i], cls = r === 1 ? "h" : r === 0 ? "m" : "";
     dots += '<span class="dot ' + cls + (i === n ? " cur" : "") + '" role="img" aria-label="Shot ' + (i+1) + ': ' + (r === 1 ? "hit" : r === 0 ? "miss" : "not yet") + '"></span>';
   }
   main.innerHTML = (m.note ? '<div class="note">' + esc(m.note) + '</div>' : "") +
-    '<div class="card"><p class="whoshoots">' + esc(s.name) + '</p><p class="shotof">Shot ' + (n + 1) + ' of ' + m.shots + ' · ' + hits + ' hit' + (hits === 1 ? "" : "s") + ' so far</p>' +
-    '<div class="dots" aria-label="This shooter\'s shots">' + dots + '</div>' +
+    (multi ? '<div class="stagebar">Stage ' + (m.stage + 1) + ' of ' + m.stages.length + ' · ' + esc(st.name) + '</div>' : "") +
+    '<div class="card"><p class="whoshoots">' + esc(s.name) + '</p><p class="shotof">Shot ' + (n + 1) + ' of ' + st.shots + ' · ' + hits + ' hit' + (hits === 1 ? "" : "s") + (multi ? " on this stage" : " so far") + '</p>' +
+    '<div class="dots">' + dots + '</div>' +
     '<div class="hitmiss"><button class="hit" data-m="shot" data-v="1" aria-label="Hit"><i aria-hidden="true">✓</i>HIT</button>' +
     '<button class="miss" data-m="shot" data-v="0" aria-label="Miss"><i aria-hidden="true">✕</i>MISS</button></div>' +
     '<button class="ghost" data-m="undo" style="width:100%;min-height:60px;font-size:19px"' + (m.log.length ? "" : " disabled") + '>↶ Undo last shot</button></div>' +
-    (m.shooters.length > 1 ? '<div class="card board"><h3>Scoreboard</h3>' + m.shooters.map(function(sh, i){
-      return '<button class="row2' + (i === m.cur ? " now" : "") + '" data-m="pick" data-i="' + i + '"' + (remaining(i) <= 0 && i !== m.cur ? " disabled" : "") + '><span>' + (i === m.cur ? "▶ " : "") + esc(sh.name) + '</span><b>' + mHits(sh) + ' / ' + sh.results.length + '</b></button>';
+    (m.shooters.length > 1 ? '<div class="card board"><h3>Scoreboard' + (multi ? " · total" : "") + '</h3>' + m.shooters.map(function(sh, i){
+      return '<button class="row2' + (i === m.cur ? " now" : "") + '" data-m="pick" data-i="' + i + '"' + (liveRemaining(i) <= 0 && i !== m.cur ? " disabled" : "") + '><span>' + (i === m.cur ? "▶ " : "") + esc(sh.name) + '</span><b>' + mHits(sh) + ' / ' + sh.results.length + '</b></button>';
     }).join("") + '</div>' : "") +
     '<div class="actions"><button class="ghost" data-m="finish">Finish early</button><button class="danger" data-m="discard">Throw this match away</button></div>';
   m.note = ""; saveLive();
@@ -423,16 +556,20 @@ function viewPlay(){
 function shoot(hit){
   var m = LIVE; if(!m || m.done) return;
   var from = m.cur, sh = m.shooters[from];
-  if(sh.results.length >= m.shots) return;
-  sh.results.push(hit ? 1 : 0); m.log.push(from);
+  if(liveRemaining(from) <= 0) return;
+  sh.results.push(hit ? 1 : 0); m.log.push({ i: from, s: m.stage });
   if(navigator.vibrate) try{ navigator.vibrate(hit ? 40 : [30, 50, 30]); }catch(e){}
-  // who is next?
-  if(m.rotate || remaining(from) <= 0){
+  if(m.rotate || liveRemaining(from) <= 0){
     var k = m.shooters.length, next = -1;
-    for(var j = 1; j <= k; j++){ var idx = (from + j) % k; if(remaining(idx) > 0){ next = idx; break; } }
-    if(next < 0){ m.done = true; }
-    else {
-      if(next !== from && !m.rotate) m.note = sh.name + " finished with " + mHits(sh) + " of " + m.shots + ". Next up: " + m.shooters[next].name + ".";
+    for(var j = 1; j <= k; j++){ var idx = (from + j) % k; if(liveRemaining(idx) > 0){ next = idx; break; } }
+    if(next < 0){
+      // everyone has finished this stage
+      if(m.stage + 1 < m.stages.length){
+        m.stage++; m.cur = 0;
+        m.note = "Stage " + m.stage + " finished. Now stage " + (m.stage + 1) + ": " + m.stages[m.stage].name + ". " + m.shooters[0].name + " is up.";
+      } else m.done = true;
+    } else {
+      if(next !== from && !m.rotate) m.note = sh.name + " finished with " + stageHits(sh, m.stages, m.stage).hits + " of " + m.stages[m.stage].shots + ". Next up: " + m.shooters[next].name + ".";
       m.cur = next;
     }
   }
@@ -440,16 +577,18 @@ function shoot(hit){
 }
 function undoShot(){
   var m = LIVE; if(!m || !m.log.length) return;
-  var idx = m.log.pop(); m.shooters[idx].results.pop(); m.cur = idx; m.done = false; m.note = "Last shot removed.";
+  var last = m.log.pop(); m.shooters[last.i].results.pop(); m.cur = last.i; m.stage = last.s; m.done = false; m.note = "Last shot removed.";
   saveLive(); viewPlay();
 }
+function liveEntry(m){ return { type: "match", data: { stages: m.stages, shooters: m.shooters, me: m.me } }; }
 function viewResults(){
-  var m = LIVE, e = { type: "match", data: { shooters: m.shooters, me: m.me } }, st = matchStandings(e);
+  var m = LIVE, e = liveEntry(m), st = matchStandings(e);
   var top = st[0], tops = st.filter(function(r){ return r.place === 1; });
   var win = tops.length > 1 ? "It's a tie: " + tops.map(function(r){ return r.name; }).join(" and ") : top.name + " wins!";
   main.innerHTML = '<div class="card"><h2>Match finished</h2><p class="winner">' + esc(win) + '</p>' +
     st.map(function(r){
-      return '<div class="place"><span class="pn">' + (r.tie ? "T-" : "") + ordinal(r.place) + '</span><span>' + esc(r.name) + (r.i === m.me ? ' ★' : "") + '</span><b>' + r.hits + ' / ' + r.shots + '</b></div>';
+      var line = stageLine(e, r.i);
+      return '<div class="place"><span class="pn">' + (r.tie ? "T-" : "") + ordinal(r.place) + '</span><span>' + esc(r.name) + (r.i === m.me ? ' ★' : "") + (line ? '<div class="chipline">' + line + '</div>' : "") + '</span><b>' + r.hits + ' / ' + r.shots + '</b></div>';
     }).join("") + '</div>' +
     '<div class="card"><label for="rtitle" style="margin-top:0">Match name</label><input id="rtitle" value="' + esc(m.title) + '" maxlength="60" placeholder="Friendly match"></div>' +
     '<div class="stack"><button class="good" data-m="save" style="min-height:68px;font-size:21px">Save to My Scores</button>' +
@@ -459,13 +598,14 @@ function viewResults(){
   window.scrollTo(0, 0);
 }
 function liveShareText(m){
-  var st = matchStandings({ type: "match", data: { shooters: m.shooters, me: m.me } });
+  var e = liveEntry(m), st = matchStandings(e);
   return (m.title || "Friendly match") + "\n" + st.map(function(r){ return (r.tie ? "T-" : "") + ordinal(r.place) + "  " + r.name + "  " + r.hits + "/" + r.shots; }).join("\n") + "\nScored with GunMatches My Scores: " + location.origin + "/my";
 }
 function saveMatch(){
   var m = LIVE, t = $("#rtitle");
-  var entry = { id: m.id, type: "match", date: m.date, title: (t ? t.value.trim() : m.title) || "Friendly match", gun: "", ammo: "", notes: "", wind: "", temp: "", location: "", matchId: "",
-                created: Date.now(), updated: Date.now(), data: { shots: m.shots, me: m.me, shooters: m.shooters } };
+  var total = m.stages.reduce(function(a, x){ return a + x.shots; }, 0);
+  var entry = { id: m.id, type: "match", date: m.date, title: (t ? t.value.trim() : m.title) || "Friendly match", gun: "", ammo: "", notes: "", wind: "", temp: "", location: m.location || "", matchId: "",
+                created: Date.now(), updated: Date.now(), data: { shots: total, stages: m.stages, me: m.me, shooters: m.shooters } };
   return saveEntry(entry).then(function(){
     LIVE = null; saveLive(); toast("Saved to My Scores."); FILTER = { type: "", q: "", gun: "" };
     if(navigator.storage && navigator.storage.persist) navigator.storage.persist();
@@ -493,7 +633,7 @@ function viewHistory(){
   var html = '<div class="card"><label for="hq" style="margin-top:0">Search</label><input id="hq" type="search" placeholder="Match, gun, notes…" value="' + esc(FILTER.q) + '">' +
     '<div class="chips" role="group" aria-label="Filter by type" style="margin-top:10px">' +
     '<button data-ftype="" aria-pressed="' + (!FILTER.type) + '">All</button>' +
-    Object.keys(TYPES).map(function(k){ return '<button data-ftype="' + k + '" aria-pressed="' + (FILTER.type === k) + '">' + esc(TYPES[k].short) + '</button>'; }).join("") + '</div>' +
+    Object.keys(TYPES).filter(function(k){ return ENTRIES.some(function(e){ return e.type === k; }); }).map(function(k){ return '<button data-ftype="' + k + '" aria-pressed="' + (FILTER.type === k) + '">' + esc(TYPES[k].short) + '</button>'; }).join("") + '</div>' +
     (guns.length > 1 ? '<select id="hgun" aria-label="Filter by gun"><option value="">All guns</option>' + guns.map(function(g){ return '<option' + (FILTER.gun === g ? " selected" : "") + '>' + esc(g) + '</option>'; }).join("") + '</select>' : "") + '</div>';
   if(!list.length) html += '<div class="empty">' + (ENTRIES.length ? "Nothing matches those filters." : "No scores yet. Tap <b>Log</b> to add your first.") + '</div>';
   var last = "";
@@ -521,7 +661,8 @@ function detail(id){
     body += '<div>' + matchStandings(e).map(function(r){
       var sh = e.data.shooters[r.i];
       return '<div class="place"><span class="pn">' + (r.tie ? "T-" : "") + ordinal(r.place) + '</span><span>' + esc(r.name) + (r.i === e.data.me ? ' ★' : "") +
-        '<br><span class="dots" style="display:inline-flex">' + (sh.results || []).map(function(v){ return '<span class="dot ' + (v ? "h" : "m") + '" style="width:14px;height:14px"></span>'; }).join("") + '</span></span><b>' + r.hits + ' / ' + r.shots + '</b></div>';
+        (stageLine(e, r.i) ? '<div class="chipline">' + stageLine(e, r.i) + '</div>' : "") +
+        '<span class="dots" style="display:inline-flex;margin-top:4px">' + (sh.results || []).map(function(v){ return '<span class="dot ' + (v ? "h" : "m") + '" style="width:14px;height:14px"></span>'; }).join("") + '</span></span><b>' + r.hits + ' / ' + r.shots + '</b></div>';
     }).join("") + '</div>';
   } else if(e.type === "ft"){
     var t = ftTotals(e);
@@ -532,6 +673,7 @@ function detail(id){
     body += '<dl class="kv"><dt>Distance</dt><dd>' + esc(d.distance + " " + d.distUnit) + '</dd><dt>Shots/group</dt><dd>' + esc(d.shots || "—") + '</dd>' +
       '<dt>Groups</dt><dd>' + (d.groups || []).map(function(x){ return esc(x) + " " + esc(d.sizeUnit === "moa" ? "MOA" : d.sizeUnit); }).join(", ") + '</dd>' +
       (g ? '<dt>Best</dt><dd>' + r2(g.best) + ' ' + (d.sizeUnit === "moa" ? "MOA" : d.sizeUnit) + (g.bestMOA != null && d.sizeUnit !== "moa" ? ' (' + r2(g.bestMOA) + ' MOA)' : "") + '</dd><dt>Average</dt><dd>' + r2(g.avg) + ' ' + (d.sizeUnit === "moa" ? "MOA" : d.sizeUnit) + '</dd>' : "") + '</dl>';
+    if(d.tuning) body += tuningHTML(e);
   } else if(e.type === "points"){
     var p = e.data;
     body += '<div class="total">' + esc(p.score) + (p.max ? ' / ' + esc(p.max) : "") + '</div>' + (p.x ? '<p>' + esc(p.x) + ' X</p>' : "") + (p.max ? '<p>' + pct(p.score, p.max) + '%</p>' : "");
@@ -563,7 +705,7 @@ function startEntry(type, existing){
 function lastUsed(k){ var l = ENTRIES.slice().sort(byDateDesc)[0]; return l ? l[k] || "" : ""; }
 function defaultData(type){
   if(type === "ft") return { discipline: "Field target", stages: [stage(), stage(), stage(), stage()], defaultShots: 4 };
-  if(type === "group") return { distance: "", distUnit: "yd", shots: 5, sizeUnit: "in", groups: [""] };
+  if(type === "group") return { distance: "", distUnit: "yd", shots: 5, sizeUnit: "in", groups: [""], tuning: false, fps: [""] };
   if(type === "points") return { discipline: "", score: "", max: "", x: "" };
   return { rounds: "", minutes: "" };
 }
@@ -610,9 +752,11 @@ function typeForm(e){
       '<div><label for="g-du" style="margin-top:0">Unit</label><select id="g-du"><option value="yd"' + (d.distUnit === "yd" ? " selected" : "") + '>yards</option><option value="m"' + (d.distUnit === "m" ? " selected" : "") + '>meters</option></select></div></div>' +
       '<div class="row"><div><label for="g-shots">Shots per group</label><input id="g-shots" inputmode="numeric" value="' + esc(d.shots) + '"></div>' +
       '<div><label for="g-su">Measured in</label><select id="g-su"><option value="in"' + (d.sizeUnit === "in" ? " selected" : "") + '>inches</option><option value="mm"' + (d.sizeUnit === "mm" ? " selected" : "") + '>millimeters</option><option value="moa"' + (d.sizeUnit === "moa" ? " selected" : "") + '>MOA</option></select></div></div>' +
-      '<label>Group sizes</label><div id="groups">' + d.groups.map(groupRow).join("") + '</div>' +
+      '<label class="chk"><input type="checkbox" id="g-tune"' + (d.tuning ? " checked" : "") + '> AirGun Tuning</label>' +
+      '<p class="sm" style="margin:2px 0 0">' + (d.tuning ? "Add the shot speeds (FPS) for each group and you will get a tuning report." : "Tick this to also record shot speed (FPS) and see how consistent your groups are.") + '</p>' +
+      '<label>Group sizes' + (d.tuning ? " and shot speeds" : "") + '</label><div id="groups">' + d.groups.map(function(v, i){ return groupRow(v, i, d); }).join("") + '</div>' +
       '<div class="actions"><button class="ghost" type="button" data-act="add-group">Add a group</button></div>' +
-      '<div class="kpis" style="margin-top:12px" id="g-sum">' + groupSum(e) + '</div>';
+      '<div class="kpis" style="margin-top:12px" id="g-sum">' + groupSum(e) + '</div><div id="g-tune-box">' + (d.tuning ? tuneLive() : "") + '</div>';
   }
   if(e.type === "points"){
     return '<h3>Score</h3><label for="p-disc" style="margin-top:0">Discipline or course (optional)</label><input id="p-disc" value="' + esc(d.discipline) + '" maxlength="60" placeholder="e.g. 10m air rifle, trap">' +
@@ -631,8 +775,10 @@ function stageRow(s, i){
     '<button type="button" data-hit="1" aria-label="One more hit on stage ' + (i+1) + '">+</button></div>' +
     '<span class="step"><span class="of">of</span><input inputmode="numeric" data-f="shots" value="' + s.shots + '" style="width:54px;font-size:17px" aria-label="Shots on stage ' + (i+1) + '"></span></div>';
 }
-function groupRow(v, i){
-  return '<div class="grp" data-gi="' + i + '"><span class="n muted" style="font-weight:800">' + (i+1) + '</span><input inputmode="decimal" data-g="1" value="' + esc(v) + '" placeholder="size" aria-label="Group ' + (i+1) + ' size"><button class="ghost small" type="button" data-rmgroup="' + i + '" aria-label="Remove group ' + (i+1) + '">✕</button></div>';
+function groupRow(v, i, d){
+  var fv = d.fps && d.fps[i] != null ? (Array.isArray(d.fps[i]) ? d.fps[i].join(" ") : d.fps[i]) : "";
+  return '<div class="grp2" data-gi="' + i + '"><div class="grp" style="margin-bottom:' + (d.tuning ? "6px" : "0") + '"><span class="n muted" style="font-weight:800">' + (i+1) + '</span><input inputmode="decimal" data-g="1" value="' + esc(v) + '" placeholder="size" aria-label="Group ' + (i+1) + ' size"><button class="ghost small" type="button" data-rmgroup="' + i + '" aria-label="Remove group ' + (i+1) + '">✕</button></div>' +
+    (d.tuning ? '<input data-fps="1" inputmode="decimal" value="' + esc(fv) + '" placeholder="Shot speeds in FPS, e.g. 912 915 910 913 914" aria-label="Group ' + (i+1) + ' shot speeds in feet per second" style="margin-left:42px;width:calc(100% - 42px)">' : "") + '</div>';
 }
 function groupSum(e){
   var d = e.data, arr = d.groups.map(num).filter(function(x){ return x > 0; });
@@ -641,6 +787,11 @@ function groupSum(e){
   var u = d.sizeUnit === "moa" ? "MOA" : d.sizeUnit;
   return '<div class="kpi"><b>' + r2(g.best) + ' ' + u + '</b><span>Best group</span></div><div class="kpi"><b>' + r2(g.avg) + ' ' + u + '</b><span>Average of ' + g.n + '</span></div>' +
     (g.bestMOA != null && d.sizeUnit !== "moa" ? '<div class="kpi"><b>' + r2(g.bestMOA) + '</b><span>Best, in MOA</span></div>' : "");
+}
+function tuneLive(){
+  var d = DRAFT.data; if(!d.tuning) return "";
+  var tmp = { id: DRAFT.id, type: "group", gun: DRAFT.gun, date: DRAFT.date, created: DRAFT.created, data: { groups: d.groups, fps: d.fps, sizeUnit: d.sizeUnit, distance: d.distance, distUnit: d.distUnit, tuning: true } };
+  return tuningHTML(tmp);
 }
 
 /* read the form back into DRAFT */
@@ -653,7 +804,9 @@ function readForm(){
   if(e.type === "ft"){ d.discipline = $("#f-disc").value; }
   if(e.type === "group"){
     d.distance = $("#g-dist").value; d.distUnit = $("#g-du").value; d.shots = $("#g-shots").value; d.sizeUnit = $("#g-su").value;
-    d.groups = $$("#groups input").map(function(i){ return i.value; });
+    d.groups = $$("#groups input[data-g]").map(function(i){ return i.value; });
+    d.tuning = !!($("#g-tune") && $("#g-tune").checked);
+    d.fps = $$("#groups .grp2").map(function(row){ var f = $("[data-fps]", row); return f ? f.value : ""; });
   }
   if(e.type === "points"){ d.discipline = $("#p-disc").value.trim(); d.score = $("#p-score").value; d.max = $("#p-max").value; d.x = $("#p-x").value; }
   if(e.type === "practice"){ d.rounds = $("#r-rounds").value; d.minutes = $("#r-min").value; }
@@ -671,10 +824,12 @@ function validate(e){
   var d = e.data;
   if(e.type === "ft"){ var t = ftTotals(e); if(!t.shots) return "Add at least one stage."; }
   if(e.type === "group"){
-    var arr = d.groups.map(num).filter(function(x){ return x > 0; });
-    if(!arr.length) return "Enter at least one group size.";
+    var pairs = [];
+    d.groups.forEach(function(g, i){ var v = num(g); if(v > 0) pairs.push({ v: v, f: d.tuning ? parseFps(d.fps && d.fps[i] != null ? d.fps[i] : "") : [] }); });
+    if(!pairs.length) return "Enter at least one group size.";
     if(!(num(d.distance) > 0)) return "Enter the distance.";
-    d.groups = arr; d.distance = num(d.distance); d.shots = parseInt(d.shots, 10) || null;
+    d.groups = pairs.map(function(p){ return p.v; }); d.fps = d.tuning ? pairs.map(function(p){ return p.f; }) : [];
+    d.distance = num(d.distance); d.shots = parseInt(d.shots, 10) || null;
   }
   if(e.type === "points"){
     if(num(d.score) == null) return "Enter your score.";
@@ -768,6 +923,21 @@ function viewStats(){
     var pp = pts.map(function(e){ return pct(e.data.score, e.data.max); });
     h += '<div class="card"><h2>Points</h2><div class="kpis"><div class="kpi"><b>' + r2(pp.reduce(function(a,b){ return a+b; }, 0) / pp.length) + '%</b><span>Average</span></div><div class="kpi"><b>' + Math.max.apply(null, pp) + '%</b><span>Best</span></div></div>' + (pp.length > 1 ? spark(pp.slice(-20)) : "") + '</div>';
   }
+  var tun = set.filter(function(e){ return e.type === "group" && e.data.tuning && tuneStats(e.data); });
+  if(tun.length){
+    var rows = tun.slice(-8).map(function(e){
+      var t = tuneStats(e.data), m = t.sizes.map(function(v){ return moaOf(e.data, v); });
+      return { e: e, t: t, moa: m.every(function(x){ return x != null; }) ? mean(m) : null };
+    });
+    var series = rows.filter(function(r){ return r.moa != null; }).map(function(r){ return r.moa; });
+    var best = rows.filter(function(r){ return r.t.n > 1; }).sort(function(a, b){ return a.t.cv - b.t.cv; })[0];
+    h += '<div class="card"><h2>Airgun tuning</h2>' + (series.length > 1 ? '<p class="sm">Average group size (MOA), last ' + series.length + ' tuning sessions. Lower is better.</p>' + spark(series) : "") +
+      (best ? '<p class="sm">Most consistent session: <b>' + esc(fmtDate(best.e.date)) + '</b>' + (best.e.gun ? " on " + esc(best.e.gun) : "") + ' (' + r2(best.t.cv) + '% spread)</p>' : "") +
+      '<div class="tune"><table><tr><th>Date</th><th>Avg group</th><th>Spread</th><th>Avg FPS</th></tr>' + rows.slice().reverse().map(function(r){
+        var u = r.e.data.sizeUnit === "moa" ? "MOA" : r.e.data.sizeUnit;
+        return '<tr><td>' + esc(fmtDate(r.e.date).replace(/, \d{4}$/, "")) + '</td><td>' + r2(r.t.mean) + ' ' + u + '</td><td>' + (r.t.n > 1 ? r2(r.t.sd) : "—") + '</td><td>' + (r.t.fpsMean != null ? Math.round(r.t.fpsMean) : "—") + '</td></tr>';
+      }).join("") + '</table></div></div>';
+  }
   main.innerHTML = h;
   var sg = $("#sg"); if(sg) sg.addEventListener("change", function(){ STATGUN = sg.value; viewStats(); });
 }
@@ -785,13 +955,14 @@ function backupFile(){
 }
 function csvEsc(v){ v = v == null ? "" : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
 function exportCSV(){
-  var head = ["Date","Type","Title","Result","Hits","Shots","Hit %","Best group","Avg group","Group unit","Distance","Score","Out of","X","Rounds","Minutes","Gun","Pellet/load","Wind","Temp","Where","Notes"];
+  var head = ["Date","Type","Title","Result","Hits","Shots","Hit %","Best group","Avg group","Group unit","Distance","Score","Out of","X","Rounds","Minutes","Avg FPS","FPS spread (ES)","Group spread (SD)","Gun","Pellet/load","Wind","Temp","Where","Notes"];
   var rows = ENTRIES.slice().sort(byDateDesc).map(function(e){
-    var d = e.data, ft = e.type === "ft" ? ftTotals(e) : null, g = e.type === "group" ? groupStats(e) : null;
+    var d = e.data, ft = e.type === "ft" ? ftTotals(e) : null, g = e.type === "group" ? groupStats(e) : null, tu = e.type === "group" && d.tuning ? tuneStats(d) : null;
     return [e.date, TYPES[e.type].name, e.title, headline(e), ft ? ft.hits : "", ft ? ft.shots : "", ft ? ft.pct : "",
       g ? r2(g.best) : "", g ? r2(g.avg) : "", g ? (d.sizeUnit === "moa" ? "MOA" : d.sizeUnit) : "", g ? d.distance + " " + d.distUnit : "",
       e.type === "points" ? d.score : "", e.type === "points" ? d.max : "", e.type === "points" ? d.x : "",
-      e.type === "practice" ? d.rounds : "", e.type === "practice" ? d.minutes : "", e.gun, e.ammo, e.wind, e.temp, e.location, e.notes].map(csvEsc).join(",");
+      e.type === "practice" ? d.rounds : "", e.type === "practice" ? d.minutes : "",
+      tu && tu.fpsMean != null ? Math.round(tu.fpsMean) : "", tu && tu.fpsES != null ? Math.round(tu.fpsES) : "", tu ? r2(tu.sd) : "", e.gun, e.ammo, e.wind, e.temp, e.location, e.notes].map(csvEsc).join(",");
   });
   download("my-scores-" + todayISO() + ".csv", "﻿" + [head.join(",")].concat(rows).join("\r\n"), "text/csv");
 }
@@ -862,7 +1033,7 @@ document.addEventListener("click", function(ev){
     var v = (parseInt(inp.value, 10) || 0) + Number(t.dataset.hit), cap = parseInt(sh.value, 10) || 1;
     inp.value = Math.max(0, Math.min(cap, v)); syncStagesFromDOM(); return;
   }
-  if(t.dataset.rmgroup !== undefined){ readForm(); DRAFT.data.groups.splice(Number(t.dataset.rmgroup), 1); if(!DRAFT.data.groups.length) DRAFT.data.groups = [""]; $("#typeform").innerHTML = typeForm(DRAFT); return; }
+  if(t.dataset.rmgroup !== undefined){ readForm(); DRAFT.data.groups.splice(Number(t.dataset.rmgroup), 1); DRAFT.data.fps.splice(Number(t.dataset.rmgroup), 1); if(!DRAFT.data.groups.length){ DRAFT.data.groups = [""]; DRAFT.data.fps = [""]; } $("#typeform").innerHTML = typeForm(DRAFT); return; }
   if(t.dataset.match) return;
   if(t.dataset.m){
     var mm = t.dataset.m, ix = Number(t.dataset.i);
@@ -873,11 +1044,15 @@ document.addEventListener("click", function(ev){
       case "rm": readSetup(); SETUP.names.splice(ix, 1); if(SETUP.me >= SETUP.names.length) SETUP.me = 0; else if(SETUP.me > ix) SETUP.me--; viewSetup(); break;
       case "me": readSetup(); SETUP.me = ix; viewSetup(); break;
       case "shots": readSetup(); SETUP.shots = Math.max(1, Math.min(100, SETUP.shots + Number(t.dataset.d))); $("#sh-n").textContent = SETUP.shots; break;
+      case "fmt": readSetup(); SETUP.format = t.dataset.f; viewSetup(); break;
+      case "addstage": readSetup(); if(SETUP.stages.length < 20){ var ls = SETUP.stages[SETUP.stages.length - 1]; SETUP.stages.push({ name: "", shots: ls ? ls.shots : 5 }); viewSetup(); var sn = $$(".sn"); sn[sn.length - 1].focus(); } else toast("That's the most we can fit: 20 stages."); break;
+      case "rmstage": readSetup(); if(SETUP.stages.length > 1) SETUP.stages.splice(ix, 1); viewSetup(); break;
+      case "ss": readSetup(); SETUP.stages[ix].shots = Math.max(1, Math.min(50, SETUP.stages[ix].shots + Number(t.dataset.d))); viewSetup(); break;
       case "start": startMatch(); break;
       case "resume": loadLive(); viewPlay(); break;
       case "shot": shoot(t.dataset.v === "1"); break;
       case "undo": undoShot(); break;
-      case "pick": if(LIVE && remaining(ix) > 0){ LIVE.cur = ix; saveLive(); viewPlay(); } break;
+      case "pick": if(LIVE && liveRemaining(ix) > 0){ LIVE.cur = ix; saveLive(); viewPlay(); } break;
       case "finish": if(confirm("Finish now? Shots not taken yet won't count.")){ LIVE.done = true; saveLive(); viewResults(); } break;
       case "discard": if(confirm("Throw this match away? The scores will be lost.")){ LIVE = null; saveLive(); SETUP = null; go("log"); } break;
       case "share-live":
@@ -895,7 +1070,7 @@ document.addEventListener("click", function(ev){
     case "pick-match": pickMatch(); break;
     case "add-stage": syncStagesFromDOM(); var last = DRAFT.data.stages[DRAFT.data.stages.length - 1]; DRAFT.data.stages.push({ name: "", hits: 0, shots: last ? last.shots : 4 }); $("#typeform").innerHTML = typeForm(DRAFT); break;
     case "rm-stage": syncStagesFromDOM(); if(DRAFT.data.stages.length > 1) DRAFT.data.stages.pop(); $("#typeform").innerHTML = typeForm(DRAFT); break;
-    case "add-group": readForm(); DRAFT.data.groups.push(""); $("#typeform").innerHTML = typeForm(DRAFT); var gi = $$("#groups input"); if(gi.length) gi[gi.length - 1].focus(); break;
+    case "add-group": readForm(); DRAFT.data.groups.push(""); DRAFT.data.fps.push(""); $("#typeform").innerHTML = typeForm(DRAFT); var gi = $$("#groups input[data-g]"); if(gi.length) gi[gi.length - 1].focus(); break;
     case "save":
       if(DRAFT.type === "ft") syncStagesFromDOM();
       readForm();
@@ -917,12 +1092,13 @@ document.addEventListener("click", function(ev){
 });
 document.addEventListener("change", function(ev){
   if(ev.target.id === "rfile" && ev.target.files[0]) restore(ev.target.files[0]);
-  if(ev.target.id === "g-su" || ev.target.id === "g-du"){ readForm(); $("#g-sum").innerHTML = groupSum(DRAFT); }
+  if(ev.target.id === "g-tune"){ readForm(); $("#typeform").innerHTML = typeForm(DRAFT); return; }
+  if(ev.target.id === "g-su" || ev.target.id === "g-du"){ readForm(); $("#g-sum").innerHTML = groupSum(DRAFT); $("#g-tune-box").innerHTML = tuneLive(); }
 });
 document.addEventListener("input", function(ev){
   var t = ev.target;
   if(t.closest && t.closest("#stages")) syncStagesFromDOM();
-  if(t.matches && (t.matches("#groups input") || t.id === "g-dist")){ readForm(); $("#g-sum").innerHTML = groupSum(DRAFT); }
+  if(t.matches && (t.matches("#groups input") || t.id === "g-dist")){ readForm(); $("#g-sum").innerHTML = groupSum(DRAFT); $("#g-tune-box").innerHTML = tuneLive(); }
 });
 
 /* ====================================================================
