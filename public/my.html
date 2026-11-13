@@ -1083,10 +1083,21 @@ function route(r){
     if(!cdm) out.cautions.push("You chose " + (d.drag === "G1" ? A("G1") : A("G7")) + ", not a " + A("CDM") + ". " + A("CDF") + " needs a " + A("CDM") + " from the Applied Ballistics custom library.");
     if(!elite) out.cautions.push(d.elite === "unsure" ? "Check whether you have Applied Ballistics Elite. " + A("CDF") + " is an Elite feature (first released in Applied Ballistics Quantum 3.2). If you do, change the answer above." : A("CDF") + " is an Applied Ballistics Elite feature, and you answered no.");
   }
+  var low = d.speed === "sub" || (num(d.mv) != null && num(d.mv) < 1340);
+  if(out.key === "mv" && low){
+    out.key = "dsf"; out.why = ["Your ammunition is subsonic or transonic, as most .22 rimfire is. " + A("MV") + " truing is meant for a supersonic range, which this flight does not have. Applied Ballistics points to " + A("DSF") + " for the transonic and subsonic part of the flight, so that is the route here. This is a judgement from the guides, which do not cover rimfire directly."];
+  } else if(out.key === "cdf" && low){
+    out.cautions.push("Your ammunition is subsonic or transonic. " + A("CDF") + " applies from the muzzle to the target, and you can add " + A("DSF") + " points afterward for the transonic and subsonic part of the flight.");
+  }
   if(d.tracking === "planned") out.cautions.push("Do the tall-target test before any calibration. Everything after it depends on it.");
   if(d.augment === "yes") out.cautions.push("An adjustable base, prism or periscope can add tracking error. Include it in the tall-target test. " + A("DSF") + " is the usual fix for what is left.");
   if(d.chrono === "other") out.cautions.push("Older chronographs can have measurement error, so treat your " + A("MV") + " as an indication, not an exact number.");
   return out;
+}
+function lowSpeedNote(r){
+  var v = num(r.d.mv);
+  if(v == null || v >= 1340){ if(r.d.speed !== "sub") return ""; return "You said your ammunition is subsonic or transonic. " + A("MV") + " truing is meant for a supersonic range. Applied Ballistics points to " + A("DSF") + " for the transonic and subsonic part of the flight."; }
+  return "Your muzzle velocity (" + Math.round(v) + " " + A("FPS") + ") is below about 1340 " + A("FPS") + ", where Applied Ballistics puts the start of the transonic range. Sound travels about 1120 " + A("FPS") + ", so little or none of this flight is cleanly supersonic. " + A("MV") + " truing is meant for a supersonic range, and Applied Ballistics points to " + A("DSF") + " for the transonic and subsonic part. Consider " + A("DSF") + ", or confirm with Applied Ballistics.";
 }
 function routeTitle(k){ return k === "mv" ? A("MV") + " truing" : k === "cdf" ? A("CDF") + " calibration" : A("DSF") + " calibration"; }
 function visibleSteps(r){
@@ -1255,6 +1266,7 @@ function bodyGear(){
     sel("tracking", "Scope tracking (does it move as far as the turret says?)", [["", "Choose one"], ["yes", "Already verified with a tall-target test"], ["planned", "Not yet, but I will do the tall-target test"], ["cant", "I can't verify it"]], true) +
     sel("drag", "Drag model for your projectile", [["CDM", A("CDM") + " from the Applied Ballistics custom library"], ["G7", A("G7")], ["G1", A("G1")]], true) +
     sel("elite", "Applied Ballistics Elite", [["", "Choose one"], ["yes", "Yes, I have it"], ["no", "No"], ["unsure", "Not sure"]], true) +
+    sel("speed", "Ammunition speed", [["", "Not sure"], ["super", "Mostly supersonic (above about 1340 " + A("FPS") + ")"], ["sub", "Subsonic or transonic (most .22 rimfire)"]], true) +
     sel("augment", "Adjustable scope base, prism or periscope", [["no", "No"], ["yes", "Yes"]], true) +
     routeCard(route(R)) + methodsCard() + tick("c:showall", "Show every step, including ones my route skips") + legendCard(["AB", "MV", "CDM", "CDF", "DSF", "SSF"]);
 }
@@ -1263,6 +1275,7 @@ function bodyGear(){
 function bodyMVTrue(){
   var u = uLab();
   return '<p>' + A("MV") + ' truing adjusts the solver\'s starting velocity so the predicted drop matches the drop you observe at a supersonic range. It works best with a ' + A("CDM") + '. It can only be done once, and it applies from the muzzle to the target.</p>' +
+    (lowSpeedNote(R) ? hold(lowSpeedNote(R)) : "") +
     (R.d.chrono === "doppler" ? hold("You have an accurate Doppler chronograph, so your measured " + A("MV") + " is probably right. Changing it to fix a drag problem moves the error to other ranges. Think about " + A("CDF") + " or " + A("DSF") + " instead.") : "") +
     tick("c:m1", "Zero, tall-target test and weather inputs are done and trusted") +
     tick("c:m2", "Calibration range is supersonic, and the observed drop is repeatable (group center, not one shot)") +
@@ -1501,6 +1514,7 @@ function compile(){
     ["Chronograph", { none: "None", other: "Older, or unsure how accurate", doppler: "Accurate Doppler chronograph" }[d.chrono] || ""],
     ["Scope tracking", { yes: "Already verified", planned: "Tall-target test planned", cant: "Cannot verify" }[d.tracking] || ""],
     ["Applied Ballistics Elite", { yes: "Yes", no: "No", unsure: "Not sure" }[d.elite] || ""],
+    ["Ammunition speed", { super: "Mostly supersonic", sub: "Subsonic or transonic" }[d.speed] || ""],
     ["Adjustable base, prism or periscope", d.augment === "yes" ? "Yes" : "No"],
     ["Calibration method", ro.key === "ask" ? "" : routeTitle(ro.key)]
   ]});
