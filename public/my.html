@@ -75,7 +75,7 @@
   .banner{background:#fff4e0;border:1px solid #f0d49a;color:#6b4300;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:14.5px}
   .banner button{margin-top:8px}
   .empty{text-align:center;padding:34px 12px;color:var(--muted)}
-  nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;background:#fff;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);
+  nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;background:#fff;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);
            padding-bottom:env(safe-area-inset-bottom)}
   nav.tabs button{background:none;border:0;color:var(--muted);min-height:var(--tab);border-radius:0;font-size:12.5px;padding:6px 2px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
   nav.tabs button .ic{font-size:22px;line-height:1}
@@ -143,6 +143,13 @@
   [hidden]{display:none!important}
   @media (min-width:700px){ .types{grid-template-columns:repeat(4,1fr)} }
   @media (prefers-reduced-motion:no-preference){ .sheet .panel{animation:up .18s ease-out} @keyframes up{from{transform:translateY(24px);opacity:.4}} }
+  .bar{height:12px;background:#e6ebf1;border-radius:99px;overflow:hidden}.bar span{display:block;height:100%;background:var(--green);border-radius:99px;transition:width .2s}
+  .tt{border-radius:12px;padding:12px 14px;border:2px solid}.tt.ok{background:#e8f6ec;border-color:#14603c;color:#14603c}.tt.warn{background:#fff4e0;border-color:#b86e00;color:#6b4300}
+  .ttv{font-size:22px;font-weight:800;line-height:1.2;margin-bottom:4px}
+  .rv{display:grid;grid-template-columns:28px 1fr;gap:2px 12px;align-items:start;padding:10px 0;border-top:1px solid var(--line);text-transform:none;letter-spacing:0;margin:0;font-size:15px;color:var(--text)}
+  .rv input{width:26px;height:26px;min-height:0;grid-row:1/3}.rvl{font-size:12.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+  .rvv{font-size:17px;font-weight:600;color:var(--text);word-break:break-word}.rvv.none{color:#a0a8b3;font-weight:400;font-style:italic}
+  .sm{font-size:14px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -157,6 +164,7 @@
   <button data-go="log"><span class="ic" aria-hidden="true">＋</span>Log</button>
   <button data-go="history"><span class="ic" aria-hidden="true">☰</span>History</button>
   <button data-go="stats"><span class="ic" aria-hidden="true">▲</span>Stats</button>
+  <button data-go="rifle"><span class="ic" aria-hidden="true">◎</span>Rifle</button>
   <button data-go="backup"><span class="ic" aria-hidden="true">⇩</span>Backup</button>
 </nav>
 
@@ -182,11 +190,12 @@ function openDB(){
   return new Promise(function(resolve){
     if(!window.indexedDB){ resolve(null); return; }
     try{
-      var req = indexedDB.open("gm-my-scores", 1);
+      var req = indexedDB.open("gm-my-scores", 2);
       req.onupgradeneeded = function(){
         var db = req.result;
         if(!db.objectStoreNames.contains("entries")) db.createObjectStore("entries", { keyPath: "id" });
         if(!db.objectStoreNames.contains("meta")) db.createObjectStore("meta");
+        if(!db.objectStoreNames.contains("rifles")) db.createObjectStore("rifles", { keyPath: "id" });
       };
       req.onsuccess = function(){ resolve(req.result); };
       req.onerror = function(){ resolve(null); };
@@ -202,20 +211,20 @@ function tx(store, mode, fn){
   });
 }
 function lsSave(){
-  try{ localStorage.setItem("gm-my-scores", JSON.stringify({ entries: ENTRIES, meta: META })); }
+  try{ localStorage.setItem("gm-my-scores", JSON.stringify({ entries: ENTRIES, rifles: RIFLES, meta: META })); }
   catch(e){ storageNote = "This browser wouldn't let us save. Back up often."; }
 }
 function loadAll(){
   return openDB().then(function(db){
     idb = db;
     if(idb){
-      return Promise.all([tx("entries","readonly",function(s){ return s.getAll(); }), tx("meta","readonly",function(s){ return s.get("meta"); })])
-        .then(function(r){ ENTRIES = r[0] || []; META = Object.assign(META, r[1] || {}); });
+      return Promise.all([tx("entries","readonly",function(s){ return s.getAll(); }), tx("meta","readonly",function(s){ return s.get("meta"); }), tx("rifles","readonly",function(s){ return s.getAll(); })])
+        .then(function(r){ ENTRIES = r[0] || []; META = Object.assign(META, r[1] || {}); RIFLES = r[2] || []; });
     }
     usingLS = true;
     try{
       var raw = JSON.parse(localStorage.getItem("gm-my-scores") || "null");
-      if(raw){ ENTRIES = raw.entries || []; META = Object.assign(META, raw.meta || {}); }
+      if(raw){ ENTRIES = raw.entries || []; RIFLES = raw.rifles || []; META = Object.assign(META, raw.meta || {}); }
     }catch(e){}
   }).catch(function(){ usingLS = true; });
 }
@@ -419,7 +428,7 @@ var main = $("#main");
 function go(v){
   VIEW = v;
   $$("nav.tabs button").forEach(function(b){ if(b.dataset.go === v) b.setAttribute("aria-current","page"); else b.removeAttribute("aria-current"); });
-  if(v === "log") viewLog(); else if(v === "history") viewHistory(); else if(v === "stats") viewStats(); else if(v === "backup") viewBackup();
+  if(v === "log") viewLog(); else if(v === "history") viewHistory(); else if(v === "stats") viewStats(); else if(v === "backup") viewBackup(); else if(v === "rifle"){ if(R) viewRifle(); else viewRifles(); }
   window.scrollTo(0, 0);
 }
 
@@ -443,7 +452,7 @@ function viewLog(){
     '<div class="card"><button class="bigstart" data-m="setup"><b>Start scoring</b><span>Tap a big green HIT or red MISS after each shot. One shooter or a whole club, one round or a full set of stages.</span></button></div>' +
     '<div class="card"><h3>Or log something else</h3><div class="types">' +
     ["group","points","practice"].map(function(k){ return '<button data-new="' + k + '"><b>' + esc(TYPES[k].name) + '</b><span>' + esc(TYPES[k].blurb) + '</span></button>'; }).join("") +
-    '</div></div>' + recentCard() + installCard();
+    '</div></div>' + '<div class="card"><button class="bigstart" data-go="rifle"><b>New rifle setup</b><span>A step-by-step checklist for building a rifle profile in Applied Ballistics (AB) Quantum.</span></button></div>' + recentCard() + installCard();
 }
 function recentCard(){
   if(!ENTRIES.length) return '<div class="card"><h3>Your scorebook is empty</h3><p>Everything you log is saved on this device, works with no signal at the range, and stays private. Tap a type above to log your first score.</p></div>';
@@ -949,7 +958,7 @@ function download(name, text, type){
   setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
 }
 function backupFile(){
-  var payload = JSON.stringify({ app: "gunmatches-my-scores", version: 1, exported: new Date().toISOString(), entries: ENTRIES }, null, 1);
+  var payload = JSON.stringify({ app: "gunmatches-my-scores", version: 2, exported: new Date().toISOString(), entries: ENTRIES, rifles: RIFLES }, null, 1);
   download("my-scores-backup-" + todayISO() + ".json", payload, "application/json");
   META.lastBackup = Date.now(); META.changesSince = 0; saveMeta();
 }
@@ -973,7 +982,7 @@ function restore(file){
   var rd = new FileReader();
   rd.onload = function(){
     try{
-      var j = JSON.parse(rd.result), list = Array.isArray(j) ? j : j.entries;
+      var j = JSON.parse(rd.result), list = Array.isArray(j) ? j : (j.entries || []), rl = (!Array.isArray(j) && Array.isArray(j.rifles)) ? j.rifles : [];
       if(!Array.isArray(list)) throw 0;
       var added = 0, updated = 0, skipped = 0;
       list.forEach(function(x){
@@ -982,6 +991,7 @@ function restore(file){
         if(!cur){ added++; saveEntry(x); }
         else if((x.updated || x.created || 0) > (cur.updated || cur.created || 0)){ updated++; saveEntry(x); }
       });
+      rl.forEach(function(x){ if(!validRifle(x)) return; var cur = RIFLES.find(function(y){ return y.id === x.id; }); if(!cur){ added++; saveRifle(x); } else if((x.updated || 0) > (cur.updated || 0)){ updated++; saveRifle(x); } });
       META.changesSince = 0; saveMeta();
       toast("Restored: " + added + " added, " + updated + " updated" + (skipped ? ", " + skipped + " skipped" : "") + ".");
       viewBackup();
@@ -991,7 +1001,7 @@ function restore(file){
 }
 function viewBackup(){
   var last = META.lastBackup ? new Date(META.lastBackup).toLocaleDateString() : "never";
-  main.innerHTML = '<div class="card"><h2>Your data</h2><p><b>' + ENTRIES.length + '</b> entr' + (ENTRIES.length === 1 ? "y" : "ies") + ' saved on this device. Last backup: <b>' + esc(last) + '</b>' +
+  main.innerHTML = '<div class="card"><h2>Your data</h2><p><b>' + ENTRIES.length + '</b> entr' + (ENTRIES.length === 1 ? "y" : "ies") + ' and <b>' + RIFLES.length + '</b> rifle setup' + (RIFLES.length === 1 ? "" : "s") + ' saved on this device. Last backup: <b>' + esc(last) + '</b>' +
     (META.changesSince ? ' · ' + META.changesSince + ' change' + (META.changesSince === 1 ? "" : "s") + ' since' : "") + '.</p>' +
     '<p>Your scores are stored only on this phone or tablet. GunMatches never sees them. That keeps them private and keeps this free, but it means <b>a backup file is your safety net</b>.</p>' +
     '<div class="stack"><button data-act="backup-now">Save a backup file</button><button class="ghost" data-act="csv">Export for a spreadsheet (CSV)</button>' +
@@ -1007,11 +1017,619 @@ function viewBackup(){
 }
 
 /* ====================================================================
+   NEW RIFLE SETUP CHECKLIST
+   Follows the 10-step "AB Quantum New Rifle" order of operations. Everything
+   is saved on this device as you type, and the Review step compiles it so it
+   can be typed into AB (Applied Ballistics) Quantum.
+   ==================================================================== */
+var RIFLES = [], R = null, RSTEP = "profile", saveT = null;
+
+/* Every acronym is written out in full wherever it appears. */
+var ACR = {
+  AB:  ["AB", "Applied Ballistics", "The company behind the Quantum ballistic solver app."],
+  MV:  ["MV", "Muzzle Velocity", "The speed of the projectile as it leaves the barrel, usually in feet per second."],
+  CDM: ["CDM", "Custom Drag Model", "A drag profile for one specific projectile, measured with Doppler radar."],
+  CDF: ["CDF", "Custom Drag Factor", "A percentage that scales the drag model so predicted drop matches what you actually see, while your measured MV stays as it is."],
+  DSF: ["DSF", "Drop Scale Factor", "A correction that scales predicted drop. It can be calibrated separately at several distances, mainly for the transonic and subsonic parts of the flight."],
+  G7:  ["G7", "G7 standard drag model", "A reference drag curve based on a long, boat-tail projectile."],
+  G1:  ["G1", "G1 standard drag model", "A reference drag curve based on a flat-base projectile."],
+  MIL: ["MIL", "milliradian", "An angle unit. One MIL is 3.6 inches at 100 yards."],
+  MOA: ["MOA", "Minute of Angle", "An angle unit. One MOA is about 1.047 inches at 100 yards."],
+  ES:  ["ES", "Extreme Spread", "The fastest shot minus the slowest shot."],
+  SD:  ["SD", "Standard Deviation", "How much shot speeds vary from the average. Lower means steadier."],
+  FPS: ["FPS", "feet per second", "The unit for speed."],
+  SSF: ["SSF", "Sight Scale Factor", "How accurately the scope moves the reticle per click. For example, you dial 10.0 MIL but the reticle only moves 9.8 MIL."],
+  BC:  ["BC", "Ballistic Coefficient", "How well a projectile resists air drag. A higher number means less drag."]
+};
+function A(k){ return ACR[k][0] + " (" + ACR[k][1] + ")"; }
+
+var STEPS = [
+  { id: "gear",    title: "Your gear" },
+  { id: "profile", title: "Clean profile" },
+  { id: "zero",    title: "Zero" },
+  { id: "mv",      title: "Muzzle velocity" },
+  { id: "tall",    title: "Tall-target test" },
+  { id: "base",    title: "Baseline drop" },
+  { id: "mvtrue",  title: "Muzzle velocity truing" },
+  { id: "cdf",     title: "Custom Drag Factor" },
+  { id: "reval",   title: "Revalidate" },
+  { id: "dsf",     title: "Drop Scale Factor" },
+  { id: "mvt",     title: "Muzzle velocity by temperature" },
+  { id: "final",   title: "Final check" },
+  { id: "review",  title: "Review sheet" }
+];
+var STEP_BY = {}; STEPS.forEach(function(s){ STEP_BY[s.id] = s; });
+
+/* Which calibration fits the equipment, from Applied Ballistics' Custom Drag Factor page
+   and Bryan Litz's paper "The Evolution of Ballistic Calibration". */
+function route(r){
+  var d = r.d, out = { key: "ask", why: [], cautions: [], fallback: false };
+  if(!d.chrono || !d.tracking) return out;
+  var verified = d.tracking !== "cant", doppler = d.chrono === "doppler", cdm = d.drag === "CDM", elite = d.elite === "yes";
+  if(!verified){
+    out.key = "dsf";
+    out.why.push("You can't verify your scope tracking on a tall target. For that situation Applied Ballistics points to " + A("DSF") + ", which only scales the drop and leaves muzzle velocity and drag alone.");
+  } else if(!doppler){
+    out.key = "mv";
+    out.why.push(d.chrono === "none"
+      ? "You have no chronograph. With scope tracking verified, muzzle velocity is the most likely cause of a big trajectory error, so Applied Ballistics recommends " + A("MV") + " truing."
+      : "You don't have an accurate Doppler chronograph. With scope tracking verified, Applied Ballistics recommends " + A("MV") + " truing, which also absorbs small chronograph errors.");
+  } else if(cdm && elite){
+    out.key = "cdf";
+    out.why.push("You have an accurate Doppler chronograph, verified scope tracking and a " + A("CDM") + ". That is the setup " + A("CDF") + " is made for: it scales drag to match what you see and keeps your measured " + A("MV") + " unchanged.");
+  } else {
+    out.key = "dsf"; out.fallback = true;
+    out.why.push("An accurate chronograph and verified tracking would normally point to " + A("CDF") + ", but " + A("CDF") + " needs a " + A("CDM") + " and Applied Ballistics Elite. The guides don't name a method for this exact mix. " + A("DSF") + " is the option that leaves your measured " + A("MV") + " alone, so it is suggested here. Confirm with Applied Ballistics if you are unsure.");
+    if(!cdm) out.cautions.push("You chose " + (d.drag === "G1" ? A("G1") : A("G7")) + ", not a " + A("CDM") + ". " + A("CDF") + " needs a " + A("CDM") + " from the Applied Ballistics custom library.");
+    if(!elite) out.cautions.push(d.elite === "unsure" ? "Check whether you have Applied Ballistics Elite. " + A("CDF") + " is an Elite feature (first released in Applied Ballistics Quantum 3.2). If you do, change the answer above." : A("CDF") + " is an Applied Ballistics Elite feature, and you answered no.");
+  }
+  if(d.tracking === "planned") out.cautions.push("Do the tall-target test before any calibration. Everything after it depends on it.");
+  if(d.augment === "yes") out.cautions.push("An adjustable base, prism or periscope can add tracking error. Include it in the tall-target test. " + A("DSF") + " is the usual fix for what is left.");
+  if(d.chrono === "other") out.cautions.push("Older chronographs can have measurement error, so treat your " + A("MV") + " as an indication, not an exact number.");
+  return out;
+}
+function routeTitle(k){ return k === "mv" ? A("MV") + " truing" : k === "cdf" ? A("CDF") + " calibration" : A("DSF") + " calibration"; }
+function visibleSteps(r){
+  var k = route(r).key;
+  return STEPS.filter(function(s){
+    if(r.done["c:showall"]) return true;
+    if(s.id === "mvtrue") return k === "mv";
+    if(s.id === "cdf") return k === "cdf";
+    if(s.id === "mvt") return r.d.chrono !== "none";
+    return true;
+  });
+}
+function counted(r){ return visibleSteps(r).filter(function(s){ return s.id !== "review"; }).map(function(s){ return s.id; }); }
+function stepTitle(id, r){
+  if(id === "dsf") return route(r).key === "dsf" ? "Drop Scale Factor calibration" : "Drop Scale Factor (optional)";
+  return STEP_BY[id].title;
+}
+
+/* The tables, matching the workbook's columns */
+var TB = {
+  mv:   { title: "Shot", cols: [["v", "Velocity (fps)"], ["at", "Ammo temp (°F)"], ["amb", "Ambient (°F)"], ["n", "Notes"]], start: 8 },
+  base: { title: "Range", cols: [["rng", "Range"], ["q", "Quantum elevation"], ["a", "Actual TRUE drop"], ["n", "Group / conditions"]], start: 3 },
+  reval:{ title: "Distance", cols: [["rng", "Range"], ["p", "Predicted"], ["o", "Observed"], ["n", "Notes"]], start: 3 },
+  dsf:  { title: "Point", cols: [["rng", "Range"], ["p", "Prediction"], ["t", "TRUE drop"], ["n", "Drop Scale Factor / notes"]], start: 3 },
+  mvt:  { title: "Point", cols: [["t", "Ammo temp (°F)"], ["v", "Measured muzzle velocity (fps)"], ["n", "Date / notes"]], start: 4 }
+};
+function emptyRow(name){ var o = {}; TB[name].cols.forEach(function(c){ o[c[0]] = ""; }); return o; }
+function newRifle(){
+  var tb = {}; Object.keys(TB).forEach(function(k){ tb[k] = []; for(var i = 0; i < TB[k].start; i++) tb[k].push(emptyRow(k)); });
+  return { id: uid(), created: Date.now(), updated: Date.now(), done: {},
+    d: { chrono: "", tracking: "", elite: "", augment: "no", drag: "G7", twistDir: "Right", elev: "MIL", zeroRange: "50", zeroUnit: "yd", sightScale: "1.000", date: todayISO() },
+    tb: tb, tall: [] };
+}
+function stepsDone(r){ return counted(r).filter(function(id){ return r.done["step:" + id]; }).length; }
+function firstOpen(r){ var v = visibleSteps(r); for(var i = 0; i < v.length; i++){ if(v[i].id !== "review" && !(v[i].id === "gear" && r.d.chrono && r.d.tracking) && !r.done["step:" + v[i].id]) return v[i].id; } return "review"; }
+function rName(r){ return r.d.name || r.d.rifle || "Unnamed rifle"; }
+function unitName(){ return R.d.elev === "MOA" ? "MOA" : "MIL"; }
+function uLab(){ return R.d.elev === "MOA" ? A("MOA") : A("MIL"); }
+
+/* ---------- storage ---------- */
+function touchR(){ if(!R) return; R.updated = Date.now(); clearTimeout(saveT); saveT = setTimeout(function(){ saveRifle(R); }, 300); }
+function flushR(){ if(R){ clearTimeout(saveT); return saveRifle(R); } return Promise.resolve(); }
+function saveRifle(r){
+  var i = RIFLES.findIndex(function(x){ return x.id === r.id; });
+  if(i > -1) RIFLES[i] = r; else RIFLES.push(r);
+  META.changesSince++;
+  return persist(function(){ return tx("rifles", "readwrite", function(s){ return s.put(r); }); });
+}
+function removeRifle(id){
+  RIFLES = RIFLES.filter(function(x){ return x.id !== id; });
+  META.changesSince++;
+  return persist(function(){ return tx("rifles", "readwrite", function(s){ return s.delete(id); }); });
+}
+function validRifle(x){ return x && typeof x.id === "string" && x.d && typeof x.d === "object" && x.tb && typeof x.tb === "object"; }
+
+/* ---------- form helpers (every field saves as you type) ---------- */
+function gv(k){ var v = R.d[k]; return v == null ? "" : v; }
+function help(t){ return t ? '<p class="sm" style="margin:0 0 6px">' + t + '</p>' : ""; }
+function fld(k, label, o){
+  o = o || {};
+  return '<label for="k-' + k + '">' + label + '</label>' + help(o.help) +
+    '<input id="k-' + k + '" data-k="' + k + '" value="' + esc(gv(k)) + '"' + (o.ph ? ' placeholder="' + esc(o.ph) + '"' : "") + (o.mode ? ' inputmode="' + o.mode + '"' : "") + ' autocomplete="off">';
+}
+function area(k, label, o){
+  o = o || {};
+  return '<label for="k-' + k + '">' + label + '</label>' + help(o.help) +
+    '<textarea id="k-' + k + '" data-k="' + k + '"' + (o.ph ? ' placeholder="' + esc(o.ph) + '"' : "") + '>' + esc(gv(k)) + '</textarea>';
+}
+function sel(k, label, opts, re){
+  return '<label for="k-' + k + '">' + label + '</label><select id="k-' + k + '" data-k="' + k + '"' + (re ? ' data-re="1"' : "") + '>' +
+    opts.map(function(p){ return '<option value="' + esc(p[0]) + '"' + (gv(k) === p[0] ? " selected" : "") + '>' + esc(p[1]) + '</option>'; }).join("") + '</select>';
+}
+function tick(k, text){ return '<label class="chk"><input type="checkbox" data-c="' + esc(k) + '"' + (R.done[k] ? " checked" : "") + '> <span>' + text + '</span></label>'; }
+function hold(text){ return '<div class="banner" style="margin-top:12px">' + text + '</div>'; }
+
+/* ---------- tables ---------- */
+function tbCalc(name, row){
+  var u = uLab();
+  if(name === "base"){ var q = num(row.q), a = num(row.a); if(q == null || a == null) return ""; var d = a - q; return "Difference: " + (d >= 0 ? "+" : "−") + r2(Math.abs(d)) + " " + u + (d > 0 ? " (more drop than predicted)" : d < 0 ? " (less drop than predicted)" : ""); }
+  if(name === "reval"){ var p = num(row.p), o = num(row.o); if(p == null || o == null) return ""; var e = o - p; return "Error: " + (e >= 0 ? "+" : "−") + r2(Math.abs(e)) + " " + u; }
+  return "";
+}
+function tbHTML(name){
+  var def = TB[name], rows = R.tb[name];
+  var h = rows.map(function(row, i){
+    var inputs = def.cols.map(function(c){
+      var mode = c[0] === "n" ? "" : ' inputmode="decimal"';
+      return '<div><label for="tb-' + name + i + c[0] + '">' + c[1] + '</label><input id="tb-' + name + i + c[0] + '" data-tb="' + name + "." + i + "." + c[0] + '" value="' + esc(row[c[0]]) + '"' + mode + ' autocomplete="off"></div>';
+    }).join("");
+    return '<div class="stagecard"><h3 style="margin:0 0 4px">' + def.title + ' ' + (i + 1) + '</h3><div class="row">' + inputs + '</div><p class="sm" id="tbc-' + name + i + '" style="margin:6px 0 0">' + esc(tbCalc(name, row)) + '</p>' +
+      (rows.length > 1 && name !== "mv" ? '<button class="danger small" type="button" data-r="rmrow" data-n="' + name + '" data-i="' + i + '" style="margin-top:8px">Remove</button>' : "") + '</div>';
+  }).join("");
+  return '<div id="tb-' + name + '">' + h + '</div><button class="ghost" type="button" data-r="addrow" data-n="' + name + '" style="width:100%">＋ Add ' + (name === "mv" ? "another shot" : "a row") + '</button>';
+}
+
+/* ---------- the rifle list ---------- */
+function viewRifles(){
+  R = null;
+  var h = '<div class="card"><h2>New rifle setup</h2><p>A ten-step checklist for building a clean rifle profile in ' + A("AB") + ' Quantum. It saves on this device as you go and puts everything on one sheet to review while you type it into the app.</p>' +
+    '<button class="good" data-r="new" style="width:100%;min-height:64px;font-size:20px">Set up a new rifle</button></div>';
+  if(RIFLES.length){
+    h += '<div class="card"><h3>Your rifles</h3>' + RIFLES.slice().sort(function(a, b){ return b.updated - a.updated; }).map(function(r){
+      return '<button class="item" data-r="open" data-id="' + esc(r.id) + '"><div class="top"><span class="t">' + esc(rName(r)) + '</span><span class="pill">' + stepsDone(r) + ' of ' + counted(r).length + ' steps</span></div>' +
+        '<div class="sub">' + esc([r.d.ammo, r.d.projectile].filter(Boolean).join(" · ") || "Not filled in yet") + ' · updated ' + esc(new Date(r.updated).toLocaleDateString()) + '</div></button>';
+    }).join("") + '</div>';
+  }
+  h += legendCard(["AB", "MV", "CDM", "CDF", "DSF"]);
+  main.innerHTML = h;
+}
+function legendCard(keys){
+  return '<div class="card"><h3>What the acronyms mean</h3>' + keys.map(function(k){
+    return '<p class="sm" style="margin:0 0 8px"><b>' + esc(ACR[k][0]) + '</b> (' + esc(ACR[k][1]) + '): ' + esc(ACR[k][2]) + '</p>';
+  }).join("") + '</div>';
+}
+
+/* ---------- one rifle ---------- */
+function viewRifle(){
+  var vis = visibleSteps(R);
+  if(!vis.some(function(s){ return s.id === RSTEP; })) RSTEP = "gear";
+  var cn = counted(R), n = stepsDone(R), p = Math.round(n / cn.length * 100);
+  var chips = vis.map(function(s, i){
+    return '<button data-r="step" data-s="' + s.id + '" aria-pressed="' + (RSTEP === s.id) + '">' + (i + 1) + '. ' + esc(stepTitle(s.id, R)) + (R.done["step:" + s.id] ? " ✓" : "") + '</button>';
+  }).join("");
+  main.innerHTML = '<button class="ghost small" data-r="back" style="margin-bottom:10px">‹ All rifles</button>' +
+    '<div class="card"><h2 style="margin-bottom:2px">' + esc(rName(R)) + '</h2><p class="sm" style="margin:0 0 8px">' + n + ' of ' + cn.length + ' steps done · saved on this device</p>' +
+    '<div class="bar" role="progressbar" aria-valuenow="' + p + '" aria-valuemin="0" aria-valuemax="100"><span style="width:' + p + '%"></span></div>' +
+    '<div class="chips" role="group" aria-label="Steps" style="margin-top:12px">' + chips + '</div></div><div id="step"></div>';
+  viewRifleStep();
+  var cur = $('.chips [aria-pressed="true"]'); if(cur && cur.scrollIntoView) try{ cur.scrollIntoView({ inline: "center", block: "nearest" }); }catch(e){}
+}
+function viewRifleStep(){
+  var box = $("#step"); if(!box) return;
+  var vis = visibleSteps(R), i = vis.findIndex(function(s){ return s.id === RSTEP; }), h = "";
+  h += '<div class="card"><h2>Step ' + (i + 1) + ' of ' + vis.length + ': ' + esc(stepTitle(RSTEP, R)) + '</h2>' + stepBody(RSTEP) + '</div>';
+  if(RSTEP !== "review") h += '<div class="card"><label class="chk" style="margin:0"><input type="checkbox" data-c="step:' + RSTEP + '"' + (R.done["step:" + RSTEP] ? " checked" : "") + '> <span><b>This step is done</b></span></label></div>';
+  h += '<div class="actions">' + (i > 0 ? '<button class="ghost" data-r="step" data-s="' + vis[i - 1].id + '">‹ ' + esc(stepTitle(vis[i - 1].id, R)) + '</button>' : "") +
+    (i < vis.length - 1 ? '<button data-r="step" data-s="' + vis[i + 1].id + '">' + esc(stepTitle(vis[i + 1].id, R)) + ' ›</button>' : "") + '</div>';
+  box.innerHTML = h;
+}
+function stepBody(id){
+  return ({ gear: bodyGear, profile: bodyProfile, zero: bodyZero, mv: bodyMV, tall: bodyTall, base: bodyBase, mvtrue: bodyMVTrue, cdf: bodyCDF, reval: bodyReval, dsf: bodyDSF, mvt: bodyMVT, final: bodyFinal, review: bodyReview })[id]();
+}
+
+/* 00 your gear and the recommended route */
+function routeCard(ro){
+  if(ro.key === "ask") return '<div class="banner" style="margin-top:14px">Answer the chronograph and scope tracking questions to see your recommended route.</div>';
+  var vis = visibleSteps(R).map(function(s){ return s.id; });
+  var skipped = STEPS.filter(function(s){ return vis.indexOf(s.id) < 0; }).map(function(s){ return s.title; });
+  return '<div class="tt ' + (ro.fallback ? "warn" : "ok") + '" style="margin-top:14px"><div class="ttv">Your route: ' + routeTitle(ro.key) + '</div>' +
+    ro.why.map(function(t){ return '<p style="margin:2px 0 8px;color:inherit">' + t + '</p>'; }).join("") +
+    (ro.cautions.length ? '<ul style="margin:0 0 8px;padding-left:20px;color:inherit">' + ro.cautions.map(function(t){ return '<li style="margin-bottom:4px">' + t + '</li>'; }).join("") + '</ul>' : "") +
+    '<p style="margin:0;color:inherit">This checklist has <b>' + (vis.length - 1) + ' steps</b> for you' + (skipped.length ? '. Left out because your route does not need them: ' + esc(skipped.join(", ")) : "") + '.</p></div>';
+}
+function methodsCard(){
+  return '<div class="card" style="margin-top:14px"><h3>The three truing options</h3>' +
+    '<p class="sm"><b>' + A("MV") + ' truing:</b> recommended when advanced chronograph data is unavailable. It adjusts the starting velocity to match the observed drop at a supersonic range, and works best with a ' + A("CDM") + '.</p>' +
+    '<p class="sm"><b>' + A("DSF") + ':</b> for unverified scope tracking, including adjustable bases, prisms and periscopes, or when you have little confidence in your velocity and drag data. It scales drop only, and can be set at several ranges.</p>' +
+    '<p class="sm"><b>' + A("CDF") + ':</b> for users with an accurate Doppler chronograph, verified scope tracking and a ' + A("CDM") + ' from the Applied Ballistics custom library. It is an Applied Ballistics Elite feature.</p>' +
+    '<p class="sm">' + A("MV") + ' truing and ' + A("CDF") + ' can each be done once, and apply from the muzzle to the target. ' + A("DSF") + ' points can be added at several farther ranges.</p>' +
+    '<p class="sm">Do the 100-yard work first: zero, tall-target test and chronograph. Without it you cannot tell which variable is wrong.</p>' +
+    '<p class="sm" style="margin-bottom:0">Sources: Applied Ballistics, Custom Drag Factor (CDF) scaling and calibration; Bryan Litz, The Evolution of Ballistic Calibration.</p></div>';
+}
+function bodyGear(){
+  return '<p>Tell the checklist what equipment you have. It picks the shortest correct route for ' + A("AB") + ' Quantum and hides steps you do not need. You can change an answer at any time.</p>' +
+    sel("chrono", "Chronograph", [["", "Choose one"], ["none", "None"], ["other", "Older, or unsure how accurate it is"], ["doppler", "Accurate Doppler chronograph (Garmin Xero C1, LabRadar, SpeedTracker)"]], true) +
+    sel("tracking", "Scope tracking (does it move as far as the turret says?)", [["", "Choose one"], ["yes", "Already verified with a tall-target test"], ["planned", "Not yet, but I will do the tall-target test"], ["cant", "I can't verify it"]], true) +
+    sel("drag", "Drag model for your projectile", [["CDM", A("CDM") + " from the Applied Ballistics custom library"], ["G7", A("G7")], ["G1", A("G1")]], true) +
+    sel("elite", "Applied Ballistics Elite", [["", "Choose one"], ["yes", "Yes, I have it"], ["no", "No"], ["unsure", "Not sure"]], true) +
+    sel("augment", "Adjustable scope base, prism or periscope", [["no", "No"], ["yes", "Yes"]], true) +
+    routeCard(route(R)) + methodsCard() + tick("c:showall", "Show every step, including ones my route skips") + legendCard(["AB", "MV", "CDM", "CDF", "DSF", "SSF"]);
+}
+
+/* 07 muzzle velocity truing */
+function bodyMVTrue(){
+  var u = uLab();
+  return '<p>' + A("MV") + ' truing adjusts the solver\'s starting velocity so the predicted drop matches the drop you observe at a supersonic range. It works best with a ' + A("CDM") + '. It can only be done once, and it applies from the muzzle to the target.</p>' +
+    (R.d.chrono === "doppler" ? hold("You have an accurate Doppler chronograph, so your measured " + A("MV") + " is probably right. Changing it to fix a drag problem moves the error to other ranges. Think about " + A("CDF") + " or " + A("DSF") + " instead.") : "") +
+    tick("c:m1", "Zero, tall-target test and weather inputs are done and trusted") +
+    tick("c:m2", "Calibration range is supersonic, and the observed drop is repeatable (group center, not one shot)") +
+    tick("c:m3", "Entered the full observed TRUE drop in Quantum's calibration and saved the new " + A("MV")) +
+    fld("tvOrig", A("MV") + " before truing (" + A("FPS") + ")", { mode: "decimal" }) +
+    fld("tvRange", "Calibration range", { mode: "decimal" }) +
+    fld("tvPred", "Quantum prediction (" + u + ")", { mode: "decimal" }) +
+    fld("tvTrue", "Observed TRUE drop (" + u + ")", { mode: "decimal" }) +
+    fld("tvMV", A("MV") + " after truing (" + A("FPS") + ")", { mode: "decimal" }) +
+    '<p class="sm" style="margin-top:10px">In Applied Ballistics\' example, the same 0.4 ' + A("MIL") + ' error at 1000 meters could be a 40 fps change in velocity or a 6% change in ' + A("BC") + '. Both fix 1000 meters, but they disagree at 1500 meters. Calibrating the wrong variable costs accuracy beyond the range you calibrated at.</p>';
+}
+
+/* 01 */
+function bodyProfile(){
+  var u = uLab();
+  return '<p>Build a clean ' + A("AB") + ' Quantum rifle and ammunition profile. Leave ' + A("CDF") + ', ' + A("DSF") + ' and old calibration offsets disabled.</p>' +
+    hold('<b>Hold point:</b> do not use later ballistic calibrations to make up for an uncertain zero, measured velocity, scope tracking, range or weather. Finish the earlier steps first.') +
+    '<h3 style="margin-top:16px">Profile identification</h3>' + help("Save one record per rifle and ammunition combination.") +
+    fld("rifle", "Rifle / profile", { ph: "e.g. Impact M3 in .22" }) +
+    fld("ammo", "Ammo / lot", { ph: "e.g. Brand, lot number" }) +
+    fld("optic", "Optic / model", { ph: "e.g. Vortex Razor 4-16" }) +
+    '<div class="row"><div>' + fld("date", "Date", { ph: "2026-11-12" }) + '</div><div>' + fld("shooterId", "Shooter / notes ID") + '</div></div>' +
+    '<h3 style="margin-top:18px">Record physical and ballistic inputs</h3>' +
+    fld("name", "Profile name", { ph: "The name you will give it in Quantum" }) +
+    fld("projectile", "Exact " + A("AB") + " projectile", { ph: "Exactly as listed in the app" }) +
+    sel("drag", "Drag model", [["CDM", A("CDM")], ["G7", A("G7")], ["G1", A("G1")]]) +
+    '<p class="sm" style="margin-top:6px">Use the exact library projectile and its ' + A("CDM") + ' if one exists. After saving, open the profile again and check the ' + A("CDM") + ' is still selected.</p>' +
+    fld("weight", "Projectile weight (grains)", { mode: "decimal" }) +
+    '<div class="row"><div>' + fld("twist", "Twist rate", { ph: "e.g. 1:16" }) + '</div><div>' + sel("twistDir", "Twist direction", [["Right", "Right"], ["Left", "Left"]]) + '</div></div>' +
+    fld("sightHeight", "Sight height (inches)", { mode: "decimal", help: "Center of the barrel to center of the scope tube." }) +
+    '<div class="row"><div>' + fld("zeroRange", "Zero range", { mode: "decimal" }) + '</div><div>' + sel("zeroUnit", "Unit", [["yd", "Yards"], ["m", "Meters"]]) + '</div></div>' +
+    sel("elev", "Elevation unit", [["MIL", A("MIL")], ["MOA", A("MOA")]], true) +
+    fld("sightScale", "Sight scale, " + A("SSF") + " (start at 1.000)", { mode: "decimal" }) +
+    '<p class="sm" style="margin-top:6px">Base ' + A("MV") + ' is entered later, after you measure it in step 3.</p>' +
+    '<h3 style="margin-top:16px">Initial calibration states</h3>' +
+    tick("c:cdfoff", A("CDF") + " is OFF / none") + tick("c:dsfoff", A("DSF") + " is OFF / none") + tick("c:sightoff", "Sight-in conditions are OFF") +
+    '<h3 style="margin-top:16px">Pre-range verification</h3>' +
+    tick("c:p1", "Correct rifle and ammunition profile is selected in Quantum") +
+    tick("c:p2", "Range and elevation units match the range and the optic (" + u + ")") +
+    tick("c:p3", "Weather (atmosphere) source is correct and current") +
+    tick("c:p4", "No previous " + A("CDF") + ", " + A("DSF") + ", " + A("MV") + " calibration or temporary zero offset is carried over") +
+    tick("c:p5", "Chronograph setup, power and connected devices are ready") +
+    '<p class="sm" style="margin-top:10px">Record only verified measurements. Stacked or unexplained corrections make a profile hard to diagnose.</p>';
+}
+
+/* 02 */
+function bodyZero(){
+  var zu = R.d.zeroUnit === "m" ? "m" : "yd";
+  return '<p>Establish the zero, then confirm it. Use the center of a group, not a single impact.</p>' +
+    tick("c:z1", "Target distance confirmed at " + (gv("zeroRange") || "50") + " " + zu) +
+    tick("c:z2", "Zero is based on the center of a group rather than one shot") +
+    tick("c:z3", "Optic adjusted until the group center matches the intended aim point") +
+    tick("c:z4", "Intentional zero offset recorded only if truly used; " + A("CDF") + " and " + A("DSF") + " left untouched") +
+    fld("zeroOffset", "Intentional zero offset, if any", { ph: "Leave blank if none" }) +
+    area("zeroNotes", "Zero notes (optional)", { ph: "Group size, conditions, how you confirmed it" });
+}
+
+/* 03 */
+function speeds(){ return R.tb.mv.map(function(r){ return num(r.v); }).filter(function(x){ return x != null && x >= 100 && x <= 5000; }); }
+function mvStats(){ var a = speeds(); if(!a.length) return null; return { n: a.length, avg: mean(a), es: Math.max.apply(null, a) - Math.min.apply(null, a), sd: sdev(a) }; }
+function mvOut(){
+  var s = mvStats();
+  if(!s) return '<p class="sm">Type the shot speeds above and the numbers appear here.</p>';
+  return '<div class="kpis"><div class="kpi"><b>' + Math.round(s.avg) + '</b><span>Average ' + A("MV") + ' (' + A("FPS") + ')</span></div><div class="kpi"><b>' + s.n + '</b><span>Shots</span></div>' +
+    '<div class="kpi"><b>' + Math.round(s.es) + '</b><span>' + A("ES") + '</span></div><div class="kpi"><b>' + r2(s.sd) + '</b><span>' + A("SD") + '</span></div></div>' +
+    '<button class="ghost" type="button" data-r="usemv" data-v="' + Math.round(s.avg) + '">Use ' + Math.round(s.avg) + ' as my base ' + A("MV") + '</button>' +
+    (s.n < 5 ? '<p class="sm" style="margin-top:8px">Most people use at least 5 to 10 shots for a trustworthy average.</p>' : "");
+}
+function bodyMV(){
+  var c = R.d.chrono;
+  var intro = c === "none"
+    ? '<p>You have no chronograph, so enter your best estimate of ' + A("MV") + ', such as the ammunition maker\'s published speed. Your route corrects it later by truing. The shot log below is optional.</p>'
+    : c === "other"
+    ? '<p>Measure ' + A("MV") + ' and enter the average. Older chronographs can carry measurement error, so treat the number as an indication rather than exact.</p>'
+    : '<p>Measure ' + A("MV") + ' with your Doppler chronograph and enter the reliable base ' + A("MV") + '. Record the ammunition temperature if you know it.</p>';
+  return intro + '<p class="sm">' + A("MV") + ' is a moving target: temperature, bore fouling and humidity can all change it.</p>' +
+    '<h3 style="margin-top:12px">Chronograph shot log</h3>' + help("Copy each measured value and the temperature, if you have them.") + tbHTML("mv") +
+    '<div id="mvout" style="margin:12px 0">' + mvOut() + '</div>' +
+    fld("mv", "Average / calculated " + A("MV") + " (" + A("FPS") + ") to enter as the base muzzle velocity", { mode: "decimal" }) +
+    fld("mvTemp", "Ammunition temperature (°F)", { mode: "decimal" }) +
+    fld("mvConditions", "Date / lot / conditions") +
+    '<p class="sm" style="margin-top:10px">One ammunition-temperature and ' + A("MV") + ' observation can be saved as data, but it is not a complete temperature curve.</p>';
+}
+
+/* 04 tall target */
+function newTall(){ return { range: "100", rUnit: "yd", dial: "10", dUnit: R.d.elev === "MOA" ? "MOA" : "MIL", meas: "", mUnit: R.d.zeroUnit === "m" ? "cm" : "in", rtz: "", agree: false }; }
+function tallConst(t){
+  if(t.rUnit !== "m") return { k: t.dUnit === "MOA" ? 0.010472 : 0.036, u: "in" };
+  return { k: t.dUnit === "MOA" ? 0.029089 : 0.100, u: "cm" };
+}
+function tallCalc(t){
+  var r = num(t.range), d = num(t.dial), m = num(t.meas);
+  if(!(r > 0) || !(d > 0)) return null;
+  var c = tallConst(t), exp = d * r * c.k;
+  if(!(m > 0)) return { exp: exp, unit: c.u };
+  var mm = t.mUnit === "cm" ? m * 10 : t.mUnit === "mm" ? m : m * 25.4;
+  var meas = c.u === "in" ? mm / 25.4 : mm / 10;
+  return { exp: exp, unit: c.u, meas: meas, scale: exp / meas, pct: (meas / exp - 1) * 100, actual: d * meas / exp, diff: meas - exp, dUnit: t.dUnit, dial: d };
+}
+function tallOut(t){
+  var c = tallCalc(t);
+  if(!c) return '<p class="sm">Enter the range and the amount you dialed to see the expected shift.</p>';
+  var h = '<dl class="kv"><dt>Expected shift</dt><dd><b>' + r2(c.exp) + ' ' + c.unit + '</b></dd>';
+  if(c.meas == null) return h + '</dl><p class="sm">Now enter the actual shift you measured from group A to group B.</p>';
+  var ok = Math.abs(c.pct) < 0.5;
+  var verdict = ok ? "Tracks true" : c.pct > 0 ? "Over-travel: +" + r2(c.pct) + "%" : "Under-travel: " + r2(c.pct) + "%";
+  var why = ok ? "The reticle moved what the turret said, within half a percent." : c.pct > 0 ? "The point of impact moved " + r2(c.pct) + "% MORE than the amount you dialed." : "The point of impact moved " + r2(Math.abs(c.pct)) + "% LESS than the amount you dialed.";
+  return '<div class="tt ' + (ok ? "ok" : "warn") + '"><div class="ttv">' + verdict + '</div><p style="margin:2px 0 8px;color:inherit">' + why + '</p>' + h +
+    '<dt>Actual shift</dt><dd>' + r2(c.meas) + ' ' + c.unit + '</dd><dt>Difference</dt><dd>' + (c.diff >= 0 ? "+" : "−") + r2(Math.abs(c.diff)) + ' ' + c.unit + '</dd>' +
+    '<dt>In real turns</dt><dd>You dialed ' + r2(c.dial) + ' ' + c.dUnit + ' and it moved ' + r2(c.actual) + ' ' + c.dUnit + '</dd>' +
+    '<dt>Sight scale</dt><dd><b>' + c.scale.toFixed(4) + '</b> (expected ÷ measured)</dd></dl></div>';
+}
+function tallValid(){ return R.tall.map(tallCalc).filter(function(c){ return c && c.scale; }); }
+function tallScale(){ var v = tallValid(); return v.length ? mean(v.map(function(c){ return c.scale; })) : null; }
+function tallSummary(){
+  var v = tallValid();
+  if(!v.length) return '<p class="sm">Your combined result shows here once a test has all its numbers.</p>';
+  var s = mean(v.map(function(c){ return c.scale; })), pc = (1 / s - 1) * 100, ok = Math.abs(pc) < 0.5;
+  var lo = Math.min.apply(null, v.map(function(c){ return c.scale; })), hi = Math.max.apply(null, v.map(function(c){ return c.scale; }));
+  return '<div class="tt ' + (ok ? "ok" : "warn") + '"><div class="ttv">' + (ok ? "Your scope tracks true" : pc > 0 ? "Your scope over-travels by " + r2(pc) + "%" : "Your scope under-travels by " + r2(Math.abs(pc)) + "%") + '</div>' +
+    '<p style="margin:2px 0 8px;color:inherit">' + v.length + ' test' + (v.length === 1 ? "" : "s") + ' combined. Sight scale <b>' + s.toFixed(4) + '</b>' + (v.length > 1 ? ' (tests range from ' + lo.toFixed(4) + ' to ' + hi.toFixed(4) + ')' : "") + '.</p>' +
+    (ok ? '<p style="margin:0;color:inherit">Within half a percent, so there is no need to change the sight scale from 1.000.</p>' :
+      '<button class="ghost" type="button" data-r="usescale" data-v="' + s.toFixed(4) + '">Save ' + s.toFixed(4) + ' as my validated sight scale</button>') + '</div>';
+}
+function tallCard(t, i){
+  var sUnits = function(k, opts){ return '<select data-t="' + i + '.' + k + '" aria-label="Unit">' + opts.map(function(o){ return '<option value="' + o[0] + '"' + (t[k] === o[0] ? " selected" : "") + '>' + o[1] + '</option>'; }).join("") + '</select>'; };
+  return '<div class="stagecard"><h3 style="margin:0 0 4px">Test ' + (i + 1) + '</h3>' +
+    '<label for="t' + i + 'a">Exact range</label><div class="row"><input id="t' + i + 'a" data-t="' + i + '.range" inputmode="decimal" value="' + esc(t.range) + '">' + sUnits("rUnit", [["yd", "yards"], ["m", "meters"]]) + '</div>' +
+    '<label for="t' + i + 'b">Dialed UP increment</label><div class="row"><input id="t' + i + 'b" data-t="' + i + '.dial" inputmode="decimal" value="' + esc(t.dial) + '">' + sUnits("dUnit", [["MIL", "MIL (milliradian)"], ["MOA", "MOA (Minute of Angle)"]]) + '</div>' +
+    '<label for="t' + i + 'c">Actual shift, group A to group B (center to center)</label><div class="row"><input id="t' + i + 'c" data-t="' + i + '.meas" inputmode="decimal" value="' + esc(t.meas) + '">' + sUnits("mUnit", [["in", "inches"], ["cm", "centimeters"], ["mm", "millimeters"]]) + '</div>' +
+    '<label for="t' + i + 'd">Group C compared with group A (return-to-zero offset)</label><input id="t' + i + 'd" data-t="' + i + '.rtz" value="' + esc(t.rtz) + '" placeholder="e.g. 0.1 in high, or dead on">' +
+    '<label class="chk"><input type="checkbox" data-t="' + i + '.agree"' + (t.agree ? " checked" : "") + '> <span>Repeat test agrees and return-to-zero is acceptable</span></label>' +
+    '<div id="tout-' + i + '" style="margin-top:12px">' + tallOut(t) + '</div>' +
+    (R.tall.length > 1 ? '<button class="danger small" type="button" data-r="rmtall" data-i="' + i + '" style="margin-top:10px">Remove this test</button>' : "") + '</div>';
+}
+function bodyTall(){
+  if(!R.tall.length) R.tall.push(newTall());
+  var tr = R.d.tracking;
+  return '<p>This must come before ' + A("MV") + ' truing, ' + A("CDF") + ' and ' + A("DSF") + '. It checks that the turret movement matches what the bullets actually do. For example, you might dial 10.0 ' + A("MIL") + ' and the reticle only moves 9.8 ' + A("MIL") + ', a sight scale of 1.0204.</p>' +
+    (tr === "cant" ? hold("You said you can't verify scope tracking, so your route is " + A("DSF") + ". Fill in whatever you can here.") : "") +
+    (R.d.augment === "yes" ? hold("You use an adjustable base, prism or periscope. Include it in this test. Those devices are a common source of tracking error.") : "") +
+    (tr === "yes" ? '<p class="sm">You said tracking is already verified. Enter the result here if you have it, or just enter your validated sight scale below.</p>' : "") +
+    '<h3 style="margin-top:12px">Set up and complete the test</h3>' +
+    tick("c:t1", "Safe backstop that contains both groups; calm conditions and a stable support") +
+    tick("c:t2", "Measured the exact range from the scope turrets to the target (ideally 100 yd)") +
+    tick("c:t3", "Plumb vertical line, a low aim point, and a level reticle and rifle") +
+    tick("c:t4", "Parallax set; starting turret reading noted; fired baseline group A") +
+    tick("c:t5", "Dialed a known amount UP, kept the same aim point, fired group B") +
+    tick("c:t6", "Measured the vertical center-to-center distance from A to B") +
+    tick("c:t7", "Returned to the starting turret reading, fired group C, verified return to zero") +
+    tick("c:t8", "Repeated if inconsistent; will only save a validated correction once") +
+    '<div id="talls" style="margin-top:12px">' + R.tall.map(tallCard).join("") + '</div>' +
+    '<button class="ghost" type="button" data-r="addtall" style="width:100%">＋ Add another test</button>' +
+    '<h3 style="margin-top:16px">Your result</h3><div id="tallsum">' + tallSummary() + '</div>' +
+    fld("sightScale", "Validated sight scale, " + A("SSF") + ", to use in Quantum", { mode: "decimal", help: "Stays 1.000 unless the test justifies a change." }) +
+    '<p class="sm" style="margin-top:10px">Expected shift = dialed increment × exact range × unit constant. Sight scale = expected ÷ measured shift. Constants: yards with ' + A("MIL") + ' to inches 0.036; yards with ' + A("MOA") + ' to inches 0.010472; meters with ' + A("MIL") + ' to centimeters 0.100; meters with ' + A("MOA") + ' to centimeters 0.029089.</p>';
+}
+
+/* 05 */
+function bodyBase(){
+  return '<p>Record uncalibrated predictions first, with ' + A("CDF") + ' and ' + A("DSF") + ' still OFF. Log the elevation Quantum predicted and the actual TRUE drop at known ranges.</p>' +
+    '<div class="note" style="font-size:16px;font-weight:500">TRUE drop means the total observed drop or elevation, not the difference between predicted and actual. Example: prediction 5.25 ' + A("MIL") + ', observed 5.50 ' + A("MIL") + ', so TRUE drop is 5.50 ' + A("MIL") + '.</div>' +
+    '<p class="sm" style="margin-top:10px"><b>How much error is normal?</b> In Applied Ballistics\' data for one 6mm 105 grain bullet, rifle-to-rifle drag variation moved the drop at 1000 yards by about 3.3 inches (roughly 1 click) for most samples, and 6.7 inches (about 2 clicks) for 95%. If your error is much larger, the cause is probably not drag.</p>' +
+    '<p class="sm"><b>Calibration range:</b> for typical centerfire rifles, Applied Ballistics says the first calibration range should be transonic, where the bullet has slowed to about Mach 1.2 or 1340 ' + A("FPS") + ' (often 800 to 1000 meters). Other rifles differ, so choose a range where the observed drop is repeatable.</p>' +
+    '<h3 style="margin-top:14px">Uncalibrated trajectory data</h3>' + help("Elevation in " + uLab() + ".") + tbHTML("base") +
+    '<h3 style="margin-top:16px">' + A("CDF") + ' eligibility checklist</h3>' +
+    tick("c:e1", "A trustworthy measured " + A("MV") + " is available") +
+    tick("c:e2", "Exact " + A("AB") + " Library projectile and its " + A("CDM") + " are selected") +
+    tick("c:e3", "Tall-target tracking / sight scale has been verified") +
+    tick("c:e4", "Target range, direction, location and weather are accurate") +
+    tick("c:e5", "Observed TRUE drop is repeatable at a useful calibration range") +
+    tick("c:e6", "I have Applied Ballistics Elite (" + A("CDF") + " is an Elite feature, first released in Applied Ballistics Quantum 3.2)") +
+    '<p class="sm" style="margin-top:10px">If these are not met, correct the source of the doubt instead of applying ' + A("CDF") + '. If baseline predictions already agree within normal variation, no ' + A("CDF") + ' is needed.</p>';
+}
+
+/* 06 */
+function bodyCDF(){
+  return '<p>' + A("CDF") + ' is conditional. ' + ACR.CDF[2] + ' Do not change a trusted ' + A("MV") + ' to hide a drag-model mismatch. Like ' + A("MV") + ' truing, it can only be done once and applies from the muzzle to the target. It works the same way: you enter the drop you observed at a range and Quantum finds the ' + A("CDF") + ' that corrects it.</p>' +
+    tick("c:nocdf", "Baseline predictions already agree, so " + A("CDF") + " stays OFF") +
+    '<h3 style="margin-top:14px">Record ' + A("CDF") + ' only if justified</h3>' +
+    tick("c:f1", "Confirmed the correct projectile / " + A("CDM") + ", " + A("MV") + ", sight scale, zero and weather data") +
+    tick("c:f2", "Using a repeatable observation at a measured range") +
+    tick("c:f3", "Entered the full observed TRUE drop in Quantum's calibration; applied and saved the calculated " + A("CDF")) +
+    fld("cdfRange", "Calibration range", { mode: "decimal" }) +
+    fld("cdfPred", "Quantum prediction (" + uLab() + ")", { mode: "decimal" }) +
+    fld("cdfTrue", "Observed TRUE drop (" + uLab() + ")", { mode: "decimal" }) +
+    fld("cdf", "Calculated " + A("CDF") + " or OFF", { ph: "e.g. 98.5%, or OFF" });
+}
+
+/* 07 */
+function bodyReval(){
+  return '<p>Check the profile at several known distances. If predictions agree, stop. Do not over-calibrate.</p>' +
+    '<h3 style="margin-top:12px">Revalidate at multiple known distances</h3>' + help("Elevation in " + uLab() + ". Error is observed minus predicted.") + tbHTML("reval") +
+    '<p class="sm" style="margin-top:10px">If the trajectory agrees sufficiently, stop calibrating. If a mismatch remains, review the earlier steps first.</p>';
+}
+
+/* 08 */
+function bodyDSF(){
+  var primary = route(R).key === "dsf", ver = R.d.tracking !== "cant";
+  return '<p>' + (primary ? 'Your route uses ' + A("DSF") + ' as the main calibration. ' : 'Use ' + A("DSF") + ' only for a repeatable error that is left downrange, such as in the transonic and subsonic part of the flight. ') + ACR.DSF[2] + ' It scales drop only, so it does not change muzzle velocity, drag, wind drift or energy. It is applied at the Mach number matching the projectile\'s speed at the target, and it is the usual fix for imperfect adjustable bases, prisms and periscopes.</p>' +
+    '<h3 style="margin-top:12px">' + A("DSF") + ' decision gate</h3>' +
+    tick("c:d1", ver ? "The zero, a trustworthy " + A("MV") + " and scope tracking remain verified" : "I understand scope tracking is unverified, so " + A("DSF") + " will correct the drop but cannot tell me the cause") +
+    tick("c:d2", primary ? "The profile, zero and weather inputs are accurate" : A("MV") + " truing or " + A("CDF") + " was validated if used, and the profile and weather are accurate") +
+    tick("c:d3", "A repeatable error remains at a known distance") +
+    hold("If any foundation fails, do not use " + A("DSF") + ". Go back to the earlier step and fix that input.") +
+    '<h3 style="margin-top:16px">' + A("DSF") + ' records</h3>' + help("Enter TRUE drop. Check each point before adding another. Unlike " + A("MV") + " truing and " + A("CDF") + ", you can add " + A("DSF") + " points at several ranges beyond the first calibration.") + tbHTML("dsf");
+}
+
+/* 09 */
+function bodyMVT(){
+  return '<p>Build a table of ammunition temperature against ' + A("MV") + ' from several real pairs. Collect points as you get them, and do not build a curve from one.</p>' +
+    help("Enter them hottest to coldest.") + tbHTML("mvt");
+}
+
+/* 10 */
+function bodyFinal(){
+  return '<p>Finish with an independent check, and keep the working profile and its records together.</p>' +
+    tick("c:v1", "Compared predicted and observed elevation at multiple distances") +
+    tick("c:v2", "The model predicts well enough, so I have stopped changing the profile") +
+    fld("finalScale", "Final sight scale", { mode: "decimal", ph: gv("sightScale") || "1.000" }) +
+    fld("finalCDF", "Final " + A("CDF") + " or OFF", { ph: gv("cdf") || "OFF" }) +
+    fld("finalDSF", "Final " + A("DSF") + " or OFF", { ph: "OFF" }) +
+    area("finalNotes", "Notes (optional)") +
+    '<h3 style="margin-top:14px">If validation is poor, check in this order</h3>' +
+    '<ol class="steps"><li>Range and target</li><li>Weather (atmospherics)</li><li>Profile</li><li>Zero</li><li>' + A("MV") + ', including any active muzzle velocity temperature overrides</li><li>Scope tracking</li><li>' + A("CDF") + '</li><li>' + A("DSF") + '</li></ol>';
+}
+
+/* review sheet */
+function val(k){ var v = R.d[k]; return v == null || String(v).trim() === "" ? "" : String(v).trim(); }
+function tbRows(name, fmt){
+  return R.tb[name].filter(function(r){ return TB[name].cols.some(function(c){ return String(r[c[0]]).trim() !== ""; }); }).map(fmt);
+}
+function compile(){
+  var d = R.d, u = unitName(), g = [], ms = mvStats(), ts = tallScale(), ro = route(R);
+  g.push({ title: "Your gear and route", rows: [
+    ["Chronograph", { none: "None", other: "Older, or unsure how accurate", doppler: "Accurate Doppler chronograph" }[d.chrono] || ""],
+    ["Scope tracking", { yes: "Already verified", planned: "Tall-target test planned", cant: "Cannot verify" }[d.tracking] || ""],
+    ["Applied Ballistics Elite", { yes: "Yes", no: "No", unsure: "Not sure" }[d.elite] || ""],
+    ["Adjustable base, prism or periscope", d.augment === "yes" ? "Yes" : "No"],
+    ["Calibration method", ro.key === "ask" ? "" : routeTitle(ro.key)]
+  ]});
+  g.push({ title: "Profile", rows: [
+    ["Rifle / profile", val("rifle")], ["Ammo / lot", val("ammo")], ["Optic / model", val("optic")], ["Date", val("date")], ["Shooter / notes ID", val("shooterId")],
+    ["Profile name", val("name")], ["Exact " + A("AB") + " projectile", val("projectile")], ["Drag model", d.drag === "CDM" ? A("CDM") : d.drag === "G1" ? A("G1") : A("G7")],
+    ["Projectile weight", val("weight") && val("weight") + " gr"], ["Twist rate / direction", val("twist") && val("twist") + " " + (d.twistDir === "Left" ? "left" : "right")],
+    ["Sight height", val("sightHeight") && val("sightHeight") + " in"], ["Zero range", val("zeroRange") && val("zeroRange") + (d.zeroUnit === "m" ? " m" : " yd")],
+    ["Elevation unit", d.elev === "MOA" ? A("MOA") : A("MIL")], ["Sight scale (start)", "1.000"],
+    [A("CDF") + " / " + A("DSF") + " at the start", R.done["c:cdfoff"] && R.done["c:dsfoff"] ? "Both OFF" : ""]
+  ]});
+  g.push({ title: "Zero", rows: [["Zero offset", val("zeroOffset") || (R.done["step:zero"] ? "None" : "")], ["Zero notes", val("zeroNotes")]] });
+  g.push({ title: "Base " + A("MV"), rows: [
+    ["Base " + A("MV"), val("mv") && val("mv") + " fps"],
+    ms ? ["Shots recorded", ms.n + " shots, average " + Math.round(ms.avg) + ", " + A("ES") + " " + Math.round(ms.es) + ", " + A("SD") + " " + r2(ms.sd)] : null,
+    ["Ammunition temperature", val("mvTemp") && val("mvTemp") + " °F"], ["Date / lot / conditions", val("mvConditions")]
+  ]});
+  g.push({ title: "Tall-target test", rows: ts != null ? [
+    ["Tests combined", String(tallValid().length)], ["Sight scale from the test", ts.toFixed(4)],
+    ["Result", Math.abs((1 / ts - 1) * 100) < 0.5 ? "Tracks true" : ((1 / ts > 1) ? "Over-travel +" : "Under-travel ") + r2((1 / ts - 1) * 100) + "%"],
+    ["Validated sight scale to enter", val("sightScale")]
+  ] : [["Sight scale to enter", val("sightScale")]] });
+  g.push({ title: "Baseline drop (uncalibrated)", rows: tbRows("base", function(r){ return [(r.rng || "?") + " range", "predicted " + (r.q || "?") + ", actual TRUE drop " + (r.a || "?") + " " + u + (r.n ? " (" + r.n + ")" : "")]; }) });
+  if(ro.key === "mv" || val("tvMV") || val("tvTrue")) g.push({ title: "MV truing", rows: [
+    ["Muzzle velocity before truing", val("tvOrig") && val("tvOrig") + " fps"], ["Calibration range", val("tvRange")], ["Quantum prediction", val("tvPred") && val("tvPred") + " " + u],
+    ["Observed TRUE drop", val("tvTrue") && val("tvTrue") + " " + u], ["Muzzle velocity after truing", val("tvMV") && val("tvMV") + " fps"]
+  ]});
+  if(ro.key === "cdf" || val("cdf") || val("cdfTrue") || R.done["c:nocdf"]) g.push({ title: "" + A("CDF"), rows: [
+    ["Calibration range", val("cdfRange")], ["Quantum prediction", val("cdfPred") && val("cdfPred") + " " + u], ["Observed TRUE drop", val("cdfTrue") && val("cdfTrue") + " " + u],
+    ["Calculated " + A("CDF") + " or OFF", val("cdf") || (R.done["c:nocdf"] ? "OFF" : "")]
+  ]});
+  g.push({ title: "Revalidation", rows: tbRows("reval", function(r){ var p = num(r.p), o = num(r.o); return [(r.rng || "?") + " range", "predicted " + (r.p || "?") + ", observed " + (r.o || "?") + (p != null && o != null ? ", error " + (o - p >= 0 ? "+" : "−") + r2(Math.abs(o - p)) : "") + " " + u + (r.n ? " (" + r.n + ")" : "")]; }) });
+  g.push({ title: "" + A("DSF") + " (optional)", rows: tbRows("dsf", function(r){ return [(r.rng || "?") + " range", "prediction " + (r.p || "?") + ", TRUE drop " + (r.t || "?") + (r.n ? ", " + r.n : "")]; }) });
+  g.push({ title: "" + A("MV") + "-temperature table (hottest to coldest)", rows: tbRows("mvt", function(r){ return [(r.t || "?") + " °F", (r.v || "?") + " fps" + (r.n ? " (" + r.n + ")" : "")]; }) });
+  g.push({ title: "Final values", rows: [
+    ["Final sight scale", val("finalScale") || val("sightScale")], ["Final " + A("CDF") + " or OFF", val("finalCDF") || val("cdf") || (R.done["step:final"] ? "OFF" : "")], ["Final " + A("DSF") + " or OFF", val("finalDSF") || (R.done["step:final"] ? "OFF" : "")], ["Notes", val("finalNotes")]
+  ]});
+  return g.map(function(x){ x.rows = x.rows.filter(Boolean); return x; }).filter(function(x){ return x.rows.length; });
+}
+function reviewText(){
+  var out = ["New rifle setup: " + rName(R), ""];
+  compile().forEach(function(grp){ out.push(grp.title.toUpperCase()); grp.rows.forEach(function(r){ out.push("  " + r[0] + ": " + (r[1] || "(not filled in)")); }); out.push(""); });
+  out.push("For " + A("AB") + " Quantum. Made with GunMatches.com My Scores.");
+  return out.join("\n");
+}
+function bodyReview(){
+  var groups = compile(), missing = 0;
+  var h = '<p>Everything you entered, in the order of the checklist. Type it into ' + A("AB") + ' Quantum from top to bottom and tick each line as you go. Screens and field names can differ a little between app versions.</p>';
+  groups.forEach(function(grp){
+    h += '<div class="tune" style="margin-top:12px"><h3>' + esc(grp.title) + '</h3>' + grp.rows.map(function(r){
+      var k = "e:" + grp.title + "|" + r[0], has = !!r[1]; if(!has) missing++;
+      return '<label class="rv"><input type="checkbox" data-c="' + esc(k) + '"' + (R.done[k] ? " checked" : "") + '><span class="rvl">' + esc(r[0]) + '</span><span class="rvv' + (has ? "" : " none") + '">' + (has ? esc(r[1]).replace(/\n/g, "<br>") : "not filled in yet") + '</span></label>';
+    }).join("") + '</div>';
+  });
+  h += (missing ? '<div class="banner" style="margin-top:12px">' + missing + ' line' + (missing === 1 ? " is" : "s are") + ' not filled in yet. Go back to that step if you have the number.</div>' : '<div class="note" style="margin-top:12px">Everything is filled in.</div>') +
+    '<div class="stack" style="margin-top:12px"><button data-r="copy">Copy this sheet</button><button class="ghost" data-r="print">Print or save as PDF</button><button class="danger" data-r="delete">Delete this rifle</button></div>' +
+    legendCard(["AB", "MV", "CDM", "CDF", "DSF", "SSF", "BC", "G7", "G1", "MIL", "MOA", "ES", "SD", "FPS"]);
+  return h;
+}
+function printSheet(){
+  var w = window.open("", "_blank"); if(!w){ toast("Allow pop-ups to print, or use Copy this sheet."); return; }
+  var body = compile().map(function(grp){ return "<h2>" + esc(grp.title) + "</h2><table>" + grp.rows.map(function(r){ return "<tr><td>" + esc(r[0]) + "</td><td>" + (r[1] ? esc(r[1]).replace(/\n/g, "<br>") : "<i>not filled in</i>") + "</td></tr>"; }).join("") + "</table>"; }).join("");
+  var leg = Object.keys(ACR).map(function(k){ return "<p><b>" + esc(ACR[k][0]) + "</b> (" + esc(ACR[k][1]) + "): " + esc(ACR[k][2]) + "</p>"; }).join("");
+  w.document.write("<!doctype html><title>" + esc(rName(R)) + "</title><style>body{font:15px system-ui,sans-serif;margin:24px;color:#111}h1{font-size:22px}h2{font-size:15px;margin:18px 0 4px;border-bottom:2px solid #12263f}table{width:100%;border-collapse:collapse}td{padding:5px 6px;border-bottom:1px solid #ddd;vertical-align:top}td:first-child{width:42%;color:#444}p{margin:3px 0;font-size:13px}</style><h1>New rifle setup: " + esc(rName(R)) + "</h1>" + body + "<h2>What the acronyms mean</h2>" + leg);
+  w.document.close(); w.focus(); setTimeout(function(){ w.print(); }, 300);
+}
+
+/* ---------- live updates and events ---------- */
+function rifleInput(t, type){
+  if(!R) return;
+  if(t.dataset.k){
+    R.d[t.dataset.k] = t.value; touchR();
+    if(t.dataset.re && type === "change"){ var y = window.scrollY; viewRifle(); window.scrollTo(0, y); }
+    return;
+  }
+  if(t.dataset.c){
+    R.done[t.dataset.c] = t.checked; touchR();
+    if(t.dataset.c.indexOf("step:") === 0 || t.dataset.c === "c:showall"){ var y2 = window.scrollY; viewRifle(); window.scrollTo(0, y2); }
+    return;
+  }
+  if(t.dataset.tb){
+    var p = t.dataset.tb.split("."), n = p[0], i = Number(p[1]), c = p[2];
+    R.tb[n][i][c] = t.value; touchR();
+    var cs = $("#tbc-" + n + i); if(cs) cs.textContent = tbCalc(n, R.tb[n][i]);
+    if(n === "mv"){ var o = $("#mvout"); if(o) o.innerHTML = mvOut(); }
+    return;
+  }
+  if(t.dataset.t){
+    var q = t.dataset.t.split("."), j = Number(q[0]);
+    R.tall[j][q[1]] = t.type === "checkbox" ? t.checked : t.value; touchR();
+    if(t.type !== "checkbox"){
+      var to = $("#tout-" + j); if(to) to.innerHTML = tallOut(R.tall[j]);
+      var tsum = $("#tallsum"); if(tsum) tsum.innerHTML = tallSummary();
+    }
+  }
+}
+function rifleAction(t){
+  var a = t.dataset.r;
+  if(a === "new"){ R = newRifle(); RSTEP = "gear"; saveRifle(R); viewRifle(); window.scrollTo(0, 0); return; }
+  if(a === "open"){ R = RIFLES.find(function(x){ return x.id === t.dataset.id; }); if(R){ RSTEP = R.d.chrono && R.d.tracking ? firstOpen(R) : "gear"; viewRifle(); window.scrollTo(0, 0); } return; }
+  if(a === "back"){ flushR().then(function(){ viewRifles(); window.scrollTo(0, 0); }); return; }
+  if(!R) return;
+  if(a === "step"){ RSTEP = t.dataset.s; flushR(); viewRifle(); window.scrollTo(0, 0); return; }
+  if(a === "usemv"){ R.d.mv = t.dataset.v; touchR(); var f = $("#k-mv"); if(f) f.value = t.dataset.v; toast("Base muzzle velocity set to " + t.dataset.v + "."); return; }
+  if(a === "usescale"){ R.d.sightScale = t.dataset.v; touchR(); var f2 = $("#k-sightScale"); if(f2) f2.value = t.dataset.v; toast("Sight scale saved: " + t.dataset.v); return; }
+  if(a === "addtall"){ R.tall.push(newTall()); touchR(); viewRifleStep(); return; }
+  if(a === "rmtall"){ R.tall.splice(Number(t.dataset.i), 1); touchR(); viewRifleStep(); return; }
+  if(a === "addrow"){ R.tb[t.dataset.n].push(emptyRow(t.dataset.n)); touchR(); viewRifleStep(); return; }
+  if(a === "rmrow"){ R.tb[t.dataset.n].splice(Number(t.dataset.i), 1); touchR(); viewRifleStep(); return; }
+  if(a === "copy"){
+    var txt = reviewText();
+    if(navigator.clipboard) navigator.clipboard.writeText(txt).then(function(){ toast("Copied. Paste it into a note or message."); }, function(){ window.prompt("Copy this:", txt); });
+    else window.prompt("Copy this:", txt);
+    return;
+  }
+  if(a === "print"){ printSheet(); return; }
+  if(a === "delete"){
+    if(!confirm("Delete this rifle and everything you entered for it? This can't be undone unless you have a backup.")) return;
+    var id = R.id; clearTimeout(saveT); R = null; removeRifle(id).then(function(){ toast("Deleted."); viewRifles(); });
+  }
+}
+
+/* ====================================================================
    EVENTS
    ==================================================================== */
 document.addEventListener("click", function(ev){
   var t = ev.target.closest("button, [data-go]"); if(!t) return;
   if(t.dataset.go){ closeSheet(); go(t.dataset.go); return; }
+  if(t.dataset.r){ rifleAction(t); return; }
   if(t.dataset.new){ startEntry(t.dataset.new); return; }
   if(t.dataset.open){ detail(t.dataset.open); return; }
   if(t.dataset.edit){ var e = ENTRIES.find(function(x){ return x.id === t.dataset.edit; }); closeSheet(); if(e) startEntry(e.type, e); return; }
@@ -1091,12 +1709,15 @@ document.addEventListener("click", function(ev){
   }
 });
 document.addEventListener("change", function(ev){
+  var rt = ev.target;
+  if(rt.dataset && (rt.dataset.k || rt.dataset.c || rt.dataset.tb || rt.dataset.t)){ rifleInput(rt, "change"); return; }
   if(ev.target.id === "rfile" && ev.target.files[0]) restore(ev.target.files[0]);
   if(ev.target.id === "g-tune"){ readForm(); $("#typeform").innerHTML = typeForm(DRAFT); return; }
   if(ev.target.id === "g-su" || ev.target.id === "g-du"){ readForm(); $("#g-sum").innerHTML = groupSum(DRAFT); $("#g-tune-box").innerHTML = tuneLive(); }
 });
 document.addEventListener("input", function(ev){
   var t = ev.target;
+  if(t.dataset && (t.dataset.k || t.dataset.tb || t.dataset.t) && t.type !== "checkbox" && t.tagName !== "SELECT"){ rifleInput(t, "input"); return; }
   if(t.closest && t.closest("#stages")) syncStagesFromDOM();
   if(t.matches && (t.matches("#groups input") || t.id === "g-dist")){ readForm(); $("#g-sum").innerHTML = groupSum(DRAFT); $("#g-tune-box").innerHTML = tuneLive(); }
 });
@@ -1106,7 +1727,7 @@ document.addEventListener("input", function(ev){
    ==================================================================== */
 loadAll().then(function(){
   var hash = location.hash.replace("#", "");
-  go(["log","history","stats","backup"].indexOf(hash) > -1 ? hash : "log");
+  go(["log","history","stats","rifle","backup"].indexOf(hash) > -1 ? hash : "log");
   if(navigator.storage && navigator.storage.persist && ENTRIES.length) navigator.storage.persist();
 });
 if("serviceWorker" in navigator){
