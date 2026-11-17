@@ -158,6 +158,9 @@
   .yn button{min-height:68px;font-size:24px;background:#fff;color:var(--navy-2);border:2px solid var(--line)}
   .yn button[aria-pressed=true]{background:var(--navy-2);color:#fff;border-color:var(--navy-2)}
   button:disabled{opacity:.45;cursor:not-allowed}
+  /* Rapid taps on + / - / HIT / MISS must not be read as a double-tap zoom on phones. */
+  html,body,button,input,select,textarea,summary,label,a{touch-action:manipulation}
+  button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
 </style>
 </head>
 <body>
@@ -1557,7 +1560,7 @@ document.addEventListener("click", function(ev){
       case "fmt": readSetup(); SETUP.format = t.dataset.f; viewSetup(); break;
       case "addstage": readSetup(); if(SETUP.stages.length < 20){ var ls = SETUP.stages[SETUP.stages.length - 1]; SETUP.stages.push({ name: "", shots: ls ? ls.shots : 5 }); viewSetup(); var sn = $$(".sn"); sn[sn.length - 1].focus(); } else toast("That's the most we can fit: 20 stages."); break;
       case "rmstage": readSetup(); if(SETUP.stages.length > 1) SETUP.stages.splice(ix, 1); viewSetup(); break;
-      case "ss": readSetup(); SETUP.stages[ix].shots = Math.max(1, Math.min(50, SETUP.stages[ix].shots + Number(t.dataset.d))); viewSetup(); break;
+      case "ss": readSetup(); SETUP.stages[ix].shots = Math.max(1, Math.min(50, SETUP.stages[ix].shots + Number(t.dataset.d))); t.parentNode.querySelector("b").textContent = SETUP.stages[ix].shots; break;
       case "start": startMatch(); break;
       case "resume": loadLive(); viewPlay(); break;
       case "shot": shoot(t.dataset.v === "1"); break;
