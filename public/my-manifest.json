@@ -2,7 +2,7 @@
   "name": "GunMatches My Scores",
   "short_name": "My Scores",
   "description": "A free scorebook for field target, silhouette, benchrest groups and practice. Your scores stay on your device.",
-  "start_url": "/my.html",
+  "start_url": "/performance",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

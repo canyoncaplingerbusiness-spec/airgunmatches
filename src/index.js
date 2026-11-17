@@ -1345,7 +1345,7 @@ const MAX_IMPORT_EVENTS = 200;
    months. Change this if the redirect direction ever flips. */
 const CANONICAL_ORIGIN = "https://www.gunmatches.com";
 const CANONICAL_PAGES = new Set([
-  "/rankings.html", "/rankings", "/organizers.html", "/organizers", "/my.html", "/my"
+  "/rankings.html", "/rankings", "/organizers.html", "/organizers", "/performance.html", "/performance"
 ]);
 
 /** The address we want indexed, given whichever spelling was requested.
@@ -2181,10 +2181,10 @@ function movedPermanently(url, request, env) {
 
   /* The personal scorebook stays where the person opened it. Its scores are
      kept in the browser under that exact address, so sending someone from
-     airgunmatches.com/my to another address would show them an empty scorebook
+     airgunmatches.com/performance to another address would show them an empty scorebook
      and break an app they have already added to their home screen. */
   const onAirgun = host === "airgunmatches.com" || host === "www.airgunmatches.com";
-  if (onAirgun && (url.pathname === "/my" || url.pathname === "/my.html" || url.pathname === "/my-manifest.json" ||
+  if (onAirgun && (url.pathname === "/performance" || url.pathname === "/performance.html" || url.pathname === "/my" || url.pathname === "/my.html" || url.pathname === "/my-manifest.json" ||
                    url.pathname === "/sw.js" || url.pathname.startsWith("/img/"))) return null;
 
   const to = new URL(url.toString());
@@ -2220,6 +2220,17 @@ export default {
     try {
       const moved = movedPermanently(url, request, env);
       if (moved) return moved;
+
+      /* The personal scorebook used to live at /my. It is /performance now.
+         The old addresses keep working: they send people to the new one on the
+         same domain, so the scores already stored in their browser (which are
+         kept per domain) are still there, and an app already on a home screen
+         still opens. */
+      if ((method === "GET" || method === "HEAD") && (path === "/my" || path === "/my.html")) {
+        const to = new URL(url.toString());
+        to.pathname = "/performance";
+        return new Response(null, { status: 301, headers: { location: to.toString(), "cache-control": "no-cache", ...securityHeaders() } });
+      }
 
       if (path.startsWith("/api/")) {
         // ---- public ----
