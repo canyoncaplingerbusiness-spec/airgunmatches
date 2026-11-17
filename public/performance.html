@@ -498,6 +498,7 @@ function saveLive(){ try{ if(LIVE) localStorage.setItem("gm-live-match", JSON.st
 
 function newSetup(){ return { title: "", location: "", names: [""], me: 0, format: "stages", shots: 10, stages: [{ name: "", shots: 5 }, { name: "", shots: 5 }], rotate: false }; }
 function viewSetup(){
+  var fresh = !SETUP, keepY = window.scrollY;     // a re-draw after tapping + or - must not jump to the top
   if(!SETUP) SETUP = newSetup();
   var S = SETUP, multi = true; S.format = "stages";
   main.innerHTML = '<div class="card"><h2>Extreme field target</h2><p>Add your squad, then set up the stages. You score every shot with a green HIT or a red MISS.</p></div>' +
@@ -521,7 +522,7 @@ function viewSetup(){
     '<div class="card"><label class="chk" style="margin-top:0"><input type="checkbox" id="rot"' + (S.rotate ? " checked" : "") + '> Take turns after every shot</label>' +
     '<p class="sm" style="margin-top:4px">Leave this off if each person shoots all of their shots in a row.</p></div>' +
     '<div class="actions"><button class="good" data-m="start" style="min-height:68px;font-size:22px">Start scoring</button><button class="ghost" data-m="home" style="min-height:68px">Back</button></div>';
-  window.scrollTo(0, 0);
+  window.scrollTo(0, fresh ? 0 : keepY);
 }
 function readSetup(){
   if(!SETUP) return;
